@@ -16,12 +16,13 @@ injection from ~/.otaku/configs/prompts.toml and enclose the prompt you input.
 When the user is idle for 5 minutes, otaku starts a background process that extracts lore from the messages that
 haven't been processed before. What is extracted:
 
-* Scenes — messages are grouped into scenes (see settings in ~/.otaku/configs/config.toml). For each scene, it extracts:
+* **Scenes** — messages are grouped into scenes (see settings in ~/.otaku/configs/config.toml), excluding imported
+  cards (see below). For each scene, it extracts:
   * the scene summary,
   * the history up to the scene.
-* Characters — there is a list of characters for each story, so new characters are added to the list with their
+* **Characters** — there is a list of characters for each story, so new characters are added to the list with their
   descriptions.
-* Journals — for each scene and character, it extracts:
+* **Journals** — for each scene and character, it extracts:
   * the character's view of the scene,
   * the character's view of the history up to the scene,
   * the last state of the character in the scene.
@@ -32,14 +33,31 @@ messages. You can also manually trigger the lore extraction by executing the /ex
 
 To view the extracted lore, you can use the /lore and /cast commands.
 
-## Context
+## Context building
+
+We don't rebuild the context, except for replacing older messages with summaries (see below). Every prompt is appended
+when it is sent and then keeps its place. Nothing is ever inserted into the story's past afterwards, neither on trigger
+words nor on any other condition. No past message changes unless the user edits it in the messages picker.
 
 The first 20 and the last approximately 150 messages are always sent to the LLM verbatim, to maintain the prose style.
-Messages in the middle are replaced with scene summaries, which helps keep the context size low without sacrificing
-details. You can see the exact context that will be sent to the LLM after you enter your prompt with the /context
-command.
+Messages in the middle are replaced with scene summaries — except for card prompts (see below) — which keeps the
+context size low without sacrificing details. You can see the exact context that will be sent to the LLM after you
+enter your prompt with the /context command.
 
-## Import from ST and plain text files
+## Import character cards in the ST format
+
+Cards are imported into each story individually, and there is no central store for them. A story can hold as many
+imported cards as needed, and cards can be imported mid-story. With the `/card` command, the user provides a path to a
+card file (PNG or JSON) and, optionally, an alternative name. At import we do two things:
+
+* _the imported card becomes a prompt_: the card's description, message examples, and so on are combined into one
+  prompt (there is a template for that), which is then sent as an OOC message;
+* the character from the card is created in the characters list, holding the fields the prompt was built from — the
+  `/cast` view shows them.
+
+Card prompts are excluded from scene summarization, and the context always keeps them verbatim.
+
+## Import chats from ST and stories from plain text files
 
 Messages can be imported from ST chats with the /import command, where you provide the path to the chat JSONL file, or
 even from a plain text file, where the text is split into messages automatically. After importing messages, the lore
