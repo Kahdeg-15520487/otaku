@@ -58,6 +58,18 @@ class TestNumberedChat:
         message = Message(role="assistant", body="Good plan.", kind="ooc", template=None)
         assert numbered_chat([message]) == "[1] ((OOC: Good plan.))"
 
+    def test_an_attributed_framed_row_keeps_its_framing(self) -> None:
+        # The speaker decorates the COMPOSED line. Prefixing the body first
+        # would hide its leading slash from the composer, sending the row
+        # down the legacy path with `{name}` left unfilled.
+        message = Message(
+            role="user",
+            body="/me Elara: I bow.",
+            speaker="Elara",
+            template="((OOC: as {name}.))\n{body}",
+        )
+        assert numbered_chat([message]) == "[1] Elara: ((OOC: as Elara.))\nI bow."
+
     def test_an_ooc_row_with_framing_shows_it_as_stored(self) -> None:
         message = Message(role="user", body="Plan?", kind="ooc", template="((OOC: {body}))")
         assert numbered_chat([message]) == "[1] ((OOC: Plan?))"

@@ -6,12 +6,14 @@ being typed inside prose is the inliner menu's, and ordinary prose is
 neither's, so the menu never pops mid-sentence. `partial` is the token
 being completed, empty when a menu belongs with nothing typed into it yet.
 
-`menu_partial` is the two of them as one question, which is what the prompt
-asks: it must anchor the menu and decide whether one can be open at all
-without knowing which surface answered.
+`SlashCompleter.partial` is the two of them as one question, which is what
+the prompt asks: it must anchor the menu and decide whether one can be
+open at all without knowing which surface answered. It reads the line in
+the context of the message it belongs to, so on a continuation line inside
+an open block a leading slash is an inliner's place, never a command's.
 """
 
-from otaku.chat.completer import CommandCompleter, InlinerCompleter, menu_partial
+from otaku.chat.completer import CommandCompleter, InlinerCompleter, SlashCompleter
 
 
 class TestInlinerSurface:
@@ -74,21 +76,43 @@ class TestCommandSurface:
         assert CommandCompleter.partial("/set ") == ""
 
 
-class TestMenuPartial:
+class TestPartial:
     def test_a_command_line_answers(self) -> None:
-        assert menu_partial("/me") == "/me"
+        assert _partial("/me") == "/me"
 
     def test_an_argument_about_to_be_typed_answers_empty(self) -> None:
         # Empty is not None: a menu belongs, and it anchors at the cursor.
-        assert menu_partial("/set ") == ""
+        assert _partial("/set ") == ""
 
     def test_an_inliner_answers(self) -> None:
-        assert menu_partial("she looks up /c") == "/c"
+        assert _partial("she looks up /c") == "/c"
 
     def test_prose_answers_with_no_menu(self) -> None:
-        assert menu_partial("she looks up") is None
+        assert _partial("she looks up") is None
+
+    def test_inside_a_block_a_leading_slash_is_an_inliner(self) -> None:
+        # Each continuation line is its own buffer, so without the block's
+        # text a `/` opening one looks like the start of a submission.
+        assert _partial("/", block="she looks up\n") == "/"
+        assert InlinerCompleter.applies("she looks up\n/") is True
+        assert CommandCompleter.applies("she looks up\n/") is False
+
+    def test_a_command_still_opens_the_first_line_of_a_block(self) -> None:
+        assert _partial("/me", block="") == "/me"
+
+    def test_an_empty_first_line_still_counts_as_inside(self) -> None:
+        # `\"\"\"` alone collects one empty line, so the prefix is just a
+        # newline — the message has begun even though nothing is in it.
+        assert CommandCompleter.applies("\n/") is False
+        assert _partial("/", block="\n") == "/"
 
     def test_the_two_surfaces_never_both_answer(self) -> None:
         for text in ("/me", "  /set ", "she looks up /c", "she looks up", "", "and/or"):
             answered = [s for s in (CommandCompleter, InlinerCompleter) if s.applies(text)]
             assert len(answered) <= 1, text
+
+
+def _partial(text: str, block: str = "") -> str | None:
+    """What the prompt would ask, with `block` standing in for whatever an
+    open \"\"\" block has collected so far."""
+    return SlashCompleter.build(lambda: block).partial(text)

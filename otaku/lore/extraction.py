@@ -26,10 +26,12 @@ counts, never prose.
 
 Every row of the numbered scene goes to the analysis model with its stored
 template composed, so `/me`, `/you`, and `/ooc` turns show their
-`((OOC: …))` enclosure as stored. The one row type with nothing stored to
-compose — the assistant's reply to an /ooc, kind `ooc` with no template —
-gets the enclosure added, because the extract prompt reads "out of
-character" off that marker. Out-of-character rows are mined for decisions
+`((OOC: …))` enclosure as stored. A REPLY to an /ooc prompt is enclosed
+here instead: it is the one out-of-character row with nothing of its own to
+mark it — the prompt it answers carries the enclosure in its template,
+while a reply has no template at all — and the extract prompt reads "out of
+character" off that shape, so unmarked it would be read as something that
+happened in the scene. Out-of-character rows are mined for decisions
 but never speaker-attributed and never part of the scene's story.
 """
 
@@ -44,7 +46,7 @@ from typing import Self
 
 import httpx
 
-from otaku.chat.framing import prompt_to_wire
+from otaku.chat.framing import OOC_FRAME, prompt_to_wire
 from otaku.providers.base import OpenAIClient, Stats, Text, WireMessage
 from otaku.settings import prompts as prompts_file
 from otaku.settings.prompts import Prompts
@@ -69,11 +71,6 @@ _BACKOFF_SECONDS = 1.0
 # Null-object cancel: callers pass a real Event or nothing; normalizing to
 # a never-set Event deletes the `is not None` guard at every check site.
 _NEVER_CANCELLED = threading.Event()
-
-# The extraction model must see an out-of-character turn AS out of
-# character; a stored template already shows the enclosure, a bare ooc row
-# (an /ooc reply) gets it here. Analysis-side only — never on the wire.
-_OOC_MARK = "((OOC: {body}))"
 
 _NOT_A_NAME = frozenset({"null", "none", "narrator", "narration", "user", "assistant"})
 
@@ -645,20 +642,24 @@ def pack(sizes: list[int], *, min_chars: int, min_messages: int) -> list[tuple[i
 
 def numbered_chat(span: Sequence[Message]) -> str:
     """The numbered scene block for `extract_prompt` — the one owner of the
-    `[n] Speaker: …` format. An attributed line carries its speaker; an
-    out-of-character row shows its `((OOC: …))` enclosure (via its stored
-    template, or `_OOC_MARK` when it has none)."""
+    `[n] Speaker: …` format.
+
+    A row is composed for the wire FIRST and decorated after, with the two
+    things the analysis model needs and the wire must never carry: the
+    speaker on an attributed line, and the `((OOC: …))` enclosure on a reply
+    to an /ooc prompt. The order matters — decorating first would hide the
+    body's own syntax from the composer, which reads it to strip a command
+    and fill its template."""
     lines: list[str] = []
     for n, item in enumerate(span, 1):
-        if item.kind == "ooc" and item.template is None:
-            body = _OOC_MARK.replace("{body}", item.body)
+        # is_last=False always: a cue steers one reply, it is not something
+        # that happened in the scene.
+        text = prompt_to_wire(item.body, item.template, is_last=False)
+        if item.kind == "ooc" and item.role == "assistant":
+            text = OOC_FRAME.replace("{body}", text)
         elif item.speaker and item.body:
-            body = f"{item.speaker}: {item.body}"
-        else:
-            body = item.body
-        # is_last=False always: a cue steers one reply, it is not
-        # something that happened in the scene.
-        lines.append(f"[{n}] {prompt_to_wire(body, item.template, is_last=False)}")
+            text = f"{item.speaker}: {text}"
+        lines.append(f"[{n}] {text}")
     return "\n".join(lines)
 
 

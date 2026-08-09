@@ -39,7 +39,7 @@ from prompt_toolkit.layout import menus as _ptk_menus
 from prompt_toolkit.layout.controls import BufferControl
 from prompt_toolkit.styles import Style
 
-from otaku.chat.completer import SlashCompleter, menu_partial
+from otaku.chat.completer import SlashCompleter
 from otaku.chat.session import Session
 from otaku.store import Store
 from otaku.terminal import statusline
@@ -81,12 +81,6 @@ _SHORTCUTS = {
     "c-d": "/bye",
 }
 
-# One test for "can a menu be open here?", shared by the prompt's
-# complete-while-typing filter and the menu bindings — either surface's
-# menu: the command tree on a slash line, the inline menu inside a played
-# one.
-_MENU_LINE = Condition(lambda: _completes_here(get_app().current_buffer))
-
 # Ctrl+D submits /bye only on an empty line — the terminal convention.
 # With a draft on the line it falls through to delete-forward, so readline
 # muscle memory can never quit the session over a draft.
@@ -118,17 +112,22 @@ class Carry:
 class LineAssembler:
     """Assembles triple-quoted multiline input, one line at a time.
 
-    Feed each raw input line via `feed()`. It returns None while a `\"\"\"`
-    block is still open (the caller keeps prompting with the continuation
-    prompt), otherwise `(text, is_raw)`: `is_raw=True` when the text came
-    from a `\"\"\"` wrapper — a literal user message, so the caller must
-    skip command dispatch and the usual whitespace strip."""
+    A block is a way to press Enter without submitting, and nothing more:
+    what it collects is an ordinary prompt, read for its framing syntax
+    like any other and told apart from a typed line by nothing downstream.
+
+    Feed each input line via `feed()`. It returns None while a `\"\"\"` block
+    is still open (the caller keeps prompting with the continuation
+    prompt), otherwise the message. The one difference between the two
+    cases is settled HERE, where it is known: a typed line is stripped, and
+    a block keeps the whitespace at its edges — someone who opened a block
+    to lay text out meant the layout."""
 
     def __init__(self) -> None:
         self._lines: list[str] = []
         self.in_block = False
 
-    def feed(self, line: str) -> tuple[str, bool] | None:
+    def feed(self, line: str) -> str | None:
         if self.in_block:
             before, closed = _cut_suffix(line, _TRIPLE)
             self._lines.append(before)
@@ -136,15 +135,28 @@ class LineAssembler:
                 return None  # closing delimiter not seen yet — keep collecting
             text = "\n".join(self._lines)
             self.reset()
-            return text, True
+            return text
         if line.startswith(_TRIPLE):
             rest, closed = _cut_suffix(line[len(_TRIPLE) :], _TRIPLE)
             if closed:
-                return rest, True  # single-line \"\"\"text\"\"\"
+                return rest  # single-line \"\"\"text\"\"\"
             self._lines = [rest]
             self.in_block = True
             return None
-        return line, False
+        return line.strip()
+
+    @property
+    def prefix(self) -> str:
+        """What an open block has collected, with the newline the next line
+        will follow — so the completer can read the line being typed in the
+        context of the message it belongs to. Empty when no block is open.
+
+        Without it every continuation line looks like the start of a
+        submission, and a `/` typed on one would open the command menu
+        where only an inliner can go."""
+        if not self.in_block:
+            return ""
+        return "\n".join(self._lines) + "\n"
 
     def reset(self) -> None:
         """Drop any partial block (used on Ctrl+C)."""
@@ -172,7 +184,9 @@ class _StoreHistory(History):
             self._store.history.add(string)
 
 
-def build_prompt(session: Session, store: Store, carry: Carry) -> PromptSession[str]:
+def build_prompt(
+    session: Session, store: Store, carry: Carry, assembler: LineAssembler
+) -> PromptSession[str]:
     """The prompt: store-backed history, the slash-command menu, and the
     keybindings.
 
@@ -185,11 +199,18 @@ def build_prompt(session: Session, store: Store, carry: Carry) -> PromptSession[
     History search stays OFF on purpose: with it on, Up on a line you have
     started typing searches for entries with THAT prefix and finds none,
     freezing on your draft. Off, Up/Down are plain previous/next entry."""
+    # One test for "can a menu be open here?", shared by the
+    # complete-while-typing filter and the menu bindings. It has to be built
+    # here, not at import: the answer depends on whether a block is open.
+    completer = SlashCompleter.build(lambda: assembler.prefix)
+    menu_line = Condition(
+        lambda: completer.partial(get_app().current_buffer.document.text_before_cursor) is not None
+    )
     prompt_session: PromptSession[str] = PromptSession(
         history=_StoreHistory(store),
-        completer=SlashCompleter.build(),
-        key_bindings=_make_bindings(carry),
-        complete_while_typing=_MENU_LINE,
+        completer=completer,
+        key_bindings=_make_bindings(carry, menu_line),
+        complete_while_typing=menu_line,
         enable_history_search=False,
         style=_PROMPT_STYLE,
         cursor=CursorShape.BLINKING_BEAM,
@@ -205,7 +226,7 @@ def build_prompt(session: Session, store: Store, carry: Carry) -> PromptSession[
     control = prompt_session.layout.current_control
     if isinstance(control, BufferControl):
         control.menu_position = lambda: _menu_anchor_index(
-            prompt_session.default_buffer.document.text_before_cursor,
+            completer.partial(prompt_session.default_buffer.document.text_before_cursor),
             prompt_session.default_buffer.cursor_position,
         )
     # Pre-select the first row whenever the menu (re)populates.
@@ -233,22 +254,25 @@ def _activity_toolbar(session: Session) -> Callable[[], FormattedText]:
 # ---------- keybindings ----------
 
 
-def _make_bindings(carry: Carry) -> KeyBindings:
+def _make_bindings(carry: Carry, menu_line: Condition) -> KeyBindings:
     kb = KeyBindings()
     for key, command in _SHORTCUTS.items():
         kb.add(key, filter=_EMPTY_LINE if key == "c-d" else True)(_submit_shortcut(command, carry))
 
-    # A pre-selected menu row is accepted by Enter (run it) or Tab (fill it
-    # in and keep editing). The default bindings can't: they treat the
-    # highlight as already-inserted text, but _preselect_first only sets the
-    # index — the buffer still holds exactly what was typed.
+    # Tab always FILLS a pre-selected row. Enter fills it too when the row
+    # leaves the line incomplete — sending would run half a line — and
+    # otherwise sends, because a command that stands alone is complete the
+    # moment it is chosen. The default bindings can't do
+    # either: they treat the highlight as already-inserted text, but
+    # _preselect_first only sets the index, so the buffer still holds
+    # exactly what was typed.
     @kb.add("enter", filter=completion_is_selected)
-    def _run_selected(event: Any) -> None:
-        _accept_selection(event.current_buffer)
-        event.current_buffer.validate_and_handle()
+    def _accept_on_enter(event: Any) -> None:
+        if not _accept_selection(event.current_buffer):
+            event.current_buffer.validate_and_handle()
 
     @kb.add("tab", filter=completion_is_selected)
-    def _fill_selected(event: Any) -> None:
+    def _fill_on_tab(event: Any) -> None:
         _accept_selection(event.current_buffer)
 
     # Up/Down navigate the menu when it is open, otherwise step through
@@ -271,10 +295,10 @@ def _make_bindings(carry: Carry) -> KeyBindings:
     # …and does NOT close on backspace. prompt_toolkit restarts the menu
     # only on text INSERTS, so a plain backspace while filtering would
     # dismiss it; this deletes and re-opens while the line is a command.
-    @kb.add("backspace", filter=_MENU_LINE)
+    @kb.add("backspace", filter=menu_line)
     def _bs_refilter(event: Any) -> None:
         event.current_buffer.delete_before_cursor(count=event.arg)
-        if _completes_here(event.current_buffer):
+        if menu_line():
             event.current_buffer.start_completion(select_first=False)
         else:
             event.current_buffer.cancel_completion()
@@ -330,11 +354,21 @@ def _accept_selection(buff: Buffer) -> bool:
     """Apply the highlighted completion into the buffer (Tab/Enter accept a
     pre-selected row, which the default bindings can't — they assume the
     selection is already inserted). Guards the index against an empty list
-    so a stray state can never raise."""
+    so a stray state can never raise.
+
+    True when the row leaves the line incomplete: it took a space with it,
+    so the rest can be typed straight on and a subcommand's own menu opens,
+    and there is more to write before it can be sent. False when the row
+    completes the line — an optional parameter counts as complete — so
+    Enter may send."""
     state = buff.complete_state
     if state is None or state.complete_index is None or not state.completions:
         return False
-    buff.apply_completion(state.completions[state.complete_index])
+    completion = state.completions[state.complete_index]
+    buff.apply_completion(completion)
+    if not getattr(completion, "argument_required", False):
+        return False
+    buff.insert_text(" ")
     return True
 
 
@@ -355,19 +389,11 @@ def _menu_or_history_down(buff: Buffer, count: int) -> None:
         buff.history_forward(count=count)
 
 
-def _completes_here(buff: Buffer) -> bool:
-    """Whether a completion menu can be open at the cursor. WHICH of the two
-    is the completer's business, not this module's — asking it keeps the
-    keybindings and the menu from ever disagreeing about where one opens."""
-    return menu_partial(buff.document.text_before_cursor) is not None
-
-
-def _menu_anchor_index(text_before_cursor: str, cursor: int) -> int | None:
+def _menu_anchor_index(partial: str | None, cursor: int) -> int | None:
     """Document index the completion menu anchors at: the start of the token
     being completed, so the menu opens right under the `/`. An empty partial
     is a menu about to be filtered by a token not yet typed, and anchors at
     the cursor. None = default anchor, for a line neither menu opens on."""
-    partial = menu_partial(text_before_cursor)
     if partial is None:
         return None
     return cursor - len(partial)

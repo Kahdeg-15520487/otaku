@@ -6,18 +6,20 @@ walks the command tree over it — descriptions from /help, a `PATH_LEAF`
 node handing the argument to `chat.pathcomplete`. A slash token typed
 INSIDE a played line is an inliner, and `InlinerCompleter` offers those.
 `SlashCompleter` is the one registered with the prompt; it picks whichever
-surface applies and yields nothing when neither does.
+surface applies and yields nothing when neither does. It also carries what
+an open `\"\"\"` block has collected, so a line typed inside one is read as
+the continuation it is rather than as the start of a message.
 
 The two are mutually exclusive by construction: `applies` asks the same
 question from opposite sides, so on ordinary prose both stay silent and the
-menu never pops mid-sentence. `menu_partial` answers, for either, which
-token is being completed — the prompt needs that to anchor the menu and to
-decide whether a menu can be open at all, and it must not have to know
-which surface it is.
+menu never pops mid-sentence. `SlashCompleter.partial` answers, for either,
+which token is being completed — the prompt needs that to anchor the menu
+and to decide whether a menu can be open at all, and it must not have to
+know which surface it is.
 """
 
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any, Self
 
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion
@@ -30,7 +32,19 @@ from otaku.chat.commands import (
     completion_tree,
     describe_command,
     inliner_menu,
+    needs_argument,
 )
+
+
+class MenuRow(Completion):
+    """A menu row that also says whether the token it inserts leaves the
+    line incomplete. The prompt adds a space when accepting one, so the rest
+    can be typed straight on — and leaves a command that stands alone ready
+    to send, optional parameters included."""
+
+    def __init__(self, *args: Any, argument_required: bool, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.argument_required = argument_required
 
 
 class _Surface(Completer):
@@ -60,7 +74,7 @@ class CommandCompleter(_Surface):
 
     @staticmethod
     def applies(text_before_cursor: str) -> bool:
-        return text_before_cursor.lstrip().startswith("/")
+        return _opens_the_submission(text_before_cursor)
 
     @staticmethod
     def partial(text_before_cursor: str) -> str:
@@ -110,7 +124,7 @@ class CommandCompleter(_Surface):
             return
 
         menu = {key: describe_command((*path, key)) for key in node}
-        yield from _rows(menu, self.partial(text))
+        yield from _rows(menu, self.partial(text), tuple(path))
 
 
 class InlinerCompleter(_Surface):
@@ -138,7 +152,7 @@ class InlinerCompleter(_Surface):
     def get_completions(
         self, document: Document, complete_event: CompleteEvent
     ) -> Iterator[Completion]:
-        yield from _rows(self.menu, self.partial(document.text_before_cursor))
+        yield from _rows(self.menu, self.partial(document.text_before_cursor), ("…",))
 
 
 class SlashCompleter(Completer):
@@ -146,21 +160,37 @@ class SlashCompleter(Completer):
     one, so the choice between the two menus is made here rather than by
     either of them."""
 
-    def __init__(self, surfaces: tuple[_Surface, ...]) -> None:
+    def __init__(self, surfaces: tuple[_Surface, ...], prefix: Callable[[], str]) -> None:
         self.surfaces = surfaces
+        self.prefix = prefix
 
     @classmethod
-    def build(cls) -> Self:
-        """A completer over the current command table."""
-        return cls((CommandCompleter(completion_tree()), InlinerCompleter(inliner_menu())))
+    def build(cls, prefix: Callable[[], str] = lambda: "") -> Self:
+        """A completer over the current command table. `prefix` is what an
+        open `\"\"\"` block has collected so far — the line being typed is
+        read in the context of the message it belongs to, or every
+        continuation line would look like the start of one."""
+        return cls((CommandCompleter(completion_tree()), InlinerCompleter(inliner_menu())), prefix)
 
     def get_completions(
         self, document: Document, complete_event: CompleteEvent
     ) -> Iterator[Completion]:
+        whole = Document(self.prefix() + document.text_before_cursor)
         for surface in self.surfaces:
-            if surface.applies(document.text_before_cursor):
-                yield from surface.get_completions(document, complete_event)
+            if surface.applies(whole.text_before_cursor):
+                yield from surface.get_completions(whole, complete_event)
                 return
+
+    def partial(self, text_before_cursor: str) -> str | None:
+        """The token being completed at the cursor, on whichever surface
+        owns it; None when neither does and no menu belongs here. Empty
+        means a menu belongs with nothing typed into it yet — the prompt
+        anchors on the length, so empty anchors at the cursor."""
+        whole = self.prefix() + text_before_cursor
+        for surface in _SURFACES:
+            if surface.applies(whole):
+                return surface.partial(whole)
+        return None
 
 
 # The surfaces as line-level questions, which need no tree — asked in this
@@ -168,15 +198,12 @@ class SlashCompleter(Completer):
 _SURFACES: tuple[type[_Surface], ...] = (CommandCompleter, InlinerCompleter)
 
 
-def menu_partial(text_before_cursor: str) -> str | None:
-    """The token being completed at the cursor, on whichever surface owns
-    it; None when neither does and no menu belongs here. Empty means a menu
-    belongs with nothing typed into it yet — the prompt anchors on the
-    length, so empty anchors at the cursor."""
-    for surface in _SURFACES:
-        if surface.applies(text_before_cursor):
-            return surface.partial(text_before_cursor)
-    return None
+def _opens_the_submission(text_before_cursor: str) -> bool:
+    """Whether the cursor sits on a slash that opens the whole submission —
+    the only place a command can be typed. A newline before it means the
+    line is a continuation inside a `\"\"\"` block, where the message has
+    already begun and only an inliner can follow."""
+    return "\n" not in text_before_cursor and text_before_cursor.lstrip().startswith("/")
 
 
 def _inliner_token(text_before_cursor: str) -> str | None:
@@ -184,7 +211,7 @@ def _inliner_token(text_before_cursor: str) -> str | None:
     `she looks up /c` → `"/c"`. None when the cursor is not in one."""
     if text_before_cursor.endswith((" ", "\t")):
         return None
-    if text_before_cursor.lstrip().startswith("/"):
+    if _opens_the_submission(text_before_cursor):
         return None
     tokens = list(re.finditer(r"\S+", text_before_cursor))
     if not tokens or not tokens[-1].group(0).startswith("/"):
@@ -192,16 +219,19 @@ def _inliner_token(text_before_cursor: str) -> str | None:
     return tokens[-1].group(0)
 
 
-def _rows(menu: dict[str, str], partial: str) -> Iterator[Completion]:
+def _rows(menu: dict[str, str], partial: str, path: tuple[str, ...]) -> Iterator[Completion]:
     """Menu rows, filtered by what is typed. Fixed column widths over the
-    WHOLE menu, not the filtered subset, so it never resizes as you type."""
+    WHOLE menu, not the filtered subset, so it never resizes as you type.
+    `path` is what the keys hang off — the walked command tokens, or `…`
+    for the inliners, which is how their /help rows are written."""
     key_width = max((len(key) for key in menu), default=0)
     meta_width = max((len(meta) for meta in menu.values()), default=0)
     for key, meta in menu.items():
         if key.startswith(partial):
-            yield Completion(
+            yield MenuRow(
                 key,
                 start_position=-len(partial),
                 display=key.ljust(key_width),
                 display_meta=meta.ljust(meta_width) if meta_width else None,
+                argument_required=needs_argument((*path, key)),
             )

@@ -159,14 +159,37 @@ def inliner_menu() -> dict[str, str]:
 def describe_command(tokens: tuple[str, ...]) -> str:
     """The help description for a command path — ("/set", "think") → its
     row — read from _HELP_ROWS so the menu and /help can never disagree."""
-    for row in _HELP_ROWS:
-        label = row[0]
+    row = _help_row(tokens)
+    return row[2] if row else ""
+
+
+def needs_argument(tokens: tuple[str, ...]) -> bool:
+    """Whether this command is INCOMPLETE as it stands — its /help row names
+    something that must follow, a parameter (`/me NAME: PROMPT`) or a
+    subcommand (`/set think`). The menu adds a space when it accepts one,
+    so the rest can be typed straight on, and Enter fills rather than sends.
+
+    A bracketed follower is optional (`/usage [all]`, `/last [N]`), and the
+    bare command is both valid and the usual thing meant — so it takes no
+    space and Enter sends it. Reaching the option is then a space away,
+    which is the right cost for the rarer choice."""
+    row = _help_row(tokens)
+    if row is None:
+        return False
+    parts = row[0].split()
+    return len(parts) > len(tokens) and not parts[len(tokens)].startswith("[")
+
+
+def _help_row(tokens: tuple[str, ...]) -> tuple[str, str, str] | None:
+    """The _HELP_ROWS row a command path names, matched on the label's
+    leading tokens. Group headings carry no label and never match."""
+    for label, key, description in _HELP_ROWS:
         if label is None:
             continue
         parts = label.split()
         if len(parts) >= len(tokens) and tuple(parts[: len(tokens)]) == tokens:
-            return row[2]
-    return ""
+            return label, key, description
+    return None
 
 
 # The playing commands manage the screen ledger themselves: two take an

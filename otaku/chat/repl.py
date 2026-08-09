@@ -96,7 +96,8 @@ def run(session: Session, store: Store) -> None:
         session.screen.invalidate()
 
     carry = Carry()
-    prompt_session = build_prompt(session, store, carry)
+    assembler = LineAssembler()
+    prompt_session = build_prompt(session, store, carry, assembler)
     worker = session.worker
     # One status callback, two surfaces: the prompt's toolbar while the
     # prompt is up, the pinned bottom row while a reply streams. Each is a
@@ -115,8 +116,6 @@ def run(session: Session, store: Store) -> None:
     # full idle window, so it starts on REAL idle, not mid-composition.
     prompt_session.default_buffer.on_text_changed += lambda _buf: worker.touch()
     worker.start()
-
-    assembler = LineAssembler()
 
     # Terminal rows the CURRENT submission's input occupies on screen —
     # accumulated across a """ block's prompts — so a played turn can be
@@ -156,7 +155,7 @@ def run(session: Session, store: Store) -> None:
             # the next prompt), so the submission occupies no screen rows;
             # an open block's collected lines above it are composition the
             # ledger cannot see past.
-            message, is_raw, shown = line, False, False
+            message, shown = line, False
             session.screen.typed_rows = 0
             if assembler.in_block:
                 session.screen.invalidate()
@@ -166,8 +165,7 @@ def run(session: Session, store: Store) -> None:
             result = assembler.feed(line)
             if result is None:
                 continue  # inside an open """ block — keep collecting lines
-            text, is_raw = result
-            message = text if is_raw else text.strip()
+            message = result
             if not message:
                 # A bare Enter leaves its prompt row on screen; its rows
                 # stay in input_rows so the next submission's erase takes
@@ -179,7 +177,7 @@ def run(session: Session, store: Store) -> None:
         tracker = _OutputTracker(sys.stdout)
         sys.stdout = cast(TextIO, tracker)
         try:
-            submit(message, session, store, raw=is_raw)
+            submit(message, session, store)
         except KeyboardInterrupt:
             # ^C during streaming or a picker: return to the prompt
             # cleanly. What it left mid-row is not the ledger's to count.
@@ -196,11 +194,10 @@ def run(session: Session, store: Store) -> None:
 # ---------- session chrome ----------
 
 
-def submit(line: str, session: Session, store: Store, *, raw: bool = False) -> None:
+def submit(line: str, session: Session, store: Store) -> None:
     """One submitted line, whatever surface it came from: the user is
     active again, so queued background work is dropped; a slash command
-    dispatches — never for a `raw` block, which is always a literal
-    prompt — and anything else echoes as the grey played-turn block, is
+    dispatches and anything else echoes as the grey played-turn block, is
     recorded as the user's turn, and the model answers. A new model turn
     arms the idle-debounced lore pass: it fires while the user reads and
     dies the moment they type.
@@ -212,12 +209,11 @@ def submit(line: str, session: Session, store: Store, *, raw: bool = False) -> N
     session.worker.defer()
     last_before = session.messages[-1] if session.messages else None
     try:
-        if raw or not dispatch(line, session, store):
-            # A """ block is literal by definition, so its syntax is never
-            # read; anything else is checked before it plays, and invalid
-            # syntax leaves the story untouched.
+        if not dispatch(line, session, store):
+            # Checked before it plays: invalid syntax leaves the story
+            # untouched rather than half-playing a line nobody can read.
             frame = framing(line)
-            error = None if raw else frame.check()
+            error = frame.check()
             if error is not None:
                 session.screen.invalidate()
                 print(error)
