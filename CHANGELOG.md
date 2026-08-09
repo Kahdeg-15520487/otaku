@@ -7,6 +7,11 @@ changes.
 
 ## [0.2.3] - [planned]
 
+### Added
+- Two inline commands, typed inside a line rather than opening one: `/ooc` for an aside out of
+  character, and `/cue` to steer just the next reply — a cue goes out with the turn it rode in on
+  and is not kept in context afterwards.
+
 ## [0.2.2] - 2026-08-08
 
 **TL;DR**

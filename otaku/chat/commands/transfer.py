@@ -108,7 +108,7 @@ def import_story(session: Session, store: Store, path_text: str) -> bool:
 def cmd_export(session: Session, store: Store, args: list[str]) -> None:
     """`/export [FILE]` — the current story as one Markdown document: the
     story-so-far, system, and cast, the scenes with their journals, then
-    every message verbatim (framing included) — importable back with
+    every message verbatim (template included) — importable back with
     `/import`, losslessly. No name writes `<story-title>.md` (or
     story.md) in the current directory; an existing file prompts before
     overwriting (default no). A leading `@` — the path-completion

@@ -22,8 +22,8 @@ Message bodies go out exactly as stored — never rewritten, no `Name:`
 prefixes, no turn-taking guards: prose carries its own attribution, and
 the wire promise is that the code adds NOTHING but the recap (`/context`
 and the request log show it holding). The `/me`, `/you`, and `/ooc`
-directions live in a turn's `framing` column and are joined to its body
-(`formatting.combine_framing`) only at wire time.
+directions live in a turn's `template` and are filled with its body
+(`chat.framing.prompt_to_wire`) only at wire time.
 
 The wire unit is the exchange: consecutive same-role rows (a `/me`
 direction beside its line, the recap beside the tail) merge into one turn,
@@ -42,7 +42,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-from otaku.formatting import combine_framing, printable
+from otaku.chat.framing import prompt_to_wire
+from otaku.formatting import printable
 from otaku.store import Store
 from otaku.store.schema import Message, Scene
 
@@ -141,7 +142,7 @@ def assemble(
     used = (
         sum(_wire_tokens(m) for m in head)
         + (estimate_tokens(recap) if recap else 0)
-        + sum(_wire_tokens(m) for m in tail)
+        + sum(_wire_tokens(m, is_last=i == len(tail) - 1) for i, m in enumerate(tail))
     )
     if used > budget:
         used, head, tail = _trim_overflow(used, head, tail, budget)
@@ -301,8 +302,11 @@ def _trim_overflow(
     return used, head[lost:], tail
 
 
-def _wire_tokens(message: Message) -> int:
-    return estimate_tokens(combine_framing(message.body, message.framing))
+def _wire_tokens(message: Message, *, is_last: bool = False) -> int:
+    """Tokens one row costs on the wire. `is_last` defaults to False for
+    the trim, which only ever weighs rows it is dropping — and the newest
+    row is never dropped (the two-message floor keeps it)."""
+    return estimate_tokens(prompt_to_wire(message.body, message.template, is_last=is_last))
 
 
 def _wire_turns(kept: list[Message]) -> list[Message]:
@@ -310,8 +314,11 @@ def _wire_turns(kept: list[Message]) -> list[Message]:
     Consecutive same-role rows rejoin into one turn — storage granularity is
     otaku's bookkeeping; the model sees one prompt per exchange."""
     out: list[Message] = []
-    for message in kept:
-        text = combine_framing(message.body, message.framing)
+    for position, message in enumerate(kept):
+        # Newest = the LAST POSITION, never object identity: two turns can
+        # hold the same text, and only where a row sits decides whether its
+        # cue is still live.
+        text = prompt_to_wire(message.body, message.template, is_last=position == len(kept) - 1)
         if out and out[-1].role == message.role:
             out[-1] = Message(role=message.role, body=out[-1].body + "\n\n" + text)
         else:

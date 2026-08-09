@@ -8,6 +8,7 @@ subtree; the completer derives its tree from it and the descriptions from
 from collections.abc import Callable
 
 from otaku.chat.commands import inspect, lore, meta, playing, settings, stories, transfer
+from otaku.chat.framing import FRAMING_COMMANDS, FRAMING_INLINERS, framing
 from otaku.chat.session import KNOWN_PARAMS, Session
 from otaku.store import Store
 
@@ -36,6 +37,9 @@ _HELP_ROWS: list[tuple[str | None, str, str]] = [
     ("/regen", "Ctrl+R", "Re-run the last prompt (mid-stream: cancel + regen)"),
     ("/last [N]", "", "Show the last N turns (default 5) — a clean view after undos, regens, etc."),
     ("/clear", "", "Clear the screen"),
+    (None, "", "Inside a line:"),
+    ("… /ooc TEXT", "", "An aside out of character"),
+    ("… /cue TEXT", "", "Steer just the next reply — not kept in context afterwards"),
     (None, "", "Stories:"),
     ("/stories", "Ctrl+T", "Browse stories, resume an old one"),
     ("/fork [TITLE]", "", "Continue in a copy of this story; the original stays"),
@@ -104,9 +108,6 @@ def _set_tree() -> CompletionTree:
 # menu lists commands in the same order as the help.
 # fmt: off
 COMMANDS: dict[str, tuple[CommandHandler, CompletionTree | str | None]] = {
-    "/me": (playing.cmd_me, None),
-    "/you": (playing.cmd_you, None),
-    "/ooc": (playing.cmd_ooc, None),
     "/undo": (playing.cmd_undo, None),
     "/regen": (playing.cmd_regen, None),
     "/last": (playing.cmd_last, None),
@@ -135,9 +136,24 @@ COMMANDS: dict[str, tuple[CommandHandler, CompletionTree | str | None]] = {
 
 
 def completion_tree() -> CompletionTree:
-    """The slash-completion tree, derived from COMMANDS — the completer can
-    never drift from the dispatch table."""
-    return {name: subtree for name, (_, subtree) in COMMANDS.items()}
+    """The slash-completion tree. Two sources, because the menu offers more
+    than the dispatch table holds: the framing syntax (`/me`, `/you`,
+    `/ooc`) is typed at the prompt like a command and must be discoverable
+    like one, though nothing dispatches it. Descriptions still come from
+    `_HELP_ROWS` for both, so the menu and /help cannot disagree."""
+    syntax: CompletionTree = {name: None for name in FRAMING_COMMANDS}
+    return {**syntax, **{name: subtree for name, (_, subtree) in COMMANDS.items()}}
+
+
+def inliner_menu() -> dict[str, str]:
+    """The mid-line menu: every inliner with its description. The names come
+    from `framing.FRAMING_INLINERS`, which owns the syntax, and the text from
+    `_HELP_ROWS` like every other row's — an inliner is written there behind
+    a `…`, so `/ooc` inside a line and `/ooc` opening one keep their separate
+    meanings without colliding."""
+    rows = {token: describe_command(("…", token)) for token in FRAMING_INLINERS}
+    assert all(rows.values()), "every inliner needs a _HELP_ROWS line"
+    return rows
 
 
 def describe_command(tokens: tuple[str, ...]) -> str:
@@ -153,22 +169,23 @@ def describe_command(tokens: tuple[str, ...]) -> str:
     return ""
 
 
-# The playing commands manage the screen ledger themselves: three echo the
-# turn as the grey block, two take one back. Every other command's output
+# The playing commands manage the screen ledger themselves: two take an
+# exchange back (a played prompt echoes its own block, in repl._play). Every other command's output
 # lands below the last exchange and invalidates the ledger — when it comes:
 # the dispatch window watches for the write rather than assuming one (see
 # `ScreenLedger.command_output`), so a picker left without a choice costs
 # the exchanges above it nothing.
-_PLAYING = {"/me", "/you", "/ooc", "/undo", "/regen"}
+_PLAYING = {"/undo", "/regen"}
 
 
 def dispatch(line: str, session: Session, store: Store) -> bool:
     """True when the line was a slash command (handled); False when it
-    should go to the model as a user message. The line lands verbatim in
-    `session.raw_line` (a playing command echoes exactly what was typed)
+    should be played as a prompt. A slash is not enough to make it a
+    command: the framing syntax opens with one too, and those lines belong
+    to the prompt, not here. The line lands verbatim in `session.raw_line`
     and its argument text in `session.raw_args` (free-text handlers keep
     the user's exact spacing — split-and-rejoin would collapse it)."""
-    if not line.startswith("/"):
+    if not line.startswith("/") or framing(line).token:
         return False
     command, *args = line.split()
     session.raw_line = line

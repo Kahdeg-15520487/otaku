@@ -2,11 +2,12 @@
 
 Every string otaku puts in front of a model is a template here, loaded once
 into a `Prompts` value, in two groups. The `/me`, `/you`, and `/ooc`
-commands write their template into a turn's `framing` verbatim, filling
-only `{name}`; the `((OOC: …))` enclosure lives IN the template — the code
-wraps nothing, so what you edit is exactly what the model sees. `{body}`,
-where a template has it, marks where the turn's own text is slotted at wire
-time. The lore templates build the memory — one scene (`extract_prompt`),
+commands write their template into a turn's `template` verbatim — nothing
+is filled at write time, so the turn keeps the wording this file had when
+it played; the `((OOC: …))` enclosure lives IN the template, so the code
+wraps nothing and what you edit is exactly what the model sees. `{name}`
+and `{body}`, where a template has them, mark where the turn's own name and
+text are slotted at wire time. The lore templates build the memory — one scene (`extract_prompt`),
 a character's rolled-up history, the story-so-far — and `recap_header` is
 the line that carries the finished scene summaries back into the request.
 

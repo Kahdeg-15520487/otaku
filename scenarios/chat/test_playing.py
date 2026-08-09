@@ -1,7 +1,11 @@
-"""Playing a story: turns, the wire promise, undo, regenerate, and the
-roleplay commands /me, /you, /ooc."""
+"""Playing a story: turns, the wire promise, undo, regenerate, the
+roleplay commands /me, /you, /ooc, and the inline pair typed inside a
+line."""
+
+from pathlib import Path
 
 from otaku.paths import Paths
+from otaku.transfer import EXPORT_MARKER
 from scenarios.support import server as scripted
 from scenarios.support.harness import App, launch, set_config
 
@@ -27,7 +31,7 @@ class TestTurns:
         sent = app.server.requests[-1]["messages"][-1]["content"]
         assert sent == "((OOC: The user writes as Elara.))\nI step into the light."
         stored = app.store.stories.get_messages(app.session.story_id)[0]
-        assert stored.body == "I step into the light."  # the body stays bare
+        assert stored.body == "/me Elara: I step into the light."  # the line as typed
 
     def test_the_framing_templates_come_from_the_prompts_file(self, server, tmp_path) -> None:
         # The file IS the injection, not a copy of it. Asserting the
@@ -49,6 +53,29 @@ class TestTurns:
             assert sent(app) == "<<now play Ryn>>"
             app.play("/ooc What genre is this?")
             assert sent(app) == "<<aside: What genre is this?>>"
+        finally:
+            app.close()
+
+    def test_a_turn_keeps_the_wording_it_was_played_with(self, server, tmp_path) -> None:
+        # The template is snapshotted onto the row as it plays, so editing
+        # prompts.toml afterwards cannot rewrite what a past turn said to
+        # the model — only what the next one will.
+        root = tmp_path / "state"
+        paths = Paths.resolve(root)
+        paths.ensure_tree()
+        paths.prompts_file.write_text('me_framing = "<<first {name}>>\\n{body}"\n')
+        app = launch(root, server)
+        try:
+            app.play("/me Elara: one.")
+        finally:
+            app.close()
+        paths.prompts_file.write_text('me_framing = "<<second {name}>>\\n{body}"\n')
+        app = launch(root, server)
+        try:
+            app.play("/me Elara: two.")
+            wire = app.server.requests[-1]["messages"]
+            assert wire[0]["content"] == "<<first Elara>>\none."
+            assert wire[-1]["content"] == "<<second Elara>>\ntwo."
         finally:
             app.close()
 
@@ -83,14 +110,25 @@ class TestTurns:
 
 
 class TestMe:
-    def test_a_cast_name_resolves_to_its_canonical_form(self, app: App) -> None:
+    def test_the_name_goes_out_as_typed(self, app: App) -> None:
+        # The cast is consulted nowhere, even when it holds the name in
+        # another spelling: a turn's wire text depends on that turn alone,
+        # so it can never shift when the cast does.
         for i in range(3):
             app.play(f"Turn number {i}.")
         app.play("/extract")  # the Keeper joins the cast
         app.play("/me keeper: I bow.")
         sent = scripted.chat_request(app.server, "I bow.")["messages"][-1]["content"]
-        assert "Keeper" in sent  # canonical, not as typed
+        assert "keeper" in sent and "Keeper" not in sent
         assert sent.endswith("I bow.")
+
+    def test_a_malformed_direction_plays_nothing(self, app: App) -> None:
+        # No colon, so no prose to send. The story must be untouched — a
+        # line the app cannot read is not half-played.
+        before = len(app.server.requests)
+        app.play("/me Elara")
+        assert len(app.server.requests) == before
+        assert app.store.stories.get_messages(app.session.story_id) == []
 
 
 class TestYou:
@@ -101,9 +139,10 @@ class TestYou:
         assert sent.startswith("((OOC")
         assert "Elara" in sent
         chain = app.store.stories.get_messages(app.session.story_id)
-        # One body-less turn — the framing IS the turn — and a normal reply.
+        # The line as typed — it carries no prose of its own, so the
+        # template alone reaches the model — and a normal reply.
         assert [(m.role, m.body) for m in chain[-2:]] == [
-            ("user", ""),
+            ("user", "/you Elara"),
             ("assistant", scripted.CHAT_REPLY),
         ]
 
@@ -126,7 +165,7 @@ class TestOoc:
         assert sent.startswith("((OOC")
         assert "What genre is this?" in sent
         chain = app.store.stories.get_messages(app.session.story_id)
-        assert chain[-2].body == "What genre is this?"  # the body stays bare
+        assert chain[-2].body == "/ooc What genre is this?"  # the line as typed
         assert (chain[-2].kind, chain[-1].kind) == ("ooc", "ooc")
 
     def test_regenerating_an_ooc_reply_stays_ooc(self, app: App) -> None:
@@ -146,6 +185,77 @@ class TestOoc:
         app.play("/regen")
         chain = app.store.stories.get_messages(app.session.story_id)
         assert (chain[-2].kind, chain[-1].kind) == ("ooc", "ooc")
+
+
+class TestInliners:
+    def test_prose_keeps_its_slashes_and_plays(self, app: App) -> None:
+        line = "She looks up and/or down on 24/08/2026 at https://x.co/cue"
+        app.play(line)
+        assert sent(app) == line
+
+    def test_an_aside_is_enclosed_and_stays(self, app: App) -> None:
+        app.play("She looks up /ooc make her nervous")
+        assert sent(app) == "She looks up ((OOC: make her nervous))"
+        app.play("She waits.")
+        # Still there a turn later: an aside is part of the story from here
+        # on, unlike a cue.
+        assert app.server.requests[-1]["messages"][0]["content"] == (
+            "She looks up ((OOC: make her nervous))"
+        )
+
+    def test_a_cue_never_reaches_the_extraction(self, app: App) -> None:
+        # A steer is a direction to the model, not a moment in the story —
+        # letting the analysis pass read it would write it into the scene.
+        app.play("She waits /cue keep it tense")
+        for i in range(3):
+            app.play(f"Turn number {i}.")
+        app.play("/extract")
+        chunks = [
+            m["content"]
+            for request in app.server.requests
+            for m in request["messages"]
+            if "SCENE" in m["content"]
+        ]
+        assert chunks, "no extraction request was made"
+        assert all("keep it tense" not in chunk for chunk in chunks)
+        assert any("She waits" in chunk for chunk in chunks)
+
+    def test_a_cue_reaches_the_model_once_and_is_then_gone(self, app: App) -> None:
+        app.play("She waits /cue keep it tense")
+        assert sent(app) == "She waits ((OOC: keep it tense))"
+        app.play("She waits again.")
+        # Spent: the steer shaped one reply and leaves no trace in the next
+        # request — though the line itself is stored whole, so the screen
+        # and the picker still show what was typed.
+        assert app.server.requests[-1]["messages"][0]["content"] == "She waits"
+        assert app.store.stories.get_messages(app.session.story_id)[0].body == (
+            "She waits /cue keep it tense"
+        )
+
+
+class TestLegacyTurns:
+    def test_a_turn_written_before_the_syntax_sends_what_it_always_sent(
+        self, app: App, tmp_path: Path
+    ) -> None:
+        # Back then the prefix was stripped before storing and the name was
+        # baked into the template. Such a row must compose as it always
+        # did: no prefix to strip, no `{name}` to fill. An export document
+        # is how one arrives.
+        document = (
+            "# Old story\n\n"
+            f"{EXPORT_MARKER}\n\n"
+            "## Messages\n\n"
+            '### 1 · user · "((OOC: The user writes as Elara.))\\n{body}"\n'
+            "I step into the light.\n\n"
+            "### 2 · assistant\n"
+            "The hall answers.\n"
+        )
+        path = tmp_path / "old.md"
+        path.write_text(document)
+        app.play(f"/import {path}")
+        app.play("She waits.")
+        wire = app.server.requests[-1]["messages"]
+        assert wire[0]["content"] == "((OOC: The user writes as Elara.))\nI step into the light."
 
 
 class TestUndo:

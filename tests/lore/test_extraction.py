@@ -3,8 +3,8 @@
 `pack`'s contract: every span meets BOTH minimums (characters and item
 count), and a leftover under the minimums merges into the span before it.
 `numbered_chat`'s: the analysis model sees `[n]` numbering, an attributed
-line's speaker, composed framing, and an `((OOC: …))` enclosure on every
-out-of-character row — added when the row has no stored framing to show
+line's speaker, composed template, and an `((OOC: …))` enclosure on every
+out-of-character row — added when the row has no stored template to show
 one.
 """
 
@@ -51,13 +51,13 @@ class TestNumberedChat:
         assert text == "[1] Ryn: I wait."
 
     def test_framing_is_composed_onto_the_body(self) -> None:
-        message = Message(role="user", body="I wait.", framing="((OOC: as Ryn.))\n{body}")
+        message = Message(role="user", body="I wait.", template="((OOC: as Ryn.))\n{body}")
         assert numbered_chat([message]) == "[1] ((OOC: as Ryn.))\nI wait."
 
     def test_a_bare_ooc_row_gains_the_enclosure(self) -> None:
-        message = Message(role="assistant", body="Good plan.", kind="ooc", framing=None)
+        message = Message(role="assistant", body="Good plan.", kind="ooc", template=None)
         assert numbered_chat([message]) == "[1] ((OOC: Good plan.))"
 
     def test_an_ooc_row_with_framing_shows_it_as_stored(self) -> None:
-        message = Message(role="user", body="Plan?", kind="ooc", framing="((OOC: {body}))")
+        message = Message(role="user", body="Plan?", kind="ooc", template="((OOC: {body}))")
         assert numbered_chat([message]) == "[1] ((OOC: Plan?))"

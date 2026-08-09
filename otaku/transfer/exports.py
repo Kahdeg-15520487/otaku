@@ -60,7 +60,7 @@ def read_story(store: Store, story_id: int) -> StoryExport:
                 body=m.body,
                 kind=m.kind,
                 speaker=m.speaker,
-                framing=m.framing,
+                template=m.template,
             )
             for m in messages
         ),
@@ -125,10 +125,10 @@ def render_story(export: StoryExport, *, otaku_version: str, model: str, exporte
         header = f"### {n} · {message.role}{kind}"
         if message.speaker:
             header += f" · {message.speaker}"
-        if message.framing is not None:
+        if message.template is not None:
             # JSON-quoted: newlines survive, and the quotes tell it apart
             # from a speaker name.
-            header += f" · {json.dumps(message.framing, ensure_ascii=False)}"
+            header += f" · {json.dumps(message.template, ensure_ascii=False)}"
         out += [header, _escape(message.body), ""]
     return "\n".join(out).rstrip() + "\n"
 

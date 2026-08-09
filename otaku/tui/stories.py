@@ -53,7 +53,7 @@ from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.dimension import D
 from prompt_toolkit.styles import Style
 
-from otaku.formatting import combine_framing, flatten, human_age, truncate
+from otaku.formatting import flatten, human_age, truncate
 from otaku.store import Store
 from otaku.store.schema import Message
 from otaku.store.stories import StoryListing
@@ -206,12 +206,11 @@ class StoryPicker(ListScreen):
             avail = max(10, self._max_row_content_width() - fixed)
             for row_i, orig in enumerate(self.turn_filtered):
                 m = self.loaded_msgs[orig]
-                # The list shows the COMPOSED line — framing joined to body by
-                # combine_framing, the turn as the model sees it. Bound the
-                # body slice first: this renders per keystroke, and avail
-                # chars never need more than a slice of a huge message.
-                composed = combine_framing(m.body[: 4 * avail], m.framing)
-                head = truncate(flatten(composed), avail) or "(empty)"
+                # The list shows the line AS TYPED — the body is exactly
+                # that, syntax included, so nothing is composed here. Slice
+                # first: this renders per keystroke, and avail chars never
+                # need more than a slice of a huge message.
+                head = truncate(flatten(m.body[: 4 * avail]), avail) or "(empty)"
                 # The original message number, so a filtered row still reads
                 # as its true position in the story.
                 row = f"{orig + 1:>4} · {m.role:<{role_w}} · {head}"
@@ -261,14 +260,14 @@ class StoryPicker(ListScreen):
                 if not body.endswith("\n"):
                     body += "\n"
                 out.extend(to_formatted_text(ANSI(body), style="class:preview.body"))
-            # The framing (a /me or /you direction, the /ooc note) shown DIM
-            # after a blank line — the raw template layer (its `{body}`
-            # placeholder and all) that combine_framing joins to the body to
-            # make the composed line on the left / the wire.
-            if m.framing:
+            # The template snapshot shown DIM after a blank line — the
+            # template layer (its `{body}` placeholder and all) that the turn
+            # was played with, which the body alone does not show. It is not
+            # what the model reads; `/context` shows that.
+            if m.template:
                 if m.body:
                     out.append(("class:preview.body", "\n"))
-                for line in wrap_text(m.framing, width):
+                for line in wrap_text(m.template, width):
                     out.append(("class:preview.muted", line + "\n"))
             # The model that generated THIS turn, dimmed and right-aligned —
             # user turns have none (messages.model is NULL there) and show

@@ -3,7 +3,7 @@
 Its contract is the round-trip: `parse_story(render_story(x))` returns
 `x` exactly — titles, system, story-so-far, cast with aliases and
 descriptions, scenes with spans, summaries and journals, and messages
-with their kind, speaker, and verbatim framing and bodies. A file without
+with their kind, speaker, and verbatim template and bodies. A file without
 the export marker parses as None.
 """
 
@@ -45,7 +45,7 @@ FULL = StoryExport(
         ExportedMessage(
             role="user",
             body="Кто здесь?",
-            framing="((OOC: The user writes as Кассиан.))\n{body}",
+            template="((OOC: The user writes as Кассиан.))\n{body}",
         ),
         ExportedMessage(role="assistant", body="Хороший план.", kind="ooc"),
         ExportedMessage(role="user", body="Тишина висела в воздухе.", kind="narration"),
@@ -106,11 +106,13 @@ class TestRoundTrip:
         assert parse_story(render(bare)) == bare
 
     def test_multiline_framing_survives_verbatim(self) -> None:
-        framing = "((OOC: line one.\n\nline two.))\n{body}"
-        export = StoryExport(messages=(ExportedMessage(role="user", body="Go.", framing=framing),))
+        template = "((OOC: line one.\n\nline two.))\n{body}"
+        export = StoryExport(
+            messages=(ExportedMessage(role="user", body="Go.", template=template),)
+        )
         parsed = parse_story(render(export))
         assert parsed is not None
-        assert parsed.messages[0].framing == framing
+        assert parsed.messages[0].template == template
 
     def test_body_edges_strip_but_interior_blank_lines_stay(self) -> None:
         export = StoryExport(messages=(ExportedMessage(role="assistant", body="One.\n\nTwo."),))
@@ -131,7 +133,7 @@ class TestParseExport:
 
 class TestMessageHeaders:
     """The header's trailing fields — a bare speaker, a JSON-quoted
-    framing, or both, in that order; anything unparseable degrades to
+    template, or both, in that order; anything unparseable degrades to
     absent rather than corrupting the message."""
 
     def parse_one(self, header: str) -> ExportedMessage:
@@ -142,31 +144,31 @@ class TestMessageHeaders:
 
     def test_a_bare_header(self) -> None:
         message = self.parse_one("1 · user")
-        assert (message.speaker, message.framing) == (None, None)
+        assert (message.speaker, message.template) == (None, None)
 
     def test_a_speaker_alone(self) -> None:
         message = self.parse_one("1 · user · Рин")
-        assert (message.speaker, message.framing) == ("Рин", None)
+        assert (message.speaker, message.template) == ("Рин", None)
 
     def test_a_framing_alone(self) -> None:
         message = self.parse_one('1 · user · "((OOC: x))\\n{body}"')
         assert message.speaker is None
-        assert message.framing == "((OOC: x))\n{body}"
+        assert message.template == "((OOC: x))\n{body}"
 
-    def test_a_speaker_and_a_framing(self) -> None:
+    def test_a_speaker_and_a_template(self) -> None:
         message = self.parse_one('1 · user (ooc) · Рин · "((OOC: y))"')
         assert message.kind == "ooc"
         assert message.speaker == "Рин"
-        assert message.framing == "((OOC: y))"
+        assert message.template == "((OOC: y))"
 
     def test_an_unterminated_framing_degrades_to_absent(self) -> None:
         message = self.parse_one('1 · user · Рин · "unterminated')
         assert message.speaker == "Рин"
-        assert message.framing is None
+        assert message.template is None
         assert message.body == "Body."
 
     def test_a_non_string_after_the_quote_degrades_to_absent(self) -> None:
-        assert self.parse_one('1 · user · "123"').framing == "123"
+        assert self.parse_one('1 · user · "123"').template == "123"
         assert self.parse_one("1 · user · [1]").speaker == "[1]"
 
 

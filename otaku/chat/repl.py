@@ -21,6 +21,7 @@ from typing import Any, TextIO, cast
 from otaku import __version__
 from otaku.chat.commands import dispatch
 from otaku.chat.commands.lore import build_job
+from otaku.chat.framing import framing
 from otaku.chat.inference import run_inference
 from otaku.chat.prompt import (
     PLACEHOLDER,
@@ -212,9 +213,26 @@ def submit(line: str, session: Session, store: Store, *, raw: bool = False) -> N
     last_before = session.messages[-1] if session.messages else None
     try:
         if raw or not dispatch(line, session, store):
-            session.screen.echo_block(line)
-            session.record_turn(store, Message(role="user", body=line))
-            run_inference(session, store)
+            # A """ block is literal by definition, so its syntax is never
+            # read; anything else is checked before it plays, and invalid
+            # syntax leaves the story untouched.
+            frame = framing(line)
+            error = None if raw else frame.check()
+            if error is not None:
+                session.screen.invalidate()
+                print(error)
+            else:
+                session.screen.echo_block(line)
+                session.record_turn(
+                    store,
+                    Message(
+                        role="user",
+                        body=line,
+                        kind=frame.request_kind,
+                        template=frame.template(session.prompts),
+                    ),
+                )
+                run_inference(session, store, reply_kind=frame.reply_kind)
         _maybe_schedule(session, last_before)
     except KeyboardInterrupt:
         raise  # ^C is the user speaking, not a crash — the loop handles it

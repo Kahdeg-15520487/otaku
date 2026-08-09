@@ -102,23 +102,23 @@ class _StreamWatcher:
                 return
 
 
-def run_inference(session: Session, store: Store, *, ooc: bool = False) -> None:
+def run_inference(session: Session, store: Store, *, reply_kind: str = "dialogue") -> None:
     """Stream a completion for the current transcript, append the reply, and
     persist it. A cancelled stream always keeps the received portion: Ctrl+C
     stops and leaves it as the reply; Ctrl+R stops and immediately
     regenerates (looping here until no further regen is requested), the
     partial surviving in the tree as a sibling like any regenerated reply.
-    `ooc` marks the REPLY out of character (kind `ooc`) — set only by /ooc
-    and a regenerate of an ooc reply, never inferred, because a /you switch
+    `reply_kind` is the kind the REPLY is stored under — never inferred
+    from the prompt's own kind, because a /you switch
     also ends on an ((OOC:)) turn yet wants an in-character answer."""
-    _run_step(session, store, ooc)
+    _run_step(session, store, reply_kind)
     while session.regen_after:
         session.regen_after = False
         session.drop_last_reply(store)
-        _run_step(session, store, ooc)
+        _run_step(session, store, reply_kind)
 
 
-def _run_step(session: Session, store: Store, ooc: bool) -> None:
+def _run_step(session: Session, store: Store, reply_kind: str) -> None:
     """One streaming pass. ^C during the stream is consumed here: partial
     output is kept and persisted so the user can regenerate or continue.
     ^R persists the partial the same way, then sets `session.regen_after`
@@ -239,7 +239,7 @@ def _run_step(session: Session, store: Store, ooc: bool) -> None:
             Message(
                 role="assistant",
                 body="".join(content),
-                kind="ooc" if ooc else "dialogue",
+                kind=reply_kind,
                 provider=provider_config.name,
                 model=session.model,
             ),

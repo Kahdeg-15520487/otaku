@@ -190,7 +190,7 @@ class StoryOps:
             # fmt: off
             cur = conn.execute(
                 "INSERT INTO messages (story_id, parent_id, role, kind, speaker_id, speaker, body, framing, provider, model, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (story_id, head, message.role, message.kind, message.speaker_id, self._db.seal_opt(message.speaker), self._db.seal(message.body), self._db.seal_opt(message.framing), message.provider, message.model, now, now),
+                (story_id, head, message.role, message.kind, message.speaker_id, self._db.seal_opt(message.speaker), self._db.seal(message.body), self._db.seal_opt(message.template), message.provider, message.model, now, now),
             )
             message_id = int(cur.lastrowid or 0)
             conn.execute(
@@ -225,7 +225,9 @@ class StoryOps:
                 speaker_id=speaker_id,
                 speaker=self._db.unseal_opt(speaker),
                 body=self._db.unseal(body),
-                framing=self._db.unseal_opt(framing),
+                # The seam: the row type says `template`, the column still
+                # says `framing` — see schema.py.
+                template=self._db.unseal_opt(framing),
                 provider=provider,
                 model=model,
             )

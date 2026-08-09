@@ -168,8 +168,8 @@ class TestPreview:
         assert "8,192" in preview
 
 
-def user(body: str, framing: str | None = None) -> Message:
-    return Message(role="user", body=body, framing=framing)
+def user(body: str, template: str | None = None) -> Message:
+    return Message(role="user", body=body, template=template)
 
 
 def assistant(body: str) -> Message:

@@ -6,8 +6,8 @@ document is one Markdown file, readable as prose and parseable as data —
 a metadata comment (recognition + versions), the optional `# title`
 heading, a `## Story` section (story so far, system, cast), `## Scenes`
 (span, summary, per-character journals), and `## Messages` — one
-`### n · role (kind) · speaker · "framing"` header per message, the kind,
-speaker, and JSON-quoted framing present only when they exist, with the
+`### n · role (kind) · speaker · "template"` header per message, the kind,
+speaker, and JSON-quoted template present only when they exist, with the
 verbatim body starting on the very next line. Empty parts are simply
 absent, an untitled story has no heading, and message bodies keep their
 interior blank lines. Body text is structure-proof: a content line that
@@ -63,7 +63,7 @@ class ExportedMessage:
     body: str
     kind: str = "dialogue"
     speaker: str | None = None
-    framing: str | None = None
+    template: str | None = None
 
 
 @dataclass(frozen=True)

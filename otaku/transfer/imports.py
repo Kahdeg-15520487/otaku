@@ -20,8 +20,8 @@ from otaku.transfer import (
     StoryExport,
 )
 
-# A message header: `### 3 · user (ooc) · Speaker · "framing"` — the
-# speaker and the JSON-quoted framing optional, in that order.
+# A message header: `### 3 · user (ooc) · Speaker · "template"` — the
+# speaker and the JSON-quoted template optional, in that order.
 _MSG_HEADER = re.compile(
     r"^(\d+)\s*·\s*(user|assistant)(?:\s*\((ooc|narration)\))?(?:\s*·\s*(.+))?$"
 )
@@ -101,14 +101,14 @@ def parse_story(text: str) -> StoryExport | None:
         m = _MSG_HEADER.match(header)
         if m is None:
             continue
-        speaker, framing = _speaker_and_framing(m.group(4) or "")
+        speaker, template = _speaker_and_template(m.group(4) or "")
         messages.append(
             ExportedMessage(
                 role=m.group(2),
                 body=_unescape(_strip_edges(mbody)),
                 kind=m.group(3) or "dialogue",
                 speaker=speaker,
-                framing=framing,
+                template=template,
             )
         )
 
@@ -151,7 +151,7 @@ def write_story(store: Store, export: StoryExport) -> int:
                 role=message.role,
                 body=message.body,
                 kind=message.kind,
-                framing=message.framing,
+                template=message.template,
             ),
         )
         if message.speaker:
@@ -214,9 +214,9 @@ def _split_by_header(
     return preamble, sections
 
 
-def _speaker_and_framing(extra: str) -> tuple[str | None, str | None]:
+def _speaker_and_template(extra: str) -> tuple[str | None, str | None]:
     """The header's trailing fields: an optional bare speaker, then an
-    optional JSON-quoted framing — the quote is what tells them apart. (A
+    optional JSON-quoted template — the quote is what tells them apart. (A
     speaker name containing ` · ` is the one thing this cannot carry.)"""
     extra = extra.strip()
     if not extra:

@@ -124,7 +124,8 @@ forbidden:
                  terminal, formatting
     tui        → store, providers, settings, paths, terminal, formatting
     transfer   → store
-    lore       → store, providers, settings, logs, formatting
+    lore       → store, providers, settings, logs, formatting,
+                 chat.framing
     store      → crypto, logs, paths
     providers  → settings, logs
     logs       → crypto, paths, formatting
@@ -134,6 +135,11 @@ forbidden:
     update     → (nothing)
     paths      → (nothing)
     formatting → (nothing)
+
+`chat.framing` is the one arrow that points upward: it owns the prompt
+syntax, which `lore` must read to compose the wire. It stays safe by being
+a LEAF of `chat` — it imports nothing from its own package, so the cycle
+is never real. The moment it imports a sibling, the arrow breaks.
 
 The data model lives in `otaku/store/schema.py` (the DDL, its semantics,
 and the row types).

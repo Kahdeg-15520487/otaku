@@ -25,9 +25,9 @@ may carry names; `log` (the system log) stays content-free: ids and
 counts, never prose.
 
 Every row of the numbered scene goes to the analysis model with its stored
-framing composed, so `/me`, `/you`, and `/ooc` turns show their
+template composed, so `/me`, `/you`, and `/ooc` turns show their
 `((OOC: …))` enclosure as stored. The one row type with nothing stored to
-compose — the assistant's reply to an /ooc, kind `ooc` with no framing —
+compose — the assistant's reply to an /ooc, kind `ooc` with no template —
 gets the enclosure added, because the extract prompt reads "out of
 character" off that marker. Out-of-character rows are mined for decisions
 but never speaker-attributed and never part of the scene's story.
@@ -44,7 +44,7 @@ from typing import Self
 
 import httpx
 
-from otaku.formatting import combine_framing
+from otaku.chat.framing import prompt_to_wire
 from otaku.providers.base import OpenAIClient, Stats, Text, WireMessage
 from otaku.settings import prompts as prompts_file
 from otaku.settings.prompts import Prompts
@@ -71,7 +71,7 @@ _BACKOFF_SECONDS = 1.0
 _NEVER_CANCELLED = threading.Event()
 
 # The extraction model must see an out-of-character turn AS out of
-# character; a stored framing already shows the enclosure, a bare ooc row
+# character; a stored template already shows the enclosure, a bare ooc row
 # (an /ooc reply) gets it here. Analysis-side only — never on the wire.
 _OOC_MARK = "((OOC: {body}))"
 
@@ -647,16 +647,18 @@ def numbered_chat(span: Sequence[Message]) -> str:
     """The numbered scene block for `extract_prompt` — the one owner of the
     `[n] Speaker: …` format. An attributed line carries its speaker; an
     out-of-character row shows its `((OOC: …))` enclosure (via its stored
-    framing, or `_OOC_MARK` when it has none)."""
+    template, or `_OOC_MARK` when it has none)."""
     lines: list[str] = []
     for n, item in enumerate(span, 1):
-        if item.kind == "ooc" and item.framing is None:
+        if item.kind == "ooc" and item.template is None:
             body = _OOC_MARK.replace("{body}", item.body)
         elif item.speaker and item.body:
             body = f"{item.speaker}: {item.body}"
         else:
             body = item.body
-        lines.append(f"[{n}] {combine_framing(body, item.framing)}")
+        # is_last=False always: a cue steers one reply, it is not
+        # something that happened in the scene.
+        lines.append(f"[{n}] {prompt_to_wire(body, item.template, is_last=False)}")
     return "\n".join(lines)
 
 

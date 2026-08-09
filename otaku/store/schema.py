@@ -67,7 +67,7 @@ CREATE TABLE messages (
     speaker_id  INTEGER REFERENCES characters(id) ON DELETE SET NULL,  -- extracted automatically
     speaker     BLOB,                    -- extracted automatically; name-at-the-time snapshot
     body        BLOB NOT NULL,           -- exactly what was typed/generated
-    framing     BLOB,                    -- /me /you /ooc injection, joined to body at wire time
+    framing     BLOB,                    -- the template the turn was played with, filled at wire time; `Message.template` in the row type, and this column takes that name at the next migration
     provider    TEXT,                    -- who generated an assistant turn
     model       TEXT,
     created_at  TEXT NOT NULL,
@@ -169,7 +169,9 @@ class Message:
     role: str  # 'user' | 'assistant'
     body: str
     kind: str = "dialogue"  # 'dialogue' | 'narration' | 'ooc'
-    framing: str | None = None  # joined to body at wire time, never mixed into it
+    # Still the `framing` column: the row type is renamed ahead of the
+    # schema, which takes the name at the next migration.
+    template: str | None = None  # filled at wire time, never mixed into the body
     speaker: str | None = None
     speaker_id: int | None = None
     provider: str | None = None  # set on assistant turns

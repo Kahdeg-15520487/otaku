@@ -39,7 +39,7 @@ from prompt_toolkit.layout import menus as _ptk_menus
 from prompt_toolkit.layout.controls import BufferControl
 from prompt_toolkit.styles import Style
 
-from otaku.chat.completer import SlashCompleter
+from otaku.chat.completer import SlashCompleter, menu_partial
 from otaku.chat.session import Session
 from otaku.store import Store
 from otaku.terminal import statusline
@@ -81,9 +81,11 @@ _SHORTCUTS = {
     "c-d": "/bye",
 }
 
-# One test for "is this a command line?", shared by the prompt's
-# complete-while-typing filter and the menu bindings.
-_SLASH_LINE = Condition(lambda: get_app().current_buffer.text.lstrip().startswith("/"))
+# One test for "can a menu be open here?", shared by the prompt's
+# complete-while-typing filter and the menu bindings — either surface's
+# menu: the command tree on a slash line, the inline menu inside a played
+# one.
+_MENU_LINE = Condition(lambda: _completes_here(get_app().current_buffer))
 
 # Ctrl+D submits /bye only on an empty line — the terminal convention.
 # With a draft on the line it falls through to delete-forward, so readline
@@ -187,7 +189,7 @@ def build_prompt(session: Session, store: Store, carry: Carry) -> PromptSession[
         history=_StoreHistory(store),
         completer=SlashCompleter.build(),
         key_bindings=_make_bindings(carry),
-        complete_while_typing=_SLASH_LINE,
+        complete_while_typing=_MENU_LINE,
         enable_history_search=False,
         style=_PROMPT_STYLE,
         cursor=CursorShape.BLINKING_BEAM,
@@ -269,10 +271,10 @@ def _make_bindings(carry: Carry) -> KeyBindings:
     # …and does NOT close on backspace. prompt_toolkit restarts the menu
     # only on text INSERTS, so a plain backspace while filtering would
     # dismiss it; this deletes and re-opens while the line is a command.
-    @kb.add("backspace", filter=_SLASH_LINE)
+    @kb.add("backspace", filter=_MENU_LINE)
     def _bs_refilter(event: Any) -> None:
         event.current_buffer.delete_before_cursor(count=event.arg)
-        if event.current_buffer.text.lstrip().startswith("/"):
+        if _completes_here(event.current_buffer):
             event.current_buffer.start_completion(select_first=False)
         else:
             event.current_buffer.cancel_completion()
@@ -353,15 +355,22 @@ def _menu_or_history_down(buff: Buffer, count: int) -> None:
         buff.history_forward(count=count)
 
 
+def _completes_here(buff: Buffer) -> bool:
+    """Whether a completion menu can be open at the cursor. WHICH of the two
+    is the completer's business, not this module's — asking it keeps the
+    keybindings and the menu from ever disagreeing about where one opens."""
+    return menu_partial(buff.document.text_before_cursor) is not None
+
+
 def _menu_anchor_index(text_before_cursor: str, cursor: int) -> int | None:
     """Document index the completion menu anchors at: the start of the token
-    being completed, so the menu opens right under the `/` (or under the
-    cursor, where the next argument will be typed). None = default anchor."""
-    if not text_before_cursor.lstrip().startswith("/"):
+    being completed, so the menu opens right under the `/`. An empty partial
+    is a menu about to be filtered by a token not yet typed, and anchors at
+    the cursor. None = default anchor, for a line neither menu opens on."""
+    partial = menu_partial(text_before_cursor)
+    if partial is None:
         return None
-    if text_before_cursor.endswith((" ", "\t")):
-        return cursor
-    return cursor - len(text_before_cursor.split()[-1])
+    return cursor - len(partial)
 
 
 def _cut_suffix(text: str, suffix: str) -> tuple[str, bool]:

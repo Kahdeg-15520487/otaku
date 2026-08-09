@@ -10,9 +10,9 @@ keeps state.toml pointing at the session's model and story so bare `otaku`
 resumes them.
 
 A typed message goes to the model verbatim: the only injectors are the
-explicit commands (`/me`, `/you`, `/ooc`), and what they inject is a
-template written into the turn's `framing`, joined to the body only at
-wire time.
+explicit commands (`/me`, `/you`, `/ooc`), and what they inject is the
+template stored on the turn, filled with the line's own name and text only
+at wire time.
 """
 
 import contextlib
@@ -275,7 +275,7 @@ class Session:
     def undo(self, store: Store) -> list[Message]:
         """Discard the trailing exchange: the assistant reply (if any) plus
         the ONE user row that prompted it — every submission is a single
-        row (a /me or /you direction rides its row's framing), and an
+        row (a /me or /you direction rides its row's template), and an
         imported backlog of consecutive user rows is story, not one
         submission. Nothing is deleted: the head moves back and the undone
         turns stay in the tree as siblings. Returns the popped messages."""
