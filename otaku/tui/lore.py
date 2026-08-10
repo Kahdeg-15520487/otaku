@@ -46,21 +46,28 @@ from prompt_toolkit.styles import Style
 from otaku.formatting import flatten, truncate
 from otaku.store import Store
 from otaku.store.schema import Character, Scene
-from otaku.tui.screen import BASE_STYLE, ListScreen, wrap_text
+from otaku.terminal.theme import theme
+from otaku.tui.screen import ListScreen, base_style, wrap_text
 
-_STYLE = Style.from_dict(
-    {
-        **BASE_STYLE,
-        "row": "fg:#000000 bg:#ffffff",
-        "row.selected": "bold fg:#000000 bg:#e4e4e4",
-        "row.dim": "fg:#767676 bg:#ffffff",
-        "row.dim.selected": "fg:#767676 bg:#e4e4e4",
-        "preview.title": "bold fg:#303030 bg:#ffffff",
-        "preview.muted": "fg:#767676 bg:#ffffff",
-        "preview.body": "fg:#000000 bg:#ffffff",
-        "notice": "fg:#767676 bg:#ffffff",
-    }
-)
+
+def _style() -> Style:
+    """Shared chrome from `base_style` plus this browser's row and preview
+    overrides, in the shades the terminal background asked for."""
+    colors = theme()
+    panel = f"bg:{colors.panel.style}"
+    return Style.from_dict(
+        {
+            **base_style(),
+            "row": f"fg:{colors.text.style} {panel}",
+            "row.selected": f"bold fg:{colors.ink.style} bg:{colors.selection.style}",
+            "row.dim": f"dim fg:{colors.muted.style} {panel}",
+            "row.dim.selected": f"dim fg:{colors.ink.style} bg:{colors.selection.style}",
+            "preview.title": f"bold fg:{colors.title.style} {panel}",
+            "preview.muted": f"dim fg:{colors.muted.style} {panel}",
+            "preview.body": f"fg:{colors.text.style} {panel}",
+            "notice": f"dim fg:{colors.muted.style} {panel}",
+        }
+    )
 
 
 @dataclass
@@ -734,7 +741,7 @@ class LoreBrowser(ListScreen):
         )
 
         root = VSplit([left_pane, self._preview_gap(), preview_pane])
-        return self._finish_app(root, bindings, _STYLE, floats=[])
+        return self._finish_app(root, bindings, _style(), floats=[])
 
 
 def browse(store: Store, story_id: int, lens: str = "scenes") -> None:

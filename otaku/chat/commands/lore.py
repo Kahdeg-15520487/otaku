@@ -129,7 +129,7 @@ def _open_lore(session: Session, store: Store, lens: str) -> None:
     if not store.scenes.get_current_ends(session.story_id, ids) and not store.characters.list(
         session.story_id
     ):
-        print("No lore yet — it builds as scenes close (see /extract).")
+        print("No lore in this story yet — it builds as scenes close (see /extract).")
         return
     if session.tui.browse_lore is None:
         print("No lore browser available.")

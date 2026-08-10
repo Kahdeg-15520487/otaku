@@ -16,6 +16,23 @@ changes.
   ordinary prose (`and/or`, a URL) stays prose. The completion menu marks the selected row in the
   same color, so a row reads as what it will become once inserted.
 
+### Changed
+- The browsers (`/stories`, `/lore`, `/model`) follow the terminal instead of painting over it:
+  the pane, its text and its headings are your own colors, secondary text is dimmed rather than
+  greyed, and only what has to be painted is — the selected row and a dialog floating over the
+  list. They also come in a dark set now, where before every browser was light whatever the
+  terminal looked like.
+
+### Fixed
+- The terminal is asked for its background before `COLORFGBG` is believed. Some terminals export
+  that variable from the wrong profile — iTerm2 reports a white background from a dark window —
+  which left the browsers and the played block light on a dark terminal.
+- Text on anything otaku paints — the played block's band, a selected row, a dialog — now carries
+  its own color instead of the terminal's, so a background that cannot be detected at all still
+  reads.
+- The banner's rule below the mark is dimmed rather than a fixed near-black, which had all but
+  vanished on a dark terminal.
+
 ## [0.2.2] - 2026-08-08
 
 **TL;DR**

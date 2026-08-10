@@ -13,7 +13,20 @@ import sys
 from dataclasses import dataclass
 
 from otaku.formatting import format_context
-from otaku.terminal import BOLD, DEFAULT_BG, DIM, RESET, bg, fg
+from otaku.terminal import BOLD, DEFAULT_BG, DIM, RESET
+
+
+def _fg(color: int) -> str:
+    """SGR 256-color foreground. The sprite is the one thing that paints by
+    palette INDEX rather than by a theme role: it is a fixed picture, not
+    part of the interface, so its colors are its own."""
+    return f"\x1b[38;5;{color}m"
+
+
+def _bg(color: int) -> str:
+    """SGR 256-color background — the lower half of a sprite cell."""
+    return f"\x1b[48;5;{color}m"
+
 
 # A girl with long violet hair — the face reads at 16x12 because the eyes
 # get two cells each (dark iris + a white shine pixel).
@@ -53,11 +66,15 @@ class _Style:
 
 
 _COLOUR = _Style(
-    accent=fg(180),
+    accent=_fg(180),
     bold=BOLD,
     dim=DIM,
-    gray=fg(242),
-    rule=fg(238),
+    gray=_fg(242),
+    # Dimmed, not a grey: a fixed near-black read at 9.7:1 on a white
+    # terminal and 2.2:1 on a black one, where the rule all but vanished.
+    # Reduced intensity is derived from the text color, so it holds on
+    # either — the same reason the pickers dim instead of recoloring.
+    rule=DIM,
     reset=RESET,
 )
 _PLAIN = _Style()
@@ -117,10 +134,10 @@ def _sprite_rows() -> list[str]:
         for x in range(len(top)):
             upper, lower = _PALETTE.get(top[x]), _PALETTE.get(bottom[x])
             if upper is None:
-                row += RESET + " " if lower is None else f"{fg(lower)}{DEFAULT_BG}▄"
+                row += RESET + " " if lower is None else f"{_fg(lower)}{DEFAULT_BG}▄"
             elif lower is None:
-                row += f"{fg(upper)}{DEFAULT_BG}▀"
+                row += f"{_fg(upper)}{DEFAULT_BG}▀"
             else:
-                row += f"{fg(upper)}{bg(lower)}▀"
+                row += f"{_fg(upper)}{_bg(lower)}▀"
         rows.append(row + RESET)
     return rows

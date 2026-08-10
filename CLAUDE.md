@@ -18,11 +18,18 @@ between. Database encryption is opt-in — plain text is the default.
 
 Python 3.11 in the `otaku` conda environment:
 
-    conda run -n otaku otaku            # run the app
+    conda activate otaku && otaku       # run the app — see below
     make lint RUN="conda run -n otaku"  # ruff check (Makefile defaults to uv)
     make format RUN=...                  # ruff format
     make typecheck RUN=...               # mypy (strict)
     make test RUN=...                    # pytest
+
+The app must NOT be launched through a bare `conda run`: it pipes stdin
+and stdout, and a terminal that cannot be reached answers nothing — no
+cursor position (the screen-erasing paths give up) and no background (every
+adaptive color falls back). `conda activate` first, or pass
+`--no-capture-output`. Lint, typecheck and the test suites are unaffected;
+only what talks to the terminal is.
 
 The state dir defaults to `~/.otaku` (`_DEFAULT_ROOT` in
 `otaku/paths.py`), relocatable via the `OTAKU_CONFIG_DIR` env var.
@@ -137,7 +144,7 @@ forbidden:
     logs       → crypto, paths, formatting
     crypto     → settings, paths
     settings   → paths
-    terminal   → formatting
+    terminal   → settings, formatting
     update     → (nothing)
     paths      → (nothing)
     formatting → (nothing)
@@ -154,15 +161,27 @@ The names are upstream of everything that answers to them, so any module
 in `chat` may read them (the screen ledger and the prompt's highlighting
 both do) without waiting on the dispatch table.
 
-`chat.rendering` is a leaf for the third time over, and the reason is the
-same shape: it owns how a message LOOKS — a reply typeset the way it
-streamed, a request with its commands picked out — and its callers sit at
-every level, the screen ledger (which the session imports) included. `tui`
-may not read chat at all, so the story browser is handed `rendering.message`
-outright. One decision, made once, reachable from everywhere.
+How a message LOOKS is decided once, by `chat.session.message` — a reply
+typeset the way it streamed, a request with its commands picked out. The
+prompt, the played block, the resume echo and the story browser all render
+through it. `tui` may not read chat at all, so the browser is handed the
+function outright rather than the settings to rebuild the answer from.
 
 The data model lives in `otaku/store/schema.py` (the DDL, its semantics,
 and the row types).
+
+Every color lives in `otaku/terminal/theme.py`: one `Theme` per
+background, the user's `[ui]` settings laid over it by `use(config)` at
+the launch, and `theme()` returning the one in force. A surface names the
+role it needs (`panel`, `text`, `muted`, `selection`, …) and gets the
+right shade — no module picks a light/dark pair or reads a color setting
+of its own. That is why `terminal` may read `settings`, and it is where a
+whole theme read from a file will land.
+
+`use` is called at the top of `App.__init__`, before anything draws:
+settling the theme asks the terminal for its background, that ask reads
+stdin, and from the first prompt or picker on stdin belongs to
+prompt_toolkit — where a query eats the keystroke it lands on.
 
 `created_at` / `updated_at` columns are audit fields: no business logic may
 ever rely on them. UI display use (e.g. ordering the story list by recency)

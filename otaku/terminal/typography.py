@@ -29,8 +29,8 @@ import sys
 from typing import Any, TextIO
 
 from otaku.formatting import printable
-from otaku.terminal import BOLD, DIM, ITALIC, RESET, color
-from otaku.terminal.query import background_is_dark
+from otaku.terminal import BOLD, DIM, ITALIC, RESET
+from otaku.terminal.theme import theme
 
 _MORE: Any = object()  # verdict: keep buffering, block type not yet known
 
@@ -58,17 +58,6 @@ _QUOTE_CLOSERS = {
 # punctuation — anywhere else it is a parenthetical inside the current voice.
 _HANDOVER_AFTER = ",.!?…:;"
 
-# What "auto" — the shipped default — resolves to: blue, the shade
-# picked by the detected background — the theme's dark-blue slot on a
-# light background, its bright-blue slot on a dark one. Both are palette
-# slots the theme itself shades, and an unanswered background reads as
-# light (the shipped look; a pipe has no colors to clash with).
-_AUTO_LIGHT = "blue"  # ANSI 34
-_AUTO_DARK = "bright blue"  # ANSI 94
-# The command slots, the same dark/light pair trick one hue over: blue
-# is dialogue's, so a command reads as its own thing beside it.
-_COMMAND_LIGHT = "magenta"  # ANSI 35
-_COMMAND_DARK = "bright magenta"  # ANSI 95
 _DEFAULT_FG = "\x1b[39m"
 
 
@@ -76,16 +65,14 @@ class Typesetter:
     """Block-and-inline markdown state machine. Feed text via `feed()`; call
     `flush()` once the stream ends to close any open span or fence."""
 
-    def __init__(
-        self, out: TextIO | None = None, *, speech_color: str = "auto", speech_bold: bool = False
-    ) -> None:
+    def __init__(self, out: TextIO | None = None) -> None:
         self._out = out if out is not None else sys.stdout
-        # `speech_color` is the SPEC — "auto", a color name, or #rrggbb —
-        # resolved here so every caller can pass the setting through
-        # verbatim. An unreadable spec resolves like "auto" rather than
-        # printing itself at the reader.
-        self._speech_color = _speech_escape(speech_color)
-        self._speech_bold = speech_bold
+        # The dialogue look is the theme's, and the theme is the launch's:
+        # the user's [ui] settings reached it there, so nothing has to be
+        # handed down through every caller to get here.
+        colors = theme()
+        self._speech_color = colors.dialogue.fg
+        self._speech_bold = colors.dialogue_bold
         # inline span state
         self._bold = False
         self._italic = False
@@ -427,9 +414,9 @@ def highlight_commands(text: str, commands: tuple[str, ...]) -> str:
     counts as a command belongs to the chat layer, not to the terminal.
     Nothing else lights up: prose keeps its slashes, and a line that only
     looks like a command reads as the prose it is."""
-    escape = color(command_color())
-    if not commands or not escape:
+    if not commands:
         return text
+    escape = theme().command.fg
     # A command opens a line or follows whitespace and does not run on into
     # a longer word — the same boundaries the parser reads one by, so
     # `and/or`, `https://x.co` and `/mention` stay prose. Longest first, so
@@ -441,24 +428,3 @@ def highlight_commands(text: str, commands: tuple[str, ...]) -> str:
     # Default FOREGROUND, not a full reset: the grey played block paints a
     # background band per line, and a reset would knock it out mid-line.
     return pattern.sub(lambda m: f"{escape}{m.group(0)}{_DEFAULT_FG}", text)
-
-
-def command_color() -> str:
-    """The color a command is picked out in, as a NAME: the dark slot on a
-    light background, the bright slot on a dark one. `highlight_commands`
-    compiles it to an escape; a caller that paints a command some other way
-    — the completion menu, which prompt_toolkit styles itself — needs the
-    name, and both must name the same color."""
-    return _COMMAND_DARK if background_is_dark() else _COMMAND_LIGHT
-
-
-def _speech_escape(spec: str) -> str:
-    """The SGR escape for a dialogue-color setting. "auto" — and any spec
-    `color` cannot read — is blue: the dark slot on a light background,
-    the bright slot on a dark one; a color name or #rrggbb passes
-    through as itself."""
-    if spec.strip().lower() != "auto":
-        resolved = color(spec)
-        if resolved:
-            return resolved
-    return color(_AUTO_DARK if background_is_dark() else _AUTO_LIGHT)

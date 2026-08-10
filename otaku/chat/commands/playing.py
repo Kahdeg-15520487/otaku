@@ -12,10 +12,9 @@ because it lands below the exchange it describes, and draws the ledger's
 break rule over what it says.
 """
 
-from otaku.chat import rendering
 from otaku.chat.framing import framing
 from otaku.chat.inference import run_inference
-from otaku.chat.session import NO_MODEL_HINT, Session
+from otaku.chat.session import NO_MODEL_HINT, Session, message
 from otaku.store import Store
 from otaku.terminal import DIM, RESET
 
@@ -94,7 +93,7 @@ def cmd_regen(session: Session, store: Store, args: list[str]) -> None:
         print()
         # The typed line stays above the marker — nothing of it to erase.
         session.screen.typed_rows = 0
-        echo = rendering.message(prompt.body, "user", config=session.config) if prompt else ""
+        echo = message(prompt.body, "user") if prompt else ""
         session.screen.echo_block(echo, above=marker)
     # The prompt decides what its answer is, exactly as when it first
     # played — and it decides even for a replaced reply, so an edit in the

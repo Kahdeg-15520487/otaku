@@ -14,19 +14,42 @@ running the tests happens to pick.
 
 import io
 import re
+from collections.abc import Iterator
 
-from otaku.terminal import color
+import pytest
+
+from otaku.settings.config import Config
+from otaku.terminal.theme import _CURRENT, color, theme, use
 from otaku.terminal.typography import Typesetter, highlight_commands
+
+
+def escape(spec: str) -> str:
+    """A color spec as the foreground escape it resolves to. Defined here,
+    above the constants, because they are built from it."""
+    return color(spec).fg
+
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _BOLD = "\x1b[1m"
 _ITALIC = "\x1b[3m"
 _RESET = "\x1b[0m"
-_SPEECH = color("cyan")  # the tests pin an explicit spec, independent of the shipped default
+_SPEECH_SPEC = "cyan"  # pinned by the fixture, so no test reads the real terminal
+_SPEECH = escape(_SPEECH_SPEC)
 _DEFAULT_FG = "\x1b[39m"  # what closes a highlighted command
 # A vocabulary with the overlaps that matter: a command that prefixes
 # another, and one that prefixes an ordinary word.
 _COMMANDS = ("/me", "/merge", "/ooc", "/cue", "/set", "/bye")
+
+
+@pytest.fixture(autouse=True)
+def settled() -> Iterator[None]:
+    """A known theme for every case. The typesetter takes its dialogue look
+    from the theme now, so without this the tests would read whatever
+    background the terminal running them reports."""
+    saved = list(_CURRENT)
+    use(Config(providers={}, dialogue_color=_SPEECH_SPEC))
+    yield
+    _CURRENT[:] = saved
 
 
 class TestPlainText:
@@ -167,22 +190,13 @@ class TestDialogue:
     def test_flush_closes_speech_left_open_at_stream_end(self) -> None:
         assert spoken("— unfinished") == ["— unfinished"]
 
-    def test_speech_is_not_bold_unless_asked(self) -> None:
+    def test_speech_takes_the_themes_dialogue_color(self) -> None:
+        assert theme().dialogue.fg + '"hi"' in typeset('"hi"\n')
+
+    def test_speech_is_not_bold_unless_the_theme_says_so(self) -> None:
         assert _SPEECH + _BOLD not in typeset('"hi"\n')
-        assert _SPEECH + _BOLD in typeset('"hi"\n', speech_bold=True)
-
-    def test_a_color_spec_is_resolved_and_used(self) -> None:
-        styled = typeset('"hi"\n', speech_color="magenta")
-        assert color("magenta") + '"hi"' in styled
-        assert _SPEECH not in styled
-        assert color("#9a6700") + '"hi"' in typeset('"hi"\n', speech_color="#9a6700")
-
-    def test_auto_is_the_dark_blue_slot(self) -> None:
-        assert "\x1b[34m" in typeset('"hi"\n', speech_color="auto")
-
-    def test_an_unreadable_spec_resolves_like_auto(self) -> None:
-        unreadable = typeset('"hi"\n', speech_color="chartreuse")
-        assert unreadable == typeset('"hi"\n', speech_color="auto")
+        use(Config(providers={}, dialogue_color=_SPEECH_SPEC, dialogue_bold=True))
+        assert _SPEECH + _BOLD in typeset('"hi"\n')
 
 
 class TestChunking:
@@ -274,14 +288,11 @@ class TestHighlightCommands:
         assert highlight_commands("", _COMMANDS) == ""
 
 
-def typeset(text: str, *, chunk: int = 0, **knobs: object) -> str:
+def typeset(text: str, *, chunk: int = 0) -> str:
     """`text` through the typesetter, in one chunk or in `chunk`-sized
-    bites; `knobs` pass straight to the Typesetter (speech_color,
-    speech_bold), with the color pinned to "cyan" unless a test says
-    otherwise — "auto" would depend on the terminal running the tests."""
-    knobs.setdefault("speech_color", "cyan")
+    bites. The dialogue look comes from the theme the fixture settled."""
     out = io.StringIO()
-    streamer = Typesetter(out, **knobs)  # type: ignore[arg-type]
+    streamer = Typesetter(out)
     if chunk:
         for i in range(0, len(text), chunk):
             streamer.feed(text[i : i + chunk])

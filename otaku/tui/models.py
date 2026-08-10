@@ -78,28 +78,41 @@ from otaku.settings.config import ProviderConfig
 from otaku.settings.files import toml_scalar
 from otaku.terminal import clipboard, latin_key
 from otaku.terminal.spinner import FRAMES as SPINNER_FRAMES
-from otaku.tui.screen import BASE_STYLE, ListScreen, bordered_box, text_line
+from otaku.terminal.theme import theme
+from otaku.tui.screen import ListScreen, base_style, bordered_box, text_line
 
-_STYLE = Style.from_dict(
-    {
-        **BASE_STYLE,
-        "row.loaded": "bold fg:#000000 bg:#ffffff",
-        "row.notloaded": "fg:#767676 bg:#ffffff",
-        "row.plain": "fg:#000000 bg:#ffffff",
-        "row.selected.loaded": "bold fg:#000000 bg:#e4e4e4",
-        "row.selected.notloaded": "bold fg:#767676 bg:#e4e4e4",
-        "row.selected.plain": "fg:#000000 bg:#e4e4e4",
-        "header.detail": "nobold fg:#303030 bg:#ffffff",  # the light parts of the bold header
-        "row.selected": "bold fg:#000000 bg:#e4e4e4",
-        "dialog.error": "bold fg:#c0392b bg:#ffffff",
-        "preview.title": "bold fg:#303030 bg:#ffffff",
-        "preview.body": "fg:#000000 bg:#ffffff",
-        "preview.muted": "fg:#767676 bg:#ffffff",  # the unloaded models' look
-        "field.cursor": "fg:#ffffff bg:#303030",
-        "tick": "fg:#2f9e44 bg:#ffffff",
-        "notice": "fg:#767676 bg:#ffffff",
-    }
-)
+
+def _style() -> Style:
+    """Shared chrome from `base_style` plus the picker's row, preview and
+    panel overrides, in the shades the terminal background asked for."""
+    colors = theme()
+    panel = f"bg:{colors.panel.style}"
+    band = f"bg:{colors.selection.style}"
+    raised = f"bg:{colors.raised.style}"
+    return Style.from_dict(
+        {
+            **base_style(),
+            "row.loaded": f"bold fg:{colors.text.style} {panel}",
+            "row.notloaded": f"dim fg:{colors.muted.style} {panel}",
+            "row.plain": f"fg:{colors.text.style} {panel}",
+            "row.selected.loaded": f"bold fg:{colors.ink.style} {band}",
+            "row.selected.notloaded": f"dim fg:{colors.ink.style} {band}",
+            "row.selected.plain": f"fg:{colors.ink.style} {band}",
+            # the light parts of the bold header
+            "header.detail": f"nobold fg:{colors.title.style} {panel}",
+            "row.selected": f"bold fg:{colors.ink.style} {band}",
+            "dialog.error": f"bold fg:{colors.error.style} {raised}",
+            "preview.title": f"bold fg:{colors.title.style} {panel}",
+            "preview.body": f"fg:{colors.text.style} {panel}",
+            "preview.muted": f"dim fg:{colors.muted.style} {panel}",  # the unloaded models' look
+            # The text cursor, drawn as a block: whatever it sits on,
+            # inverted — the one styling that needs no color at all.
+            "field.cursor": "reverse",
+            "tick": f"fg:{colors.ok.style} {panel}",
+            "notice": f"dim fg:{colors.muted.style} {panel}",
+        }
+    )
+
 
 # A model row's shape: a 4-column prefix ("  > "), the model name, then
 # two right-aligned columns held at a FIXED width — the widest label
@@ -862,14 +875,15 @@ class ModelPicker(ListScreen):
             wrap_lines=False,
             always_hide_cursor=True,
             # The window spans its whole half, so its style paints every
-            # cell the rows leave bare — a shrunk window would leave the
-            # leftover columns to the terminal's own (maybe dark)
-            # background.
+            # cell the rows leave bare. It must be a class that carries no
+            # ATTRIBUTE: a window's style is what its fragments build on,
+            # and each of them overrides only the colors it names — a `dim`
+            # here would grey out every row and caption in the pane.
             # Two lines of margin above the cursor: exactly the caption
             # and its blank, so a group's header scrolls into view when
             # the cursor stands on the group's first model.
             scroll_offsets=ScrollOffsets(top=2),
-            style="class:row.notloaded",
+            style="class:row.plain",
         )
 
         # Bottom row: the filter input when filtering, otherwise the help
@@ -946,7 +960,7 @@ class ModelPicker(ListScreen):
 
         dialog = HSplit([busy_dialog, confirm_dialog])
         root = VSplit([left_pane, self._preview_gap(), provider_panel])
-        return self._finish_app(root, bindings, _STYLE, floats=[dialog])
+        return self._finish_app(root, bindings, _style(), floats=[dialog])
 
 
 def pick(

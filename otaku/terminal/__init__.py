@@ -10,9 +10,7 @@ layout just works without ever being announced — help text still says
 control byte from the physical key, the same in any layout.
 """
 
-import re
-
-from otaku.terminal import query
+from otaku.terminal.theme import color, theme
 
 # SGR text attributes
 BOLD = "\x1b[1m"
@@ -55,22 +53,20 @@ PROMPT_CONTINUATION = "... "
 # the echoed block keeps its `> ` and the row arithmetic is untouched.
 CLOUD_PROMPT_PREFIX = "$ "
 
-# A played user turn, echoed: its text on a band the background picks —
-# light grey on a light theme, deep grey on a dark one, the text in the
-# terminal's normal color either way. An unanswered background reads as
-# light (the shipped look; a pipe has no colors to clash with).
-_USER_TURN_LIGHT = "\x1b[48;2;240;240;240m"
-_USER_TURN_DARK = "\x1b[48;2;48;48;48m"
-
 
 def user_block(text: str) -> str:
-    """`text` as the submitted-turn block: every line on the band behind a
-    `> ` marker echoing the prompt. The band runs the full terminal
+    """`text` as the submitted-turn block: every line on the theme's band
+    behind a `> ` marker echoing the prompt. The band runs the full terminal
     width — erase-to-end-of-line with the background active paints the
     rest of the row, so no width math is needed. Printed between blank
     lines by the callers."""
-    band = _USER_TURN_DARK if query.background_is_dark() else _USER_TURN_LIGHT
-    lines = text.splitlines() or [""]
+    colors = theme()
+    # A span inside `text` that ended by returning to the DEFAULT foreground
+    # is returning to the TERMINAL's, not the band's — put the band's back,
+    # or a highlighted command leaves the rest of its line unreadable.
+    painted = text.replace(color("default").fg, colors.ink.fg)
+    band = colors.band.bg + colors.ink.fg
+    lines = painted.splitlines() or [""]
     return "\n".join(f"{band}{PROMPT_PREFIX}{line}\x1b[K{RESET}" for line in lines)
 
 
@@ -85,56 +81,6 @@ def break_rule(width: int) -> str:
     """The break rule, `width` columns wide — one row, printed by the
     caller (chat/screen.py, which decides where a break falls)."""
     return _RULE_CHAR * width
-
-
-# Color specs. A NAME is the portable form: it compiles to one of the 16
-# palette slots, which every terminal on every platform renders and the
-# user's own theme shades, so it stays legible on light and dark alike. A
-# #rrggbb is truecolor — exact everywhere, and therefore fixed.
-_COLOR_NAMES = {
-    "black": 30,
-    "red": 31,
-    "green": 32,
-    "yellow": 33,
-    "blue": 34,
-    "magenta": 35,
-    "cyan": 36,
-    "white": 37,
-    "bright black": 90,
-    "bright red": 91,
-    "bright green": 92,
-    "bright yellow": 93,
-    "bright blue": 94,
-    "bright magenta": 95,
-    "bright cyan": 96,
-    "bright white": 97,
-}
-_HEX = re.compile(r"^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$")
-
-
-def color(spec: str) -> str:
-    """A color name ("cyan", "bright blue") or a #rrggbb hex → the SGR
-    foreground escape. "" when the spec is neither, so a caller can fall
-    back to its default rather than print garbage."""
-    text = " ".join(spec.strip().lower().replace("-", " ").replace("_", " ").split())
-    slot = _COLOR_NAMES.get(text)
-    if slot is not None:
-        return f"\x1b[{slot}m"
-    m = _HEX.match(spec.strip())
-    if m is None:
-        return ""
-    r, g, b = (int(part, 16) for part in m.groups())
-    return f"\x1b[38;2;{r};{g};{b}m"
-
-
-def fg(color: int) -> str:
-    """SGR 256-color foreground."""
-    return f"\x1b[38;5;{color}m"
-
-
-def bg(color: int) -> str:
-    """SGR 256-color background."""
-    return f"\x1b[48;5;{color}m"
 
 
 def latin_key(key: str) -> str:

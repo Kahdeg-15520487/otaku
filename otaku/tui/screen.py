@@ -39,6 +39,8 @@ from prompt_toolkit.layout.controls import FormattedTextControl, UIControl
 from prompt_toolkit.layout.dimension import AnyDimension, D
 from prompt_toolkit.styles import Style
 
+from otaku.terminal.theme import theme
+
 _PREVIEW_OUTER_GAP = 3  # cols between items pane and preview border
 _PREVIEW_INNER_PAD = 2  # cols inside the border, both sides
 
@@ -391,21 +393,29 @@ class ListScreen:
         return app
 
 
-# Style entries shared between the pickers. Each merges its own row /
-# preview / dialog overrides on top of this dict.
-BASE_STYLE: dict[str, str] = {
-    "": "fg:#000000 bg:#ffffff",
-    "header": "bold fg:#303030 bg:#ffffff",
-    "muted": "fg:#767676 bg:#ffffff",
-    "filter": "fg:#767676 bg:#ffffff",
-    "filter.query": "bold fg:#303030 bg:#ffffff",
-    "help": "fg:#767676 bg:#ffffff",
-    "frame.border": "fg:#767676 bg:#ffffff",
-    "dialog.border": "fg:#767676 bg:#ffffff",
-    "dialog.title": "bold fg:#000000 bg:#ffffff",
-    "dialog.body": "fg:#000000 bg:#ffffff",
-    "dialog.muted": "fg:#767676 bg:#ffffff",
-}
+def base_style() -> dict[str, str]:
+    """Style entries shared between the pickers — the chrome every one of
+    them draws. Each merges its own row / preview / dialog overrides on
+    top. Built per call, not at import: the shades come from the terminal
+    theme, which cannot be settled until the background has answered."""
+    colors = theme()
+    panel = f"bg:{colors.panel.style}"
+    # A dialog floats OVER the list, so it paints: the rows behind it would
+    # otherwise read straight through its border.
+    raised = f"bg:{colors.raised.style}"
+    return {
+        "": f"fg:{colors.text.style} {panel}",
+        "header": f"bold fg:{colors.title.style} {panel}",
+        "muted": f"dim fg:{colors.muted.style} {panel}",
+        "filter": f"dim fg:{colors.muted.style} {panel}",
+        "filter.query": f"bold fg:{colors.title.style} {panel}",
+        "help": f"dim fg:{colors.muted.style} {panel}",
+        "frame.border": f"dim fg:{colors.muted.style} {panel}",
+        "dialog.border": f"dim fg:{colors.muted.style} {raised}",
+        "dialog.title": f"bold fg:{colors.ink.style} {raised}",
+        "dialog.body": f"fg:{colors.ink.style} {raised}",
+        "dialog.muted": f"dim fg:{colors.muted.style} {raised}",
+    }
 
 
 def term_cols() -> int:

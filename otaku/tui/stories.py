@@ -7,15 +7,15 @@ the split changes.
 
   View 1 (story list) — list and preview share the width 50/50:
         Stories (N)                    │ ┌────────────────┐
-        <blank>                        │ │  model name    │  bold #303030
-          > 05-02 16:55 · 6 msg · t…   │ │  Sat … · 2h ago│  #767676
+        <blank>                        │ │  model name    │  bold, title
+          > 05-02 16:55 · 6 msg · t…   │ │  Sat … · 2h ago│  muted
           ...                          │ │  arc text…     │
-        <blank>                        │ │  first prompt: │  #767676
+        <blank>                        │ │  first prompt: │  muted
         type to filter · ↑/↓ · …       │ │  prompt text…  │
                                        │ └────────────────┘
 
   View 2 (message list) — list gets 2/3, preview 1/3:
-        Story: The Long Road · 12 messages           bold #303030
+        Story: The Long Road · 12 messages           bold, title
         <blank>
           >  1. [user] I push the d…   │ ┌────────────┐
           ...                          │ │  1. user   │  the selected
@@ -59,27 +59,33 @@ from otaku.store import Store
 from otaku.store.schema import Message
 from otaku.store.stories import StoryListing
 from otaku.terminal import latin_key
+from otaku.terminal.theme import theme
 from otaku.tui.screen import (
-    BASE_STYLE,
     ListScreen,
     ansi_fragments,
+    base_style,
     bordered_box,
     wrap_text,
 )
 
-# Light palette — shared chrome from BASE_STYLE plus the row + preview
-# overrides this browser needs.
-_STYLE = Style.from_dict(
-    {
-        **BASE_STYLE,
-        "row": "fg:#000000 bg:#ffffff",
-        "row.selected": "bold fg:#000000 bg:#e4e4e4",
-        "preview.title": "bold fg:#303030 bg:#ffffff",
-        "preview.muted": "fg:#767676 bg:#ffffff",
-        "preview.body": "fg:#000000 bg:#ffffff",
-        "notice": "fg:#767676 bg:#ffffff",
-    }
-)
+
+def _style() -> Style:
+    """Shared chrome from `base_style` plus the row and preview overrides
+    this browser needs, in the shades the terminal background asked for."""
+    colors = theme()
+    panel = f"bg:{colors.panel.style}"
+    return Style.from_dict(
+        {
+            **base_style(),
+            "row": f"fg:{colors.text.style} {panel}",
+            "row.selected": f"bold fg:{colors.ink.style} bg:{colors.selection.style}",
+            "preview.title": f"bold fg:{colors.title.style} {panel}",
+            "preview.muted": f"dim fg:{colors.muted.style} {panel}",
+            "preview.body": f"fg:{colors.text.style} {panel}",
+            "notice": f"dim fg:{colors.muted.style} {panel}",
+        }
+    )
+
 
 # List-to-preview split, list:preview. The story list gets an even split so
 # the preview has room for the arc; the message view gives the list twice the
@@ -632,7 +638,7 @@ class StoryPicker(ListScreen):
         )
 
         root = VSplit([left_pane, self._preview_gap(), preview_pane])
-        return self._finish_app(root, bindings, _STYLE, floats=[confirm_dialog, resume_dialog])
+        return self._finish_app(root, bindings, _style(), floats=[confirm_dialog, resume_dialog])
 
 
 def pick(

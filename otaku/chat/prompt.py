@@ -46,13 +46,11 @@ from prompt_toolkit.layout.controls import BufferControl
 from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.styles import Style
 
-from otaku.chat import rendering
 from otaku.chat.completer import SlashCompleter
-from otaku.chat.session import Session
-from otaku.settings.config import Config
+from otaku.chat.session import Session, message
 from otaku.store import Store
 from otaku.terminal import statusline
-from otaku.terminal.typography import command_color
+from otaku.terminal.theme import theme
 
 PLACEHOLDER = FormattedText([("class:placeholder", "Send a message")])
 
@@ -180,13 +178,9 @@ class _CommandLexer(Lexer):
     decides what a command is and the line does not change appearance
     between being typed and being answered."""
 
-    def __init__(self, config: Config) -> None:
-        self._config = config
-
     def lex_document(self, document: Document) -> Callable[[int], StyleAndTextTuples]:
         def line(number: int) -> StyleAndTextTuples:
-            text = rendering.message(document.lines[number], "user", config=self._config)
-            return to_formatted_text(ANSI(text))
+            return to_formatted_text(ANSI(message(document.lines[number], "user")))
 
         return line
 
@@ -216,7 +210,7 @@ def build_prompt(
     prompt_session: PromptSession[str] = PromptSession(
         history=_StoreHistory(store),
         completer=completer,
-        lexer=_CommandLexer(session.config),
+        lexer=_CommandLexer(),
         key_bindings=_make_bindings(carry, menu_line),
         complete_while_typing=menu_line,
         enable_history_search=False,
@@ -248,14 +242,13 @@ def _prompt_style() -> Style:
     terminal is only asked once the session has started (see repl.run)."""
     # The accent the selected row is picked out by: the color a command
     # shows in once it is typed, so the row you are about to insert already
-    # reads as what it will become. The name comes from the highlighter so
-    # the two cannot drift; the 16-slot palette names map onto
-    # prompt_toolkit's by dropping the space ("bright magenta" ->
-    # "ansibrightmagenta").
-    accent = f"fg:ansi{command_color().replace(' ', '')}"
+    # reads as what it will become. The same theme slot the highlighter
+    # paints with, in the form prompt_toolkit wants.
+    colors = theme()
+    accent = f"fg:{colors.command.style}"
     return Style.from_dict(
         {
-            "placeholder": "fg:#8a8a8a",
+            "placeholder": f"fg:{colors.placeholder.style}",
             # The command menu: no colored panel — plain text on the terminal's
             # own background, dim descriptions, and the selected ROW (command and
             # description in ONE color) picked out by the accent instead of a

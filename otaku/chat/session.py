@@ -13,15 +13,22 @@ A typed message goes to the model verbatim: the only injectors are the
 explicit commands (`/me`, `/you`, `/ooc`), and what they inject is the
 template stored on the turn, filled with the line's own name and text only
 at wire time.
+
+`message` is here too, and it is the module's one piece that has nothing
+to do with a session: how a message LOOKS, decided once for the prompt,
+the played block, the resume echo and the story browser alike. It lives
+beside them because every one of those callers already reads this module,
+and nothing below it needs to.
 """
 
 import contextlib
+import io
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Self
 
-from otaku.chat import rendering
+from otaku.chat.help import command_tokens
 from otaku.chat.screen import ScreenLedger
 from otaku.formatting import flatten, truncate
 from otaku.lore.worker import LoreWorker
@@ -37,6 +44,7 @@ from otaku.store.schema import Message
 from otaku.store.stories import StoryListing
 from otaku.terminal import user_block
 from otaku.terminal.statusline import StatusLine
+from otaku.terminal.typography import Typesetter, highlight_commands
 
 # The inference parameters otaku understands, and how each is read from the
 # saved file or a `/set parameter` argument.
@@ -363,14 +371,14 @@ class Session:
             )
             above = ""  # the report belongs to the oldest exchange only
 
-    def _rendered_turn(self, message: Message) -> str:
+    def _rendered_turn(self, turn: Message) -> str:
         """One turn exactly as the echoes print it: a user turn as the grey
         block, a model turn as it streamed — the trailing newline
         normalized away, the caller joining and terminating lines. One
         renderer for showing AND measuring, so the screen ledger can never
         disagree with the echo."""
-        styled = rendering.message(message.body, message.role, config=self.config)
-        if message.role == "user":
+        styled = message(turn.body, turn.role)
+        if turn.role == "user":
             return user_block(styled)
         return "\n".join(styled.splitlines())
 
@@ -407,3 +415,27 @@ class Session:
             return
         head = self.messages[-1].id if self.messages else None
         store.stories.set_head(self.story_id, head)
+
+
+def message(text: str, role: str) -> str:
+    """How a message LOOKS, wherever it is shown — the grey played block,
+    the line being typed into it, the turns a resume echoes, a row in the
+    story browser and its preview.
+
+    A request has its commands picked out; a reply is typeset the way it
+    streamed. One or the other, never both: they are counterparts, not
+    layers. The reply goes through the very typesetter it arrived on, run
+    to the end in one pass, so a turn echoed on resume is the same text
+    that was on screen when it played.
+
+    Takes no settings — the user's colors reached `terminal.theme` at the
+    launch, so a caller only has to say WHAT it is drawing. `tui` may not
+    read chat at all, which is why the story browser is handed this
+    function rather than the pieces to rebuild it from."""
+    if role == "user":
+        return highlight_commands(text, command_tokens())
+    out = io.StringIO()
+    typesetter = Typesetter(out)
+    typesetter.feed(text)
+    typesetter.flush()
+    return out.getvalue()
