@@ -147,6 +147,20 @@ syntax, which `lore` must read to compose the wire. It stays safe by being
 a LEAF of `chat` — it imports nothing from its own package, so the cycle
 is never real. The moment it imports a sibling, the arrow breaks.
 
+`chat.help` is a leaf for the same reason, one level down: it owns the
+command surface — every name, what each takes, what it is called — while
+`chat.commands` owns the handlers and therefore imports `chat.session`.
+The names are upstream of everything that answers to them, so any module
+in `chat` may read them (the screen ledger and the prompt's highlighting
+both do) without waiting on the dispatch table.
+
+`chat.rendering` is a leaf for the third time over, and the reason is the
+same shape: it owns how a message LOOKS — a reply typeset the way it
+streamed, a request with its commands picked out — and its callers sit at
+every level, the screen ledger (which the session imports) included. `tui`
+may not read chat at all, so the story browser is handed `rendering.message`
+outright. One decision, made once, reachable from everywhere.
+
 The data model lives in `otaku/store/schema.py` (the DDL, its semantics,
 and the row types).
 

@@ -31,45 +31,31 @@ from prompt_toolkit.application.current import get_app
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.completion import Completion
 from prompt_toolkit.cursor_shapes import CursorShape
+from prompt_toolkit.document import Document
 from prompt_toolkit.filters import Condition, completion_is_selected, has_completions
-from prompt_toolkit.formatted_text import FormattedText, StyleAndTextTuples
+from prompt_toolkit.formatted_text import (
+    ANSI,
+    FormattedText,
+    StyleAndTextTuples,
+    to_formatted_text,
+)
 from prompt_toolkit.history import History
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import menus as _ptk_menus
 from prompt_toolkit.layout.controls import BufferControl
+from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.styles import Style
 
+from otaku.chat import rendering
 from otaku.chat.completer import SlashCompleter
 from otaku.chat.session import Session
+from otaku.settings.config import Config
 from otaku.store import Store
 from otaku.terminal import statusline
+from otaku.terminal.typography import command_color
 
 PLACEHOLDER = FormattedText([("class:placeholder", "Send a message")])
 
-_PROMPT_STYLE = Style.from_dict(
-    {
-        "placeholder": "fg:#8a8a8a",
-        # The command menu: no colored panel — plain text on the terminal's
-        # own background, dim descriptions, and the selected ROW (command and
-        # description in ONE color) picked out by an accent instead of a
-        # block. ANSI palette colors, so both dark and light themes work.
-        "completion-menu": "bg:default",
-        "completion-menu.completion": "bg:default fg:default",
-        # `noreverse` matters: the default sheet marks the current row
-        # `reverse`, and overriding only the colors leaves the flag on —
-        # rendering as a colored BLOCK with swapped fg/bg.
-        "completion-menu.completion.current": "bg:default fg:ansiblue noreverse",
-        "completion-menu.meta.completion": "bg:default fg:ansibrightblack",
-        "completion-menu.meta.completion.current": "bg:default fg:ansiblue noreverse",
-        "scrollbar.background": "bg:default",
-        "scrollbar.button": "bg:ansibrightblack",
-        # prompt_toolkit styles the bottom toolbar `reverse` by default — a
-        # full-width grey bar; noreverse leaves it plain, dim like the
-        # pinned row it hands off to.
-        "bottom-toolbar": "noreverse",
-        "bottom-toolbar.text": "noreverse fg:ansibrightblack",
-    }
-)
 
 # Keys that submit a command instead of text.
 _SHORTCUTS = {
@@ -184,6 +170,27 @@ class _StoreHistory(History):
             self._store.history.add(string)
 
 
+class _CommandLexer(Lexer):
+    """Colors the commands in the line being typed — and leaves them
+    colored once it is submitted, which is the only way a command that is
+    not played ever shows styled: its typed line stays on screen with the
+    output under it, never replaced by the grey block.
+
+    The same highlighter the echo and the story browser use, so one rule
+    decides what a command is and the line does not change appearance
+    between being typed and being answered."""
+
+    def __init__(self, config: Config) -> None:
+        self._config = config
+
+    def lex_document(self, document: Document) -> Callable[[int], StyleAndTextTuples]:
+        def line(number: int) -> StyleAndTextTuples:
+            text = rendering.message(document.lines[number], "user", config=self._config)
+            return to_formatted_text(ANSI(text))
+
+        return line
+
+
 def build_prompt(
     session: Session, store: Store, carry: Carry, assembler: LineAssembler
 ) -> PromptSession[str]:
@@ -209,10 +216,11 @@ def build_prompt(
     prompt_session: PromptSession[str] = PromptSession(
         history=_StoreHistory(store),
         completer=completer,
+        lexer=_CommandLexer(session.config),
         key_bindings=_make_bindings(carry, menu_line),
         complete_while_typing=menu_line,
         enable_history_search=False,
-        style=_PROMPT_STYLE,
+        style=_prompt_style(),
         cursor=CursorShape.BLINKING_BEAM,
         bottom_toolbar=_activity_toolbar(session),
     )
@@ -232,6 +240,43 @@ def build_prompt(
     # Pre-select the first row whenever the menu (re)populates.
     prompt_session.default_buffer.on_completions_changed += lambda buf: _preselect_first(buf)
     return prompt_session
+
+
+def _prompt_style() -> Style:
+    """The prompt's style sheet. Built when the prompt is, not at import:
+    `class:command` names the shade the background decided, and the
+    terminal is only asked once the session has started (see repl.run)."""
+    # The accent the selected row is picked out by: the color a command
+    # shows in once it is typed, so the row you are about to insert already
+    # reads as what it will become. The name comes from the highlighter so
+    # the two cannot drift; the 16-slot palette names map onto
+    # prompt_toolkit's by dropping the space ("bright magenta" ->
+    # "ansibrightmagenta").
+    accent = f"fg:ansi{command_color().replace(' ', '')}"
+    return Style.from_dict(
+        {
+            "placeholder": "fg:#8a8a8a",
+            # The command menu: no colored panel — plain text on the terminal's
+            # own background, dim descriptions, and the selected ROW (command and
+            # description in ONE color) picked out by the accent instead of a
+            # block. ANSI palette colors, so both dark and light themes work.
+            "completion-menu": "bg:default",
+            "completion-menu.completion": "bg:default fg:default",
+            # `noreverse` matters: the default sheet marks the current row
+            # `reverse`, and overriding only the colors leaves the flag on —
+            # rendering as a colored BLOCK with swapped fg/bg.
+            "completion-menu.completion.current": f"bg:default {accent} noreverse",
+            "completion-menu.meta.completion": "bg:default fg:ansibrightblack",
+            "completion-menu.meta.completion.current": f"bg:default {accent} noreverse",
+            "scrollbar.background": "bg:default",
+            "scrollbar.button": "bg:ansibrightblack",
+            # prompt_toolkit styles the bottom toolbar `reverse` by default — a
+            # full-width grey bar; noreverse leaves it plain, dim like the
+            # pinned row it hands off to.
+            "bottom-toolbar": "noreverse",
+            "bottom-toolbar.text": "noreverse fg:ansibrightblack",
+        }
+    )
 
 
 def _activity_toolbar(session: Session) -> Callable[[], FormattedText]:

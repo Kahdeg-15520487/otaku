@@ -14,7 +14,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from otaku import crypto
-from otaku.chat import repl
+from otaku.chat import rendering, repl
 from otaku.chat.commands.transfer import import_story
 from otaku.chat.session import TUI, Session
 from otaku.formatting import pretty_path
@@ -108,8 +108,7 @@ class App:
                     store,
                     rows,
                     current,
-                    dialogue_color=cfg.dialogue_color,
-                    dialogue_bold=cfg.dialogue_bold,
+                    render=lambda text, role: rendering.message(text, role, config=cfg),
                 ),
                 browse_lore=lore_browser.browse,
             )

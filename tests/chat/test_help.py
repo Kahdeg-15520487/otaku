@@ -1,4 +1,4 @@
-"""What the command table tells the menu about a row.
+"""What the command surface tells the rest of the app about a row.
 
 `needs_argument` answers whether a command is incomplete as it stands, and
 the answer comes from its `_HELP_ROWS` label — the same row the menu shows
@@ -6,9 +6,13 @@ as its description — so the two can never disagree about what a command
 takes. A required follower leaves the line unfinished; a bracketed one is
 optional, which means the bare command is both valid and the usual thing
 meant, and Enter should send it rather than reach for the rarer option.
+
+`command_tokens` reads the same labels for the names alone: the vocabulary
+display picks commands out by. A label that is a key at the prompt rather
+than a command ("Up / Down", `@`) must not contribute one.
 """
 
-from otaku.chat.commands import needs_argument
+from otaku.chat.help import command_tokens, needs_argument
 
 
 class TestNeedsArgument:
@@ -45,3 +49,26 @@ class TestNeedsArgument:
 
     def test_an_unknown_command_needs_nothing(self) -> None:
         assert needs_argument(("/nonesuch",)) is False
+
+
+class TestCommandTokens:
+    def test_names_every_command_the_help_lists(self) -> None:
+        tokens = command_tokens()
+        for command in ("/me", "/you", "/ooc", "/cue", "/undo", "/set", "/info", "/bye"):
+            assert command in tokens, command
+
+    def test_holds_each_name_once(self) -> None:
+        # `/ooc` is written twice — opening a line, and inside one.
+        tokens = command_tokens()
+        assert len(tokens) == len(set(tokens))
+
+    def test_leaves_out_what_is_a_key_rather_than_a_command(self) -> None:
+        # "Up / Down" carries a bare slash; `@` and '"""' carry none.
+        tokens = command_tokens()
+        assert "/" not in tokens
+        assert all(token.startswith("/") and len(token) > 1 for token in tokens)
+
+    def test_leaves_out_the_argument_placeholders(self) -> None:
+        # A label is "/me NAME: PROMPT" — only its command is a token.
+        for word in ("PROMPT", "NAME", "TEXT", "FILE", "@"):
+            assert word not in command_tokens(), word

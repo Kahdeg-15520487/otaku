@@ -26,14 +26,8 @@ from prompt_toolkit.completion import CompleteEvent, Completer, Completion
 from prompt_toolkit.document import Document
 
 from otaku.chat import pathcomplete
-from otaku.chat.commands import (
-    PATH_LEAF,
-    CompletionTree,
-    completion_tree,
-    describe_command,
-    inliner_menu,
-    needs_argument,
-)
+from otaku.chat.commands import PATH_LEAF, CompletionTree, completion_tree, inliner_menu
+from otaku.chat.help import describe_command, needs_argument
 
 
 class MenuRow(Completion):

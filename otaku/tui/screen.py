@@ -22,7 +22,7 @@ from prompt_toolkit.application import Application
 from prompt_toolkit.application.current import get_app
 from prompt_toolkit.data_structures import Point
 from prompt_toolkit.filters import Condition, FilterOrBool
-from prompt_toolkit.formatted_text import StyleAndTextTuples
+from prompt_toolkit.formatted_text import ANSI, StyleAndTextTuples, to_formatted_text
 from prompt_toolkit.key_binding import KeyBindings, KeyBindingsBase
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout import Layout
@@ -156,11 +156,25 @@ class ListScreen:
         """One list row, padded to the full items pane: every row ends in
         the same column, so the selection band is a rectangle and the gap
         before the preview's border is `_preview_gap` on every line — not
-        only on the rows long enough to fill their width."""
+        only on the rows long enough to fill their width.
+
+        A row carrying escape sequences is read as styling instead of text
+        (see `ansi_fragments`), so it can bring color of its own over the
+        selection band, and its padding is measured off the parsed
+        fragments — the escapes take no columns. Detected rather than
+        declared: a caller styling its rows should not also have to say
+        so, and a plain row skips the parse."""
         prefix = "  > " if selected else "    "
         base = "row.dim" if dim else "row"
         style = f"class:{base}.selected" if selected else f"class:{base}"
-        out.append((style, (prefix + row).ljust(self._max_row_content_width()) + "\n"))
+        text = prefix + row
+        if "\x1b" not in text:
+            out.append((style, text.ljust(self._max_row_content_width()) + "\n"))
+            return
+        fragments = ansi_fragments(text, style)
+        pad = self._max_row_content_width() - sum(len(part[1]) for part in fragments)
+        out.extend(fragments)
+        out.append((style, " " * max(0, pad) + "\n"))
 
     # ---------- width arithmetic ----------
 
@@ -419,6 +433,22 @@ def wrap_text(text: str, width: int) -> list[str]:
         wrapped = textwrap.wrap(line, width=width, break_long_words=True, break_on_hyphens=False)
         out.extend(wrapped or [""])
     return out
+
+
+def ansi_fragments(text: str, style: str) -> StyleAndTextTuples:
+    """`text`'s escape sequences read as styling over `style`: what they
+    set (a color, an emphasis) wins, what they leave alone stands.
+
+    A default-FOREGROUND escape drops out instead of translating. The
+    pickers paint their own palette — black on white, whatever the
+    terminal's theme — so returning to the terminal's default foreground
+    would be the wrong color, and white text on the white row of a
+    dark-themed terminal is invisible. Dropping the token returns to
+    `style`'s own foreground, which is what the escape means here."""
+    return [
+        (part[0].replace("ansidefault", "").strip(), part[1])
+        for part in to_formatted_text(ANSI(text), style=style)
+    ]
 
 
 def bordered_box(

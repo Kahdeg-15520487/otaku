@@ -19,6 +19,7 @@ import sys
 from typing import Any, TextIO, cast
 
 from otaku import __version__
+from otaku.chat import rendering
 from otaku.chat.commands import dispatch
 from otaku.chat.commands.lore import build_job
 from otaku.chat.framing import framing
@@ -44,6 +45,7 @@ from otaku.terminal import (
     banner,
 )
 from otaku.terminal.cursor import measure, terminal_width
+from otaku.terminal.query import background_is_dark
 from otaku.terminal.statusline import StatusLine
 
 
@@ -73,6 +75,13 @@ def run(session: Session, store: Store) -> None:
     # DECSCUSR shape escape prompt_toolkit emits.
     sys.stdout.write(CURSOR_BLINK_ON)
     sys.stdout.flush()
+    # Ask the terminal what it looks like once, here — the answer shades
+    # every color the session prints. Asking means READING stdin, and from
+    # the first prompt on prompt_toolkit owns stdin in raw mode: a query
+    # issued from inside a render (the prompt's own highlighting is one)
+    # eats the keystroke it lands on. Cached for the session, so this is
+    # the only call that can reach the terminal.
+    background_is_dark()
 
     if session.config.show_banner:
         print(_banner(session, store))
@@ -218,7 +227,7 @@ def submit(line: str, session: Session, store: Store) -> None:
                 session.screen.invalidate()
                 print(error)
             else:
-                session.screen.echo_block(line)
+                session.screen.echo_block(rendering.message(line, "user", config=session.config))
                 session.record_turn(
                     store,
                     Message(

@@ -21,6 +21,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Self
 
+from otaku.chat import rendering
 from otaku.chat.screen import ScreenLedger
 from otaku.formatting import flatten, truncate
 from otaku.lore.worker import LoreWorker
@@ -36,7 +37,6 @@ from otaku.store.schema import Message
 from otaku.store.stories import StoryListing
 from otaku.terminal import user_block
 from otaku.terminal.statusline import StatusLine
-from otaku.terminal.typography import typeset
 
 # The inference parameters otaku understands, and how each is read from the
 # saved file or a `/set parameter` argument.
@@ -365,17 +365,13 @@ class Session:
 
     def _rendered_turn(self, message: Message) -> str:
         """One turn exactly as the echoes print it: a user turn as the grey
-        block, a model turn typeset with the configured dialogue look — the
-        trailing newline normalized away, the caller joining and
-        terminating lines. One renderer for showing AND measuring, so the
-        screen ledger can never disagree with the echo."""
+        block, a model turn as it streamed — the trailing newline
+        normalized away, the caller joining and terminating lines. One
+        renderer for showing AND measuring, so the screen ledger can never
+        disagree with the echo."""
+        styled = rendering.message(message.body, message.role, config=self.config)
         if message.role == "user":
-            return user_block(message.body)
-        styled = typeset(
-            message.body,
-            speech_color=self.config.dialogue_color,
-            speech_bold=self.config.dialogue_bold,
-        )
+            return user_block(styled)
         return "\n".join(styled.splitlines())
 
     def reload_params(self) -> None:

@@ -11,6 +11,10 @@ changes.
 - Two inline commands, typed inside a line rather than opening one: `/ooc` for an aside out of
   character, and `/cue` to steer just the next reply — a cue goes out with the turn it rode in on
   and is not kept in context afterwards.
+- Commands are colored wherever they appear: while you type one, in the played block once it is
+  sent, and in the story browser's rows and preview. Only real commands light up, so a slash in
+  ordinary prose (`and/or`, a URL) stays prose. The completion menu marks the selected row in the
+  same color, so a row reads as what it will become once inserted.
 
 ## [0.2.2] - 2026-08-08
 

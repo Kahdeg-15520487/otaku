@@ -23,7 +23,6 @@ the closing fence). State survives chunk boundaries; `flush()` closes any
 open span or unterminated fence so the terminal is never left styled.
 """
 
-import io
 import re
 import shutil
 import sys
@@ -66,6 +65,11 @@ _HANDOVER_AFTER = ",.!?…:;"
 # light (the shipped look; a pipe has no colors to clash with).
 _AUTO_LIGHT = "blue"  # ANSI 34
 _AUTO_DARK = "bright blue"  # ANSI 94
+# The command slots, the same dark/light pair trick one hue over: blue
+# is dialogue's, so a command reads as its own thing beside it.
+_COMMAND_LIGHT = "magenta"  # ANSI 35
+_COMMAND_DARK = "bright magenta"  # ANSI 95
+_DEFAULT_FG = "\x1b[39m"
 
 
 class Typesetter:
@@ -410,15 +414,42 @@ class Typesetter:
         self._pending = ""
 
 
-def typeset(text: str, *, speech_color: str = "auto", speech_bold: bool = False) -> str:
-    """`text` rendered in one pass, returned as a string: exactly what the
-    streamer would have printed — for echoing stored messages the way they
-    looked when they streamed."""
-    out = io.StringIO()
-    streamer = Typesetter(out, speech_color=speech_color, speech_bold=speech_bold)
-    streamer.feed(text)
-    streamer.flush()
-    return out.getvalue()
+def highlight_commands(text: str, commands: tuple[str, ...]) -> str:
+    """`text` with every command in `commands` picked out — what a REQUEST
+    looks like once it is sent, in the grey played block and in the picker.
+
+    The counterpart to the streamer, not a layer on it: a reply is typeset,
+    a request is highlighted, and no row gets both. Only the slash word is
+    coloured, never what follows it, so a name or an argument reads as the
+    prose it is.
+
+    `commands` is the whole vocabulary — the caller passes it, because what
+    counts as a command belongs to the chat layer, not to the terminal.
+    Nothing else lights up: prose keeps its slashes, and a line that only
+    looks like a command reads as the prose it is."""
+    escape = color(command_color())
+    if not commands or not escape:
+        return text
+    # A command opens a line or follows whitespace and does not run on into
+    # a longer word — the same boundaries the parser reads one by, so
+    # `and/or`, `https://x.co` and `/mention` stay prose. Longest first, so
+    # `/me` cannot claim the opening of `/merge`.
+    alternatives = "|".join(
+        re.escape(command) for command in sorted(commands, key=len, reverse=True)
+    )
+    pattern = re.compile(rf"(?m)(?:^|(?<=\s))(?:{alternatives})(?!\w)")
+    # Default FOREGROUND, not a full reset: the grey played block paints a
+    # background band per line, and a reset would knock it out mid-line.
+    return pattern.sub(lambda m: f"{escape}{m.group(0)}{_DEFAULT_FG}", text)
+
+
+def command_color() -> str:
+    """The color a command is picked out in, as a NAME: the dark slot on a
+    light background, the bright slot on a dark one. `highlight_commands`
+    compiles it to an escape; a caller that paints a command some other way
+    — the completion menu, which prompt_toolkit styles itself — needs the
+    name, and both must name the same color."""
+    return _COMMAND_DARK if background_is_dark() else _COMMAND_LIGHT
 
 
 def _speech_escape(spec: str) -> str:

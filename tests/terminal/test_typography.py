@@ -1,22 +1,32 @@
-"""The streaming typesetter.
+"""The streaming typesetter, and the request highlighter beside it.
 
 The typesetter's contract: text arrives in arbitrary chunks and is written
 out immediately with ANSI styling, never repainted. So the tests check two
 things — that the visible text survives (markers consumed, content kept),
 and that how the input is split into chunks changes nothing.
+
+The highlighter's contract is the vocabulary: it colours the words it is
+GIVEN and nothing else, so which `/word` is a command is the caller's
+answer, never a guess from the slash. Both are checked by structure — the
+escapes that open and close a span — never by which shade the terminal
+running the tests happens to pick.
 """
 
 import io
 import re
 
 from otaku.terminal import color
-from otaku.terminal.typography import Typesetter
+from otaku.terminal.typography import Typesetter, highlight_commands
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _BOLD = "\x1b[1m"
 _ITALIC = "\x1b[3m"
 _RESET = "\x1b[0m"
 _SPEECH = color("cyan")  # the tests pin an explicit spec, independent of the shipped default
+_DEFAULT_FG = "\x1b[39m"  # what closes a highlighted command
+# A vocabulary with the overlaps that matter: a command that prefixes
+# another, and one that prefixes an ordinary word.
+_COMMANDS = ("/me", "/merge", "/ooc", "/cue", "/set", "/bye")
 
 
 class TestPlainText:
@@ -223,6 +233,47 @@ class TestRenderMarkdown:
         assert typeset("**unclosed").endswith(_RESET)
 
 
+class TestHighlightCommands:
+    """The request side: the words the caller named, and only those."""
+
+    def test_picks_out_a_command_opening_the_line(self) -> None:
+        assert highlighted("/me Elara: I step in.", _COMMANDS) == ["/me"]
+
+    def test_picks_out_an_inliner_mid_line(self) -> None:
+        assert highlighted("I step in. /ooc who else is here?", _COMMANDS) == ["/ooc"]
+
+    def test_picks_out_one_command_per_line(self) -> None:
+        assert highlighted("/me I wait.\n/ooc still there?", _COMMANDS) == ["/me", "/ooc"]
+
+    def test_leaves_a_word_the_vocabulary_does_not_name(self) -> None:
+        assert highlighted("/nonesuch and /Me and /ME", _COMMANDS) == []
+
+    def test_leaves_a_slash_inside_a_word(self) -> None:
+        for text in ("and/or", "https://example.com/me", "TCP/IP"):
+            assert highlighted(text, _COMMANDS) == [], text
+
+    def test_leaves_a_command_that_only_opens_a_longer_word(self) -> None:
+        assert highlighted("/mention /setting /byes", _COMMANDS) == []
+
+    def test_prefers_the_longer_command(self) -> None:
+        assert highlighted("/merge A into B", _COMMANDS) == ["/merge"]
+
+    def test_colours_the_slash_word_alone(self) -> None:
+        # The name and the prose after it are the user's words, not syntax.
+        assert highlighted("/me Elara: I step in.", _COMMANDS) == ["/me"]
+
+    def test_keeps_the_visible_text_intact(self) -> None:
+        text = "/me Elara: I step in. /cue keep it short"
+        assert visible(text, _COMMANDS) == text
+
+    def test_an_empty_vocabulary_highlights_nothing(self) -> None:
+        text = "/me Elara: I step in."
+        assert highlight_commands(text, ()) == text
+
+    def test_empty_text_stays_empty(self) -> None:
+        assert highlight_commands("", _COMMANDS) == ""
+
+
 def typeset(text: str, *, chunk: int = 0, **knobs: object) -> str:
     """`text` through the typesetter, in one chunk or in `chunk`-sized
     bites; `knobs` pass straight to the Typesetter (speech_color,
@@ -238,6 +289,19 @@ def typeset(text: str, *, chunk: int = 0, **knobs: object) -> str:
         streamer.feed(text)
     streamer.flush()
     return out.getvalue()
+
+
+def highlighted(text: str, commands: tuple[str, ...]) -> list[str]:
+    """The words the highlighter picked out, in order — read off the
+    default-foreground escape that closes each one, so the test never
+    names a shade the background chose."""
+    rendered = highlight_commands(text, commands)
+    return re.findall(rf"\x1b\[[0-9;]*m(.*?){re.escape(_DEFAULT_FG)}", rendered, re.S)
+
+
+def visible(text: str, commands: tuple[str, ...]) -> str:
+    """The highlighted text with the styling stripped — what a reader sees."""
+    return _ANSI.sub("", highlight_commands(text, commands))
 
 
 def plain(text: str, *, chunk: int = 0) -> str:
