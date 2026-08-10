@@ -201,7 +201,12 @@ class ModelServer:
 
         self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.url = f"http://127.0.0.1:{self._httpd.server_address[1]}/v1"
-        threading.Thread(target=self._httpd.serve_forever, daemon=True).start()
+        # The poll interval is `shutdown`'s latency: the loop only notices
+        # the request between selects, and the server is torn down once
+        # per test. The stdlib default of half a second would cost the
+        # suite more than everything it actually runs.
+        serve = self._httpd.serve_forever
+        threading.Thread(target=lambda: serve(poll_interval=0.01), daemon=True).start()
 
     def reset(self) -> None:
         self.script = default_script

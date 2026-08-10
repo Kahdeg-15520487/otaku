@@ -18,6 +18,8 @@ from scenarios.support.harness import SPEC, run_otaku, set_config, set_config_pr
 from scenarios.support.server import ModelServer
 from scenarios.support.terminal import CTRL_R, ENTER, ESC, Terminal
 
+pytestmark = pytest.mark.cli
+
 
 class TestFirstRun:
     def test_first_launch_without_a_model_opens_the_sample(self, tmp_path: Path) -> None:

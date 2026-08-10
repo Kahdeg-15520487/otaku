@@ -86,11 +86,17 @@ pty — `test_logs.py`, and `test_update.py`); `test_app.py` covers the launch i
 one module per provider.
 In every test module — units included — the test classes come first
 (one class per command or group) and helper functions after them; within
-a class, tests follow the story's logical order. The `live`-marked
-smokes talk to real providers and each skips itself when its server or
-api key is absent (`scripts/live-providers.sh` launches the local
-engines; the cloud smokes read OPENROUTER_API_KEY / NANOGPT_API_KEY and
-send one short prompt to a cheap model); deselect with `-m "not live"`.
+a class, tests follow the story's logical order.
+
+Two markers name the slow ends of the suite, so either can be deselected.
+The `live` smokes talk to real providers and each skips itself when its
+server or api key is absent (`scripts/live-providers.sh` launches the
+local engines; the cloud smokes read OPENROUTER_API_KEY / NANOGPT_API_KEY
+and send one short prompt to a cheap model). The `cli` ones are all of
+`scenarios/cli/`: they drive the real binary in a subprocess or a pty,
+which costs seconds per test where the in-process kind costs
+milliseconds. The fast offline suite is therefore
+`-m "not live and not cli"`.
 
 ## Process rules
 

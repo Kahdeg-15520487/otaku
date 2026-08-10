@@ -98,5 +98,6 @@ python_version = "3.11"  # type-check against the floor, not the interpreter in 
 testpaths = ["tests"]
 markers = [
     "live: talks to a real provider (each smoke skips itself when its server or api key is absent)",
+    "cli: drives the real binary in a subprocess or a pty — the slow end of the suite",
 ]
 addopts = "-q"
