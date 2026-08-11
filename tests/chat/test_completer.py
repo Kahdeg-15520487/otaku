@@ -13,6 +13,9 @@ the context of the message it belongs to, so on a continuation line inside
 an open block a leading slash is an inliner's place, never a command's.
 """
 
+from prompt_toolkit.completion import CompleteEvent, Completion
+from prompt_toolkit.document import Document
+
 from otaku.chat.completer import CommandCompleter, InlinerCompleter, SlashCompleter
 
 
@@ -110,6 +113,88 @@ class TestPartial:
         for text in ("/me", "  /set ", "she looks up /c", "she looks up", "", "and/or"):
             answered = [s for s in (CommandCompleter, InlinerCompleter) if s.applies(text)]
             assert len(answered) <= 1, text
+
+
+class TestLayoutFold:
+    """The menu filter folds ЙЦУКЕН to the QWERTY keys at the same physical
+    positions, so a command types without leaving the Russian layout —
+    and accepting a row replaces the typed token with the real command,
+    Cyrillic never reaching the line."""
+
+    def test_cyrillic_filters_by_physical_position(self) -> None:
+        assert _offered("/ьу") == ["/me", "/merge"]  # the physical m-e keys
+
+    def test_case_folds_with_the_layout(self) -> None:
+        assert _offered("/РУДЗ") == ["/help"]
+
+    def test_the_replacement_covers_what_was_typed(self) -> None:
+        rows = _rows_for("/ьу")
+        assert all(r.start_position == -3 for r in rows)
+
+    def test_an_inliner_folds_the_same_way(self) -> None:
+        assert _offered("она ждёт /сгу") == ["/cue"]
+
+    def test_ascii_is_untouched(self) -> None:
+        assert _offered("/m") == ["/me", "/merge", "/model"]
+
+
+class TestCastSuggestions:
+    """The commands whose argument is a character offer the cast, shaped
+    per command: /me inserts `Name:` and the prompt follows, /you inserts
+    the bare name (the hint being the rarer option), /merge completes both
+    sides of `A into B`. The rows come from the injected callable — the
+    real one reads the live story."""
+
+    CAST = (("Elara", "warden of the gate"), ("The Keeper", "keeps the door"))
+
+    def test_me_offers_names_with_the_colon(self) -> None:
+        rows = self._rows("/me ")
+        assert [r.text for r in rows] == ["Elara:", "The Keeper:"]
+        assert all(r.argument_required for r in rows)
+
+    def test_you_offers_bare_names(self) -> None:
+        rows = self._rows("/you el")
+        assert [(r.text, r.start_position, r.argument_required) for r in rows] == [
+            ("Elara", -2, False)
+        ]
+
+    def test_a_name_with_spaces_filters_whole(self) -> None:
+        # The segment is the raw argument text, not the last token.
+        assert [r.text for r in self._rows("/me the k")] == ["The Keeper:"]
+
+    def test_merge_completes_both_sides(self) -> None:
+        first = self._rows("/merge ")
+        assert [r.text for r in first] == ["Elara into", "The Keeper into"]
+        assert all(r.argument_required for r in first)
+        second = self._rows("/merge The Keeper into el")
+        assert [(r.text, r.start_position, r.argument_required) for r in second] == [
+            ("Elara", -2, False)
+        ]
+
+    def test_past_the_colon_the_argument_is_content(self) -> None:
+        assert self._rows("/me Elara: I st") == []
+        assert self._rows("/you Elara: be co") == []
+
+    def test_the_description_rides_the_meta_column(self) -> None:
+        (row,) = self._rows("/me el")
+        assert "warden of the gate" in str(row.display_meta)
+
+    def test_without_a_cast_nothing_is_offered(self) -> None:
+        completer = SlashCompleter.build()
+        assert list(completer.get_completions(Document("/me "), CompleteEvent())) == []
+
+    def _rows(self, text: str) -> list[Completion]:
+        completer = SlashCompleter.build(cast=lambda: self.CAST)
+        return list(completer.get_completions(Document(text), CompleteEvent()))
+
+
+def _offered(text: str) -> list[str]:
+    return [r.text for r in _rows_for(text)]
+
+
+def _rows_for(text: str) -> list[Completion]:
+    completer = SlashCompleter.build()
+    return list(completer.get_completions(Document(text), CompleteEvent()))
 
 
 def _partial(text: str, block: str = "") -> str | None:

@@ -48,6 +48,7 @@ from prompt_toolkit.styles import Style
 
 from otaku.chat.completer import SlashCompleter
 from otaku.chat.session import Session, message
+from otaku.formatting import flatten, truncate
 from otaku.store import Store
 from otaku.terminal import statusline
 from otaku.terminal.theme import theme
@@ -203,7 +204,7 @@ def build_prompt(
     # One test for "can a menu be open here?", shared by the
     # complete-while-typing filter and the menu bindings. It has to be built
     # here, not at import: the answer depends on whether a block is open.
-    completer = SlashCompleter.build(lambda: assembler.prefix)
+    completer = SlashCompleter.build(lambda: assembler.prefix, cast=lambda: _cast(session, store))
     menu_line = Condition(
         lambda: completer.partial(get_app().current_buffer.document.text_before_cursor) is not None
     )
@@ -234,6 +235,18 @@ def build_prompt(
     # Pre-select the first row whenever the menu (re)populates.
     prompt_session.default_buffer.on_completions_changed += lambda buf: _preselect_first(buf)
     return prompt_session
+
+
+def _cast(session: Session, store: Store) -> list[tuple[str, str]]:
+    """The story's characters for the menu: (name, one-line description)
+    rows, looked up live so extraction and merges show the moment they
+    land. No story yet — no cast."""
+    if session.story_id is None:
+        return []
+    return [
+        (c.name, truncate(flatten(c.description or ""), 48))
+        for c in store.characters.list(session.story_id)
+    ]
 
 
 def _prompt_style() -> Style:
@@ -312,6 +325,14 @@ def _make_bindings(carry: Carry, menu_line: Condition) -> KeyBindings:
     @kb.add("tab", filter=completion_is_selected)
     def _fill_on_tab(event: Any) -> None:
         _accept_selection(event.current_buffer)
+
+    # Ctrl+/ — the terminal sends 0x1f for the physical slash key in ANY
+    # layout, so this is the slash for a keyboard where `/` itself is a
+    # shifted reach (ЙЦУКЕН puts `.` there). It just types one: the menus
+    # open and filter exactly as if it were typed.
+    @kb.add("c-_")
+    def _type_slash(event: Any) -> None:
+        event.current_buffer.insert_text("/")
 
     # Up/Down navigate the menu when it is open, otherwise step through
     # input history — never walking the lines of a recalled multi-line

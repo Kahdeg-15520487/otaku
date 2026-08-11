@@ -17,6 +17,9 @@ changes.
   sent as its own `((OOC: …))` aside beside the play-as instruction whenever the turn goes out;
   `/cue` stays the one-shot form. A `you_framing` template carrying a `{body}` slot takes the hint
   into its own wording instead.
+- The menu offers the story's cast where a command takes a character — each row with the
+  character's description: `/me` completes `Name:` and waits for the prompt, `/you` completes the
+  bare name, and `/merge` completes both sides of `A into B`.
 - Commands are colored wherever they appear: while you type one, in the played block once it is
   sent, and in the story browser's rows and preview. Only real commands light up, so a slash in
   ordinary prose (`and/or`, a URL) stays prose. The completion menu marks the selected row in the

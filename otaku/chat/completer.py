@@ -19,15 +19,26 @@ know which surface it is.
 """
 
 import re
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from typing import Any, Self
 
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion
 from prompt_toolkit.document import Document
 
 from otaku.chat import pathcomplete
-from otaku.chat.commands import PATH_LEAF, CompletionTree, completion_tree, inliner_menu
+from otaku.chat.commands import (
+    NAME_LEAF,
+    PATH_LEAF,
+    CompletionTree,
+    completion_tree,
+    inliner_menu,
+)
 from otaku.chat.help import arguments, describe_command, needs_argument
+from otaku.terminal import latin_key
+
+# What a cast callable answers with: (name, one-line description) rows —
+# the story's characters, for the commands whose argument is one.
+Cast = Sequence[tuple[str, str]]
 
 
 class MenuRow(Completion):
@@ -63,8 +74,11 @@ class CommandCompleter(_Surface):
     only WHEN that fires (behind an explicit `@`, immediately and while
     typing) and the raw-line slicing that lets spaces survive in paths."""
 
-    def __init__(self, tree: CompletionTree) -> None:
+    def __init__(self, tree: CompletionTree, cast: Callable[[], Cast] | None = None) -> None:
         self.tree = tree
+        # The story's cast, looked up live: (name, one-line description)
+        # rows for the commands whose argument is a character.
+        self.cast = cast or (lambda: ())
 
     @staticmethod
     def applies(text_before_cursor: str) -> bool:
@@ -90,19 +104,24 @@ class CommandCompleter(_Surface):
         node: Any = self.tree
         arg_start: int | None = None
         for match in walked:
-            if node == PATH_LEAF:
-                break  # further tokens are path text (spaces in filenames)
+            if node in (PATH_LEAF, NAME_LEAF):
+                break  # further tokens are argument text (spaces survive)
             token = match.group(0)
             if not isinstance(node, dict) or token not in node:
                 return
             node = node[token]
-            if node == PATH_LEAF:
+            if node in (PATH_LEAF, NAME_LEAF):
                 # The argument begins at the first non-space char after this
                 # token — sliced from the raw line, so spaces survive.
                 rest = text[match.end() :]
                 arg_start = match.end() + (len(rest) - len(rest.lstrip()))
             if node is None:
                 return
+
+        if node == NAME_LEAF:
+            if arg_start is not None:
+                yield from _cast_rows(path[0], text[arg_start:], self.cast())
+            return
 
         if node == PATH_LEAF:
             # Paths complete behind an explicit `@`: the menu pops the
@@ -159,12 +178,20 @@ class SlashCompleter(Completer):
         self.prefix = prefix
 
     @classmethod
-    def build(cls, prefix: Callable[[], str] = lambda: "") -> Self:
+    def build(
+        cls,
+        prefix: Callable[[], str] = lambda: "",
+        cast: Callable[[], Cast] | None = None,
+    ) -> Self:
         """A completer over the current command table. `prefix` is what an
         open `\"\"\"` block has collected so far — the line being typed is
         read in the context of the message it belongs to, or every
-        continuation line would look like the start of one."""
-        return cls((CommandCompleter(completion_tree()), InlinerCompleter(inliner_menu())), prefix)
+        continuation line would look like the start of one. `cast` answers
+        with the story's characters, looked up live for the commands whose
+        argument is one."""
+        return cls(
+            (CommandCompleter(completion_tree(), cast), InlinerCompleter(inliner_menu())), prefix
+        )
 
     def get_completions(
         self, document: Document, complete_event: CompleteEvent
@@ -213,6 +240,46 @@ def _inliner_token(text_before_cursor: str) -> str | None:
     return tokens[-1].group(0)
 
 
+def _cast_rows(command: str, segment: str, cast: Cast) -> Iterator[Completion]:
+    """The cast offered where a command takes a character, shaped for the
+    command: `/me` inserts `Name:` and keeps going (the prompt follows),
+    `/you` inserts the bare name (the line is then complete — the hint is
+    the rarer option, a colon away), and `/merge` completes both sides of
+    `A into B`. `segment` is the raw argument text, so names with spaces
+    filter whole; past a `:` the argument is content, and no menu belongs
+    there."""
+    if command == "/merge":
+        _, sep, rest = segment.partition(" into ")
+        if sep:
+            yield from _name_rows(cast, rest, suffix="", required=False)
+        else:
+            yield from _name_rows(cast, segment, suffix=" into", required=True)
+        return
+    if ":" in segment:
+        return
+    if command == "/me":
+        yield from _name_rows(cast, segment, suffix=":", required=True)
+    else:
+        yield from _name_rows(cast, segment, suffix="", required=False)
+
+
+def _name_rows(cast: Cast, typed: str, *, suffix: str, required: bool) -> Iterator[Completion]:
+    """One row per matching cast member: the name shown plain with the
+    description as the meta column, the inserted text carrying whatever
+    the command's shape needs after it (`:`, ` into`)."""
+    wanted = typed.casefold()
+    width = max((len(name) for name, _ in cast), default=0)
+    for name, about in cast:
+        if name.casefold().startswith(wanted):
+            yield MenuRow(
+                name + suffix,
+                start_position=-len(typed),
+                display=name.ljust(width),
+                display_meta=about or None,
+                argument_required=required,
+            )
+
+
 def _rows(menu: dict[str, str], partial: str, path: tuple[str, ...]) -> Iterator[Completion]:
     """Menu rows, filtered by what is typed. Fixed column widths over the
     WHOLE menu, not the filtered subset, so it never resizes as you type.
@@ -225,7 +292,7 @@ def _rows(menu: dict[str, str], partial: str, path: tuple[str, ...]) -> Iterator
     key_width = max((len(label) for label in labels.values()), default=0)
     meta_width = max((len(meta) for meta in menu.values()), default=0)
     for key, meta in menu.items():
-        if key.startswith(partial):
+        if key.startswith(latin_key(partial)):
             yield MenuRow(
                 key,
                 start_position=-len(partial),

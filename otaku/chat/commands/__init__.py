@@ -19,6 +19,12 @@ from otaku.store import Store
 # leading `@`.
 PATH_LEAF = "<path>"
 
+# A leaf may instead be NAME_LEAF: "a character name goes here" — the
+# completer offers the story's cast, shaped per command (see
+# completer._cast_rows). Names may contain spaces, so like a path the
+# argument is read from the raw text, never from split tokens.
+NAME_LEAF = "<name>"
+
 CompletionTree = dict[str, "CompletionTree | str | None"]
 
 CommandHandler = Callable[[Session, Store, list[str]], None]
@@ -52,7 +58,7 @@ COMMANDS: dict[str, tuple[CommandHandler, CompletionTree | str | None]] = {
     "/lore": (lore.cmd_lore, None),
     "/cast": (lore.cmd_cast, None),
     "/extract": (lore.cmd_extract, None),
-    "/merge": (lore.cmd_merge, None),
+    "/merge": (lore.cmd_merge, NAME_LEAF),
     "/context": (inspect.cmd_context, None),
     "/usage": (inspect.cmd_usage, {"all": None}),
     "/balance": (inspect.cmd_balance, None),
@@ -85,7 +91,9 @@ def completion_tree() -> CompletionTree:
     `/ooc`) is typed at the prompt like a command and must be discoverable
     like one, though nothing dispatches it. Descriptions still come from
     `chat.help` for both, so the menu and /help cannot disagree."""
-    syntax: CompletionTree = {name: None for name in FRAMING_COMMANDS}
+    syntax: CompletionTree = {
+        token: NAME_LEAF if cls.needs_name else None for token, cls in FRAMING_COMMANDS.items()
+    }
     return {**syntax, **{name: subtree for name, (_, subtree) in COMMANDS.items()}}
 
 
