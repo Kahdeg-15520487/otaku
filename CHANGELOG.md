@@ -8,6 +8,9 @@ changes.
 ## [0.2.3] - [planned]
 
 ### Added
+- The database migrates itself between schema versions: a backup is taken first, each step is
+  transactional (a failure leaves the database unharmed at its version, the backup untouched),
+  and a database written by a newer otaku is refused with directions instead of being guessed at.
 - `/set autocorrect on|off` — whether a typed character name in `/me` and `/you` commands is
   settled to the cast's spelling.
 - Two inline commands, typed inside a line rather than opening one: `/ooc` for an aside out of

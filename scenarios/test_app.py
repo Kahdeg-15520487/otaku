@@ -9,6 +9,7 @@ missing keystore refused BEFORE the ceremony could mint over it."""
 import base64
 import secrets
 import sqlite3
+import subprocess
 from datetime import datetime
 
 import pytest
@@ -18,7 +19,11 @@ from otaku.app import load_config
 from otaku.paths import Paths
 from otaku.settings import config as config_mod
 from otaku.settings import migrations, sealed
-from otaku.store import DatabaseError, is_encrypted
+from otaku.store import DatabaseError, Store, is_encrypted
+from otaku.store import migrations as store_migrations
+from otaku.store.database import check_value
+from otaku.store.migrations import steps as store_steps
+from otaku.store.schema import SCHEMA_DDL
 from otaku.terminal import BOLD, RESET
 from scenarios.support import server as scripted
 from scenarios.support.harness import App, launch, run_otaku, set_config
@@ -134,6 +139,124 @@ class TestDatabaseGuard:
         conn.commit()
         conn.close()
         launch(tmp_path / "state", server).close()  # launching IS the assertion
+
+
+class TestSchemaMigration:
+    """The versioned ladder in store/migrations.py: its docstring's case
+    table, held here — the store and the files are what running the app
+    cannot show."""
+
+    def test_a_v1_database_migrates_and_the_story_survives(self, tmp_path, capsys) -> None:
+        paths = _v1_database(tmp_path / "state")
+        store = Store.open(paths, crypto.PlainCipher(), backups=0)
+        try:
+            assert "database migrated (1 → 2)" in capsys.readouterr().out
+            (message,) = store.stories.get_messages(1)
+            # The v1 `framing` column reads back through the renamed one.
+            assert (message.body, message.template) == ("I enter.", "TPL")
+        finally:
+            store.close()
+        assert _meta_version(paths) == "2"
+
+    def test_a_current_database_opens_silently(self, tmp_path, capsys) -> None:
+        paths = _v1_database(tmp_path / "state")
+        Store.open(paths, crypto.PlainCipher(), backups=0).close()
+        capsys.readouterr()
+        Store.open(paths, crypto.PlainCipher(), backups=0).close()
+        assert "migrated" not in capsys.readouterr().out
+
+    def test_migrated_equals_fresh_byte_for_byte(self, tmp_path) -> None:
+        # THE invariant the mechanism hangs on: steps transform an old
+        # database into exactly what schema.py creates from scratch.
+        migrated = _v1_database(tmp_path / "old")
+        Store.open(migrated, crypto.PlainCipher(), backups=0).close()
+        fresh = Paths.resolve(tmp_path / "new")
+        fresh.ensure_tree()
+        Store.open(fresh, crypto.PlainCipher(), backups=0).close()
+        assert _master(migrated) == _master(fresh)
+
+    def test_the_pre_migration_backup_preserves_version_1(self, tmp_path) -> None:
+        paths = _v1_database(tmp_path / "state")
+        Store.open(paths, crypto.PlainCipher(), backups=0).close()
+        backup = paths.backups_dir / "history-schema-v1.db"
+        assert backup.exists()
+        conn = sqlite3.connect(backup)
+        version = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
+        ddl = conn.execute("SELECT sql FROM sqlite_master WHERE name = 'messages'").fetchone()
+        conn.close()
+        assert version[0] == "1"
+        assert "framing" in ddl[0]  # the old shape, restorable
+
+    def test_the_widened_check_admits_card(self, tmp_path) -> None:
+        paths = _v1_database(tmp_path / "state")
+        conn = sqlite3.connect(paths.database_file)
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert_kind(conn, "card")  # v1 refuses — the CHECK is live
+        conn.close()
+        Store.open(paths, crypto.PlainCipher(), backups=0).close()
+        conn = sqlite3.connect(paths.database_file)
+        _insert_kind(conn, "card")  # v2 admits it
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert_kind(conn, "nonsense")  # the tripwire survives the widening
+        conn.close()
+
+    def test_a_newer_database_is_refused(self, tmp_path) -> None:
+        paths = Paths.resolve(tmp_path / "state")
+        paths.ensure_tree()
+        Store.open(paths, crypto.PlainCipher(), backups=0).close()
+        conn = sqlite3.connect(paths.database_file)
+        conn.execute("UPDATE meta SET value = '99' WHERE key = 'schema_version'")
+        conn.commit()
+        conn.close()
+        with pytest.raises(DatabaseError, match="newer otaku"):
+            Store.open(paths, crypto.PlainCipher(), backups=0)
+
+    def test_a_failed_step_leaves_version_1_unharmed(self, tmp_path, monkeypatch) -> None:
+        def boom(conn: sqlite3.Connection) -> None:
+            conn.execute("DELETE FROM messages")  # damage that MUST roll back
+            raise RuntimeError("boom")
+
+        paths = _v1_database(tmp_path / "state")
+        monkeypatch.setitem(store_migrations._STEPS, 2, boom)
+        with pytest.raises(DatabaseError, match="unharmed at version 1"):
+            Store.open(paths, crypto.PlainCipher(), backups=0)
+        assert _meta_version(paths) == "1"
+        conn = sqlite3.connect(paths.database_file)
+        assert conn.execute("SELECT count(*) FROM messages").fetchone()[0] == 1
+        conn.close()
+
+    def test_the_frozen_v1_is_what_the_release_shipped(self) -> None:
+        """The non-circular check: the step's precondition constant against
+        the schema the v0.2.2 tag actually shipped — the one comparison a
+        fixture built FROM the constant can never make. Skips where the
+        tag is not reachable (a shallow clone, an sdist)."""
+        proc = subprocess.run(
+            ["git", "show", "v0.2.2:otaku/store/schema.py"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if proc.returncode != 0:
+            pytest.skip("the v0.2.2 tag is not reachable here")
+        shipped = proc.stdout
+        start = shipped.index("CREATE TABLE messages")
+        end = shipped.index(");", start) + 1
+        assert shipped[start:end] == store_steps._V1_MESSAGES
+
+    def test_the_ladder_resumes_from_where_it_stamped(self, tmp_path, monkeypatch, capsys) -> None:
+        from otaku.store import database as database_mod
+
+        monkeypatch.setattr(store_migrations, "SCHEMA_VERSION", "3")
+        monkeypatch.setattr(database_mod, "SCHEMA_VERSION", "3")
+        paths = _v1_database(tmp_path / "state")
+        monkeypatch.setitem(store_migrations._STEPS, 3, _raise)
+        with pytest.raises(DatabaseError, match="unharmed at version 2"):
+            Store.open(paths, crypto.PlainCipher(), backups=0)
+        assert _meta_version(paths) == "2"  # step 2 committed and stamped
+        monkeypatch.setitem(store_migrations._STEPS, 3, lambda conn: None)
+        Store.open(paths, crypto.PlainCipher(), backups=0).close()
+        assert "database migrated (2 → 3)" in capsys.readouterr().out
+        assert _meta_version(paths) == "3"
 
 
 class TestConfigMigration:
@@ -378,3 +501,70 @@ def set_encryption(root, key: str) -> None:
         root,
         encryption=config_mod.Encryption(provider="command", retrieve_command=f"echo {key}"),
     )
+
+
+def _v1_database(root) -> Paths:
+    """A schema-1 database exactly as version 1 CREATED it, one played
+    turn inside: the current DDL with the `messages` block swapped for the
+    shipped v1 text (the step's own precondition constant — which
+    `test_the_frozen_v1_is_what_the_release_shipped` holds against the
+    real tag), run through the same executescript path `database.py`
+    uses."""
+    paths = Paths.resolve(root)
+    paths.ensure_tree()
+    start = SCHEMA_DDL.index("CREATE TABLE messages")
+    end = SCHEMA_DDL.index(");", start) + 1
+    v1_ddl = SCHEMA_DDL[:start] + store_steps._V1_MESSAGES + SCHEMA_DDL[end:]
+    conn = sqlite3.connect(paths.database_file)
+    conn.executescript("BEGIN;" + v1_ddl)
+    # fmt: off
+    conn.execute(
+        "INSERT INTO meta (key, value) VALUES (?, ?), (?, ?)",
+        ("schema_version", "1", "check", check_value(crypto.PlainCipher())),
+    )
+    # fmt: on
+    now = datetime.now().astimezone().isoformat()
+    # fmt: off
+    conn.execute(
+        "INSERT INTO stories (id, created_at, updated_at) VALUES (1, ?, ?)", (now, now)
+    )
+    conn.execute(
+        "INSERT INTO messages (id, story_id, role, kind, body, framing, created_at, updated_at)"
+        " VALUES (1, 1, 'user', 'dialogue', ?, ?, ?, ?)",
+        (b"I enter.", b"TPL", now, now),
+    )
+    # fmt: on
+    conn.execute("UPDATE stories SET head_id = 1 WHERE id = 1")
+    conn.commit()
+    conn.close()
+    return paths
+
+
+def _meta_version(paths: Paths) -> str:
+    conn = sqlite3.connect(paths.database_file)
+    value = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0]
+    conn.close()
+    return str(value)
+
+
+def _master(paths: Paths) -> list[tuple]:
+    conn = sqlite3.connect(paths.database_file)
+    rows = conn.execute("SELECT type, name, sql FROM sqlite_master ORDER BY type, name").fetchall()
+    conn.close()
+    return rows
+
+
+def _insert_kind(conn, kind: str) -> None:
+    now = datetime.now().astimezone().isoformat()
+    # fmt: off
+    conn.execute(
+        "INSERT INTO messages (story_id, role, kind, body, created_at, updated_at)"
+        " VALUES (1, 'user', ?, ?, ?, ?)",
+        (kind, b"x", now, now),
+    )
+    # fmt: on
+    conn.commit()
+
+
+def _raise(conn) -> None:
+    raise RuntimeError("boom")

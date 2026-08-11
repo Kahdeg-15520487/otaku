@@ -87,6 +87,23 @@ class Database:
             # fmt: on
             conn.commit()
         else:
+            # Late import: the ladder raises this module's DatabaseError.
+            from otaku.store import migrations
+
+            migrated = migrations.migrate(conn, paths)
+            if migrated is not None:
+                # The stored DDL changed under `writable_schema`: a fresh
+                # connection reloads the schema before anything prepares a
+                # statement against the old text.
+                conn.close()
+                conn = cls.connect(path)
+                if conn.execute("PRAGMA quick_check").fetchone()[0] != "ok":
+                    conn.close()
+                    raise DatabaseError(
+                        f"{path} failed its integrity check after migrating; restore the "
+                        f"pre-migration backup from {paths.backups_dir}"
+                    )
+                print(migrated)
             cls._guard(conn, path, cipher)
         if backups > 0:
             cls._daily_backup(conn, paths, keep=backups)

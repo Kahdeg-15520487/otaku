@@ -168,7 +168,15 @@ through it. `tui` may not read chat at all, so the browser is handed the
 function outright rather than the settings to rebuild the answer from.
 
 The data model lives in `otaku/store/schema.py` (the DDL, its semantics,
-and the row types).
+and the row types). `schema.py` is always the CURRENT shape: a fresh
+database is created from it directly, and `otaku/store/migrations` — a
+versioned ladder over `meta.schema_version`, distinct from the settings
+migrations because a database has a cursor and transactional DDL — brings
+old databases to it. The invariant, held by scenarios: a migrated database
+equals a fresh one, `sqlite_master` row for row. The package docstring
+carries the full case table; the steps live in `steps.py`, each FROZEN —
+a step writes what its target version WAS, never what schema.py says now (backup-first, unharmed-on-failure,
+newer-refused).
 
 Every color lives in `otaku/terminal/theme.py`: one `Theme` per
 background, the user's `[ui]` settings laid over it by `use(config)` at

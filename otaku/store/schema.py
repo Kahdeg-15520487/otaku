@@ -39,7 +39,7 @@ Semantics:
 
 from dataclasses import dataclass
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 
 SCHEMA_DDL = """
 -- ---------- source: what was actually said ----------
@@ -63,11 +63,11 @@ CREATE TABLE messages (
     parent_id   INTEGER,
     role        TEXT NOT NULL CHECK (role IN ('user','assistant')),
     kind        TEXT NOT NULL DEFAULT 'dialogue'
-                  CHECK (kind IN ('dialogue','narration','ooc')),
+                  CHECK (kind IN ('dialogue','narration','ooc','card')),
     speaker_id  INTEGER REFERENCES characters(id) ON DELETE SET NULL,  -- extracted automatically
     speaker     BLOB,                    -- extracted automatically; name-at-the-time snapshot
     body        BLOB NOT NULL,           -- exactly what was typed/generated
-    framing     BLOB,                    -- the template the turn was played with, filled at wire time; `Message.template` in the row type, and this column takes that name at the next migration
+    template    BLOB,                    -- the template the turn was played with, filled at wire time
     provider    TEXT,                    -- who generated an assistant turn
     model       TEXT,
     created_at  TEXT NOT NULL,
@@ -168,9 +168,7 @@ class Message:
 
     role: str  # 'user' | 'assistant'
     body: str
-    kind: str = "dialogue"  # 'dialogue' | 'narration' | 'ooc'
-    # Still the `framing` column: the row type is renamed ahead of the
-    # schema, which takes the name at the next migration.
+    kind: str = "dialogue"  # 'dialogue' | 'narration' | 'ooc' | 'card' (reserved for card import)
     template: str | None = None  # filled at wire time, never mixed into the body
     speaker: str | None = None
     speaker_id: int | None = None
