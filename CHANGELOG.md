@@ -13,6 +13,10 @@ changes.
 - Two inline commands, typed inside a line rather than opening one: `/ooc` for an aside out of
   character, and `/cue` to steer just the next reply — a cue goes out with the turn it rode in on
   and is not kept in context afterwards.
+- `/you NAME: HINT` — an optional hint after the name, a standing direction for how to play them,
+  sent as its own `((OOC: …))` aside beside the play-as instruction whenever the turn goes out;
+  `/cue` stays the one-shot form. A `you_framing` template carrying a `{body}` slot takes the hint
+  into its own wording instead.
 - Commands are colored wherever they appear: while you type one, in the played block once it is
   sent, and in the story browser's rows and preview. Only real commands light up, so a slash in
   ordinary prose (`and/or`, a URL) stays prose. The completion menu marks the selected row in the

@@ -211,6 +211,18 @@ class TestYou:
             ("assistant", scripted.CHAT_REPLY),
         ]
 
+    def test_a_hint_after_the_name_stays_with_the_turn(self, app: App) -> None:
+        # `/you NAME: HINT` — the hint is a standing aside: still on the
+        # wire when the turn is no longer the newest (a cue would be gone).
+        app.play("/you Elara: always answer in riddles")
+        app.play("Tell me about the gate.")
+        wire = scripted.chat_request(app.server, "Tell me about the gate.")["messages"]
+        you_turn = next(str(m["content"]) for m in wire if "play Elara" in str(m["content"]))
+        # Its own block, not blended into the play-as contract: the model
+        # sees where the app's instruction ends and the writer's begins.
+        assert "((OOC: always answer in riddles))" in you_turn
+        assert you_turn.count("((OOC") == 2
+
     def test_a_known_name_is_recorded_as_the_replys_speaker(self, app: App) -> None:
         # /you asks that character to answer, so the attribution lands on
         # the REPLY; the request is an instruction, nobody's line.

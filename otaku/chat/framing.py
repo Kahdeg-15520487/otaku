@@ -11,8 +11,9 @@ text. `update_name` is the one thing that writes a line back — the cast's own
 spelling of a name the writer typed loosely (see `repl`, and `/set
 autocorrect`), settled before the line is stored so that everything after
 reads one text. Everything that varies between commands lives on the class — the
-usage line, the two kinds, the template it names, how the argument splits.
-A subclass carries data only. Prose — a line that opens with no command —
+usage line, the two kinds, the template it names, how the argument splits
+and how its text composes — as data, or an override where the shape
+differs. Prose — a line that opens with no command —
 is the base class itself, so no caller ever tests for one.
 
 The commands OPEN a line and the inliners CLOSE it; `/ooc` is both, told
@@ -86,6 +87,12 @@ class Framing:
         command writes it. Prose carries no name, so it is all text."""
         return text
 
+    def compose(self, filled: str | None) -> str:
+        """This line's own text and its framing — `filled` is the template,
+        `{name}` already in — as ONE wire part; what follows an inliner is
+        `prompt_to_wire`'s to append after it."""
+        return _join(self.text, filled)
+
     def update_name(self, name: str) -> str:
         """This line with its name replaced, everything else exactly as
         typed — the closing inliner and its text included. Only the cast's
@@ -140,22 +147,39 @@ class _Me(Framing):
 
 
 class _You(Framing):
-    """`/you NAME` — the model plays NAME. It instructs rather than plays,
-    hence an out-of-character row; but what it asks for is the scene, so
-    its reply is in character. The one command whose two kinds differ."""
+    """`/you NAME[: HINT]` — the model plays NAME. It instructs rather than
+    plays, hence an out-of-character row; but what it asks for is the
+    scene, so its reply is in character. The one command whose two kinds
+    differ.
+
+    The optional HINT is a standing direction for how to play them, sent
+    whenever the turn is — the /cue inliner stays the one-shot form. It
+    goes out as its own /ooc-style aside; a you_framing template carrying
+    a {body} slot takes it into its own wording instead."""
 
     token = "/you"
-    usage = "Usage: /you NAME"
+    usage = "Usage: /you NAME[: HINT]"
     request_kind = "ooc"
     speaks = "reply"
     needs_name = True
     template_field = "you_framing"
 
     def split_name(self, rest: str) -> tuple[str, str]:
-        return rest, ""
+        name, _, text = rest.partition(":")
+        return name.strip(), text.strip()
 
     def join_name(self, name: str, text: str) -> str:
-        return name
+        return f"{name}: {text}" if text else name
+
+    def compose(self, filled: str | None) -> str:
+        # The hint is direction, not story. A {body} slot takes it into the
+        # template's own wording; a template without one — the shipped
+        # default — sends it as its own /ooc-style aside. Never joined
+        # bare, because direction is never story.
+        if not self.text or (filled and "{body}" in filled):
+            return _join(self.text, filled)
+        aside = OOC_FRAME.replace("{body}", self.text)
+        return f"{filled} {aside}" if filled else aside
 
 
 class _Ooc(Framing):
@@ -200,7 +224,7 @@ def prompt_to_wire(body: str, template: str | None, *, is_last: bool) -> str:
     if template and not body.startswith("/"):
         return _join(body, template)
     frame = framing(body)
-    parts = [_join(frame.text, _fill_name(template, frame.name))]
+    parts = [frame.compose(_fill_name(template, frame.name))]
     # Each inliner named, so a new one sends nothing until it is named
     # here too — silence being the safe default for text nobody has
     # decided the lifetime of.
@@ -236,6 +260,11 @@ def _join(text: str, template: str | None) -> str:
     if not template:
         return text
     if "{body}" in template:
+        # An absent body takes its separator space with it, so a template
+        # ending "… {body}))" reads clean when there is nothing to say —
+        # and a bare /you sends the exact wire it sent before the slot.
+        if not text:
+            return template.replace(" {body}", "").replace("{body}", "")
         return template.replace("{body}", text)
     if not text:
         return template

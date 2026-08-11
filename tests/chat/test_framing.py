@@ -51,7 +51,11 @@ class TestCheck:
         assert framing("/me : I step in.").check() == "Usage: /me NAME: PROMPT"
 
     def test_you_needs_a_name(self) -> None:
-        assert framing("/you").check() == "Usage: /you NAME"
+        assert framing("/you").check() == "Usage: /you NAME[: HINT]"
+
+    def test_you_takes_an_optional_hint_after_a_colon(self) -> None:
+        assert framing("/you Elara: be cold").check() is None
+        assert framing("/you Elara:").check() is None  # an empty hint is the bare form
 
     def test_ooc_needs_prose(self) -> None:
         assert framing("/ooc").check() == "Usage: /ooc PROMPT"
@@ -131,6 +135,77 @@ class TestPromptToWire:
         got = prompt_to_wire("/me Elara: I step in /ooc nervous", ME, is_last=True)
         assert got == "<<Elara speaks>>\nI step in ((OOC: nervous))"
 
+    def test_a_cue_on_a_me_line_is_spent_like_any_cue(self) -> None:
+        kept = prompt_to_wire("/me Elara: I bow /cue whisper", ME, is_last=True)
+        assert kept == "<<Elara speaks>>\nI bow ((OOC: whisper))"
+        later = prompt_to_wire("/me Elara: I bow /cue whisper", ME, is_last=False)
+        assert later == "<<Elara speaks>>\nI bow"
+
+    def test_a_cue_on_an_ooc_line_rides_beside_the_aside(self) -> None:
+        got = prompt_to_wire("/ooc what now /cue short", OOC, is_last=True)
+        assert got == "<<aside: what now>> ((OOC: short))"
+
+    def test_a_spent_cue_leaves_no_trace_on_a_bodyless_line(self) -> None:
+        # Empty parts drop: no dangling space where the cue was.
+        got = prompt_to_wire("/you Elara /cue whisper", "<<play {name}. {body}>>", is_last=False)
+        assert got == "<<play Elara.>>"
+
+    def test_the_first_inliner_owns_the_rest_of_the_line(self) -> None:
+        # The line is split at its FIRST inliner; a second spelling after
+        # it is text inside the first one's enclosure.
+        got = prompt_to_wire("She waits /ooc slow down /cue whisper", None, is_last=False)
+        assert got == "She waits ((OOC: slow down /cue whisper))"
+
+    def test_a_newline_bounds_an_inliner_like_a_space(self) -> None:
+        # Inside a \"\"\" block an inliner may open its own line.
+        text = "She waits.\n/cue whisper"
+        assert prompt_to_wire(text, None, is_last=True) == "She waits. ((OOC: whisper))"
+        assert prompt_to_wire(text, None, is_last=False) == "She waits."
+
+    def test_a_me_line_keeps_its_interior_newlines(self) -> None:
+        # A \"\"\" block is an ordinary prompt: the layout inside is prose.
+        got = prompt_to_wire("/me Elara: I bow.\nThe hall is cold.", ME, is_last=True)
+        assert got == "<<Elara speaks>>\nI bow.\nThe hall is cold."
+
+    def test_an_unknown_command_goes_out_verbatim(self) -> None:
+        assert prompt_to_wire("/shrug at it", None, is_last=True) == "/shrug at it"
+
+    def test_the_writers_own_braces_are_never_placeholders(self) -> None:
+        # {name} fills into the TEMPLATE before the text joins it, and the
+        # text is never scanned again — typed braces survive literally.
+        got = prompt_to_wire("/me Elara: I read {name} aloud.", ME, is_last=True)
+        assert got == "<<Elara speaks>>\nI read {name} aloud."
+        got = prompt_to_wire("/me Elara: literally {body} here", ME, is_last=True)
+        assert got == "<<Elara speaks>>\nliterally {body} here"
+
+    def test_a_you_hint_slots_into_the_templates_body(self) -> None:
+        got = prompt_to_wire("/you Elara: be cold", "<<play {name}. {body}>>", is_last=False)
+        assert got == "<<play Elara. be cold>>"
+
+    def test_a_bare_you_takes_the_empty_slot_and_its_space_out(self) -> None:
+        # So a template ending "… {body}))" sends, bare, the exact wire it
+        # sent before the slot existed.
+        got = prompt_to_wire("/you Elara", "<<play {name}. {body}>>", is_last=False)
+        assert got == "<<play Elara.>>"
+
+    def test_a_you_hint_without_a_slot_becomes_its_own_aside(self) -> None:
+        # A template from before the slot existed still carries the hint —
+        # enclosed, never joined bare: direction is never story.
+        got = prompt_to_wire("/you Elara: be cold to the guest", YOU, is_last=True)
+        assert got == "<<now play Elara>> ((OOC: be cold to the guest))"
+
+    def test_a_you_hint_is_never_spent(self) -> None:
+        # The hint is the standing form — /cue is the one-shot one, and
+        # both may ride the same line.
+        got = prompt_to_wire("/you Elara: be cold /cue whisper", YOU, is_last=False)
+        assert got == "<<now play Elara>> ((OOC: be cold))"
+
+    def test_a_you_hint_and_an_inline_aside_share_a_line(self) -> None:
+        got = prompt_to_wire(
+            "/you Elara: be cold /ooc keep it brief", "<<play {name}. {body}>>", is_last=False
+        )
+        assert got == "<<play Elara. be cold>> ((OOC: keep it brief))"
+
     # A cue is spent; an ooc aside is not.
     def test_a_cue_goes_out_while_its_turn_is_newest(self) -> None:
         got = prompt_to_wire("She looks up /cue keep it tense", None, is_last=True)
@@ -162,6 +237,12 @@ class TestPromptToWire:
         # Its prefix was stripped before storing, so a slash inside it is
         # prose — and a framing with no placeholder leads its body.
         assert prompt_to_wire("and/or it", "<<note>>", is_last=True) == "<<note>>\n\nand/or it"
+
+    def test_a_legacy_body_keeps_an_inliner_spelling_literally(self) -> None:
+        # The legacy branch composes before any syntax is read: text that
+        # LOOKS like an inliner is prose there, and never spent.
+        got = prompt_to_wire("I bow /cue whisper", "<<note>>\n{body}", is_last=False)
+        assert got == "<<note>>\nI bow /cue whisper"
 
     # Prose keeps its slashes.
     def test_a_slash_inside_a_word_is_prose(self) -> None:
