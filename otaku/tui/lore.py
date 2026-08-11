@@ -24,6 +24,7 @@ overwritten — fix the inputs and the outputs follow. The store writers
 carry the invalidation; the browser never calls a model.
 """
 
+import tomllib
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -88,7 +89,7 @@ class Field:
     edit or a pivot on it targets."""
 
     label: str
-    kind: str  # scene-title | scene-summary | description | entry | state | history
+    kind: str  # scene-title | scene-summary | description | card | entry | state | history
     text: str
     target: int  # scene id / character id / journal id, per kind
     editable: bool
@@ -215,6 +216,10 @@ class LoreBrowser(ListScreen):
 
     def _char_fields(self, char: Character) -> list[Field]:
         out = [Field("description", "description", char.description, char.id, True)]
+        if char.card is not None:
+            # Only an imported character carries a card; the archive is
+            # the author's to correct like any primitive.
+            out.append(Field("card", "card", char.card, char.id, True))
         for r in self.by_char.get(char.id, []):
             scene = self._scene_by_id(r.scene_id)
             no = self._scene_no(r.scene_id)
@@ -658,6 +663,18 @@ class LoreBrowser(ListScreen):
             for i, c in enumerate(self.cast):
                 if c.id == f.target:
                     self.cast[i] = replace(c, description=new)
+                    break
+        elif f.kind == "card":
+            try:
+                tomllib.loads(new)
+            except tomllib.TOMLDecodeError as e:
+                # The archive is data other features parse — a broken edit
+                # is refused the way an emptied summary is.
+                raise ValueError(f"(not valid TOML — not saved: {e})") from e
+            self.store.characters.set_card(f.target, new)
+            for i, c in enumerate(self.cast):
+                if c.id == f.target:
+                    self.cast[i] = replace(c, card=new)
                     break
         elif f.kind == "entry":
             self.store.journals.set_entry(f.target, new)

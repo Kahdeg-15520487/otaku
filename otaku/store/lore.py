@@ -163,14 +163,15 @@ class CharacterOps:
         *,
         aliases: tuple[str, ...] = (),
         description: str | None = None,
+        card: str | None = None,
     ) -> int:
         now = self._db.now()
         sealed_aliases = self._db.seal_opt(json.dumps(list(aliases)) if aliases else None)
         with self._db.conn as conn:
             # fmt: off
             cur = conn.execute(
-                "INSERT INTO characters (story_id, name, aliases, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (story_id, self._db.seal(name), sealed_aliases, self._db.seal_opt(description), now, now),
+                "INSERT INTO characters (story_id, name, aliases, description, card, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (story_id, self._db.seal(name), sealed_aliases, self._db.seal_opt(description), self._db.seal_opt(card), now, now),
             )
             # fmt: on
         return int(cur.lastrowid or 0)
@@ -178,7 +179,7 @@ class CharacterOps:
     def list(self, story_id: int) -> builtins.list[Character]:
         # fmt: off
         rows = self._db.conn.execute(
-            "SELECT id, name, aliases, description FROM characters WHERE story_id = ? ORDER BY id",
+            "SELECT id, name, aliases, description, card FROM characters WHERE story_id = ? ORDER BY id",
             (story_id,),
         ).fetchall()
         # fmt: on
@@ -188,8 +189,9 @@ class CharacterOps:
                 name=self._db.unseal(name),
                 aliases=self._decode_aliases(aliases),
                 description=self._db.unseal(description),
+                card=self._db.unseal_opt(card),
             )
-            for cid, name, aliases, description in rows
+            for cid, name, aliases, description, card in rows
         ]
 
     def update(
@@ -229,6 +231,19 @@ class CharacterOps:
             conn.execute(
                 "UPDATE characters SET description = ?, updated_at = ? WHERE id = ?",
                 (self._db.seal_opt(description or None), self._db.now(), character_id),
+            )
+            # fmt: on
+
+    def set_card(self, character_id: int, card: str) -> None:
+        """The author's correction of an imported card's archive — replaces
+        the text. The card message already played is untouched: the archive
+        feeds future features and the next import's persona default, never
+        a turn already said."""
+        with self._db.conn as conn:
+            # fmt: off
+            conn.execute(
+                "UPDATE characters SET card = ?, updated_at = ? WHERE id = ?",
+                (self._db.seal_opt(card or None), self._db.now(), character_id),
             )
             # fmt: on
 

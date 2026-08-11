@@ -128,6 +128,14 @@ _DEFAULTS = {
         "((OOC: {body}\n\nAnswer briefly out of character, as a co-author planning "
         "the story — do not continue the scene or write any prose.))"
     ),
+    "card_framing": (
+        "((OOC: {name} joins the story. Their card, to play them by:\n"
+        "Description: {description}\n"
+        "Personality: {personality}\n"
+        "Scenario: {scenario}\n"
+        "Example dialogue (voice reference only, never story events): {examples}\n"
+        "Standing note: {depth_note}))"
+    ),
     "extract_prompt": EXTRACT_DEFAULT,
     "history_prompt": HISTORY_DEFAULT,
     "story_so_far_prompt": STORY_SO_FAR_DEFAULT,
@@ -142,6 +150,10 @@ _REQUIRED = {
     "me_framing": ("name", "body"),
     "you_framing": ("name",),
     "ooc_framing": ("body",),
+    # Only {name}: a card template line whose OTHER placeholders are absent
+    # is a choice — omitting {examples} is how a user keeps examples off
+    # the wire — and compose drops the lines of fields a card lacks.
+    "card_framing": ("name",),
     "extract_prompt": ("cast", "journals", "chunk"),
     "history_prompt": ("name", "entries"),
     "story_so_far_prompt": ("summaries",),
@@ -160,6 +172,7 @@ class Prompts:
     me_framing: str = _DEFAULTS["me_framing"]
     you_framing: str = _DEFAULTS["you_framing"]
     ooc_framing: str = _DEFAULTS["ooc_framing"]
+    card_framing: str = _DEFAULTS["card_framing"]
     extract_prompt: str = _DEFAULTS["extract_prompt"]
     history_prompt: str = _DEFAULTS["history_prompt"]
     story_so_far_prompt: str = _DEFAULTS["story_so_far_prompt"]

@@ -102,7 +102,8 @@ CREATE TABLE characters (
     aliases     BLOB,                    -- JSON array, sealed
     description BLOB,
     created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
+    updated_at  TEXT NOT NULL,
+    card        BLOB                     -- an imported card as TOML
 );
 
 CREATE TABLE journals (
@@ -193,6 +194,7 @@ class Character:
     name: str
     aliases: tuple[str, ...] = ()
     description: str = ""
+    card: str | None = None  # the import archive; None for extracted characters
 
 
 @dataclass(frozen=True)

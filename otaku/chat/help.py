@@ -55,6 +55,7 @@ _HELP_ROWS: list[tuple[str | None, str, str]] = [
     ("/balance", "", "Account balance of cloud providers"),
     ("/info", "", "Show details about the current model + session"),
     (None, "", "Import/export:"),
+    ("/card FILE [NAME]", "", "Import a character card (PNG or JSON) into this story — NAME renames them"),
     ("/import FILE", "", "Import a story: an otaku export, SillyTavern chat (.jsonl), or plain text"),
     ("/export [FILE]", "", "Export the whole story to Markdown (memory + messages)"),
     (None, "", "Model and settings:"),

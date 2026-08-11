@@ -154,6 +154,14 @@ class TestSchemaMigration:
             (message,) = store.stories.get_messages(1)
             # The v1 `framing` column reads back through the renamed one.
             assert (message.body, message.template) == ("I enter.", "TPL")
+            # The v1 character reads whole through the widened row: the
+            # added `card` column trails, so nothing shifted into it.
+            (keeper,) = store.characters.list(1)
+            assert (keeper.name, keeper.description, keeper.card) == (
+                "Keeper",
+                "warden of the gate",
+                None,
+            )
         finally:
             store.close()
         assert _meta_version(paths) == "2"
@@ -239,9 +247,13 @@ class TestSchemaMigration:
         if proc.returncode != 0:
             pytest.skip("the v0.2.2 tag is not reachable here")
         shipped = proc.stdout
-        start = shipped.index("CREATE TABLE messages")
-        end = shipped.index(");", start) + 1
-        assert shipped[start:end] == store_steps._V1_MESSAGES
+        for table, frozen in (
+            ("messages", store_steps._V1_MESSAGES),
+            ("characters", store_steps._V1_CHARACTERS),
+        ):
+            start = shipped.index(f"CREATE TABLE {table}")
+            end = shipped.index(");", start) + 1
+            assert shipped[start:end] == frozen, table
 
     def test_the_ladder_resumes_from_where_it_stamped(self, tmp_path, monkeypatch, capsys) -> None:
         from otaku.store import database as database_mod
@@ -512,9 +524,14 @@ def _v1_database(root) -> Paths:
     uses."""
     paths = Paths.resolve(root)
     paths.ensure_tree()
-    start = SCHEMA_DDL.index("CREATE TABLE messages")
-    end = SCHEMA_DDL.index(");", start) + 1
-    v1_ddl = SCHEMA_DDL[:start] + store_steps._V1_MESSAGES + SCHEMA_DDL[end:]
+    v1_ddl = SCHEMA_DDL
+    for table, shipped in (
+        ("messages", store_steps._V1_MESSAGES),
+        ("characters", store_steps._V1_CHARACTERS),
+    ):
+        start = v1_ddl.index(f"CREATE TABLE {table}")
+        end = v1_ddl.index(");", start) + 1
+        v1_ddl = v1_ddl[:start] + shipped + v1_ddl[end:]
     conn = sqlite3.connect(paths.database_file)
     conn.executescript("BEGIN;" + v1_ddl)
     # fmt: off
@@ -535,6 +552,15 @@ def _v1_database(root) -> Paths:
     )
     # fmt: on
     conn.execute("UPDATE stories SET head_id = 1 WHERE id = 1")
+    # A character at the v1 row shape: the added `card` column must land
+    # BEHIND these values, or this row's timestamps would shift into it.
+    # fmt: off
+    conn.execute(
+        "INSERT INTO characters (id, story_id, name, description, created_at, updated_at)"
+        " VALUES (1, 1, ?, ?, ?, ?)",
+        (b"Keeper", b"warden of the gate", now, now),
+    )
+    # fmt: on
     conn.commit()
     conn.close()
     return paths

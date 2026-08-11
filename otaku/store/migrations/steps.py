@@ -9,13 +9,14 @@ precondition after it. `schema.py` stays the CURRENT shape; the
 fresh-equals-migrated scenario holds the end of this chain against it, so
 a schema edit without a new step fails loudly.
 
-Step 1 -> 2 rewrites the `messages` DDL in place — SQLite's documented
+Step 1 -> 2 rewrites the `messages` and `characters` DDL in place — SQLite's documented
 "simpler procedure" (`writable_schema`): a CHECK constraint and a column
 name are only text in the stored DDL, nothing on disk depends on them, so
-the CHECK widens to admit 'card' and `framing` becomes `template` without
-rebuilding the table. The step demands the stored DDL match what version
-1 shipped (a hand-edited schema is refused rather than guessed at) and
-writes the version-2 text verbatim.
+the CHECK widens to admit 'card', `framing` becomes `template`, and
+`characters` gains its `card` column, all without rebuilding a table. The
+step demands the stored DDL match what version 1 shipped (a hand-edited
+schema is refused rather than guessed at) and writes the version-2 text
+verbatim.
 """
 
 import re
@@ -43,6 +44,8 @@ _V1_MESSAGES = """CREATE TABLE messages (
     CHECK (parent_id IS NULL OR parent_id < id)
 )"""
 
+# What changes against V1: the kind CHECK admits 'card', `framing` is
+# renamed to `template` (its comment rewritten with it) — both only text.
 _V2_MESSAGES = """CREATE TABLE messages (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     story_id    INTEGER NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
@@ -64,14 +67,50 @@ _V2_MESSAGES = """CREATE TABLE messages (
 )"""
 
 
+_V1_CHARACTERS = """CREATE TABLE characters (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    story_id    INTEGER NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+    name        BLOB NOT NULL,
+    aliases     BLOB,                    -- JSON array, sealed
+    description BLOB,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+)"""
+
+# What changes against V1: the `card` column appended — LAST, because the
+# record format is positional and existing rows must read NULL there, not
+# shift their trailing values into it.
+_V2_CHARACTERS = """CREATE TABLE characters (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    story_id    INTEGER NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+    name        BLOB NOT NULL,
+    aliases     BLOB,                    -- JSON array, sealed
+    description BLOB,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL,
+    card        BLOB                     -- an imported card as TOML
+)"""
+
+
 def to_2(conn: sqlite3.Connection) -> None:
-    row = conn.execute("SELECT sql FROM sqlite_master WHERE name = 'messages'").fetchone()
-    if row is None or _normalized(row[0]) != _normalized(_V1_MESSAGES):
-        raise sqlite3.DatabaseError("messages DDL is not what schema version 1 shipped")
+    _rewrite(conn, "messages", _V1_MESSAGES, _V2_MESSAGES)
+    _rewrite(conn, "characters", _V1_CHARACTERS, _V2_CHARACTERS)
+
+
+def _rewrite(conn: sqlite3.Connection, table: str, expect: str, write: str) -> None:
+    """One table's stored DDL replaced under `writable_schema`, refused
+    unless it matches what the step expects — a hand-edited schema is
+    never guessed at. Adding a COLUMN this way is sound for the same
+    reason as the constraint and the rename: the record format is
+    positional and rows shorter than the schema read as NULL in the
+    missing columns, which is exactly what `ADD COLUMN` relies on."""
+    row = conn.execute("SELECT sql FROM sqlite_master WHERE name = ?", (table,)).fetchone()
+    if row is None or _normalized(row[0]) != _normalized(expect):
+        raise sqlite3.DatabaseError(f"{table} DDL is not what schema version 1 shipped")
     conn.execute("PRAGMA writable_schema = ON")
     # fmt: off
     conn.execute(
-        "UPDATE sqlite_master SET sql = ? WHERE type = 'table' AND name = 'messages'", (_V2_MESSAGES,)
+        "UPDATE sqlite_master SET sql = ? WHERE type = 'table' AND name = ?", (write, table)
     )
     # fmt: on
     conn.execute("PRAGMA writable_schema = OFF")
