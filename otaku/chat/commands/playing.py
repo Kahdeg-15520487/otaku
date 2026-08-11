@@ -96,14 +96,20 @@ def cmd_regen(session: Session, store: Store, args: list[str]) -> None:
         echo = message(prompt.body, "user") if prompt else ""
         session.screen.echo_block(echo, above=marker)
     # The prompt decides what its answer is, exactly as when it first
-    # played — and it decides even for a replaced reply, so an edit in the
-    # picker is honoured. Only a promptless reply has nothing to ask, and
-    # then the reply it replaces says what it was.
+    # played — the kind AND the speaker — and it decides even for a
+    # replaced reply, so an edit in the picker is honoured. Only a
+    # promptless reply has nothing to ask, and then the reply it replaces
+    # says what it was — its kind, not its speaker: that was extraction's
+    # read of TEXT this take replaces, and the fresh text earns its own.
+    speaker = None
     if prompt is not None:
-        kind = framing(prompt.body).reply_kind
+        frame = framing(prompt.body)
+        kind = frame.reply_kind
+        if frame.speaks == "reply" and session.story_id is not None:
+            speaker = store.characters.find(session.story_id, frame.name)
     else:
         kind = popped.kind if popped is not None else "dialogue"
-    run_inference(session, store, reply_kind=kind)
+    run_inference(session, store, reply_kind=kind, reply_speaker=speaker)
 
 
 def cmd_last(session: Session, store: Store, args: list[str]) -> None:

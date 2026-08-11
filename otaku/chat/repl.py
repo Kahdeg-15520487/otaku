@@ -42,6 +42,7 @@ from otaku.terminal import (
     PROMPT_PREFIX,
     RESET,
     banner,
+    error_line,
 )
 from otaku.terminal.cursor import measure, terminal_width
 from otaku.terminal.statusline import StatusLine
@@ -218,6 +219,25 @@ def submit(line: str, session: Session, store: Store) -> None:
                 session.screen.invalidate()
                 print(error)
             else:
+                # The named character, resolved once and used three ways:
+                # the autocorrect rewrite, the request's speaker (/me — the
+                # line IS their words), and the reply's (/you — it asks
+                # them to answer). Safe to act on because `characters.find`
+                # matches an exact name or alias only: it can settle a
+                # spelling or attribute a line, never pick someone else.
+                # The name guard is the hot path's: a prose line names
+                # nobody and must not query the cast for it.
+                known = (
+                    store.characters.find(session.story_id, frame.name)
+                    if frame.name and session.story_id is not None
+                    else None
+                )
+                if known is not None and session.autocorrect:
+                    # Settled BEFORE anything sees it, so the echo, the
+                    # store, the picker and the wire all read one text —
+                    # and a played line never moves afterwards.
+                    line = frame.update_name(known.name)
+                request_speaker = known if frame.speaks == "request" else None
                 session.screen.echo_block(message(line, "user"))
                 session.record_turn(
                     store,
@@ -226,9 +246,16 @@ def submit(line: str, session: Session, store: Store) -> None:
                         body=line,
                         kind=frame.request_kind,
                         template=frame.template(session.prompts),
+                        speaker=request_speaker.name if request_speaker else None,
+                        speaker_id=request_speaker.id if request_speaker else None,
                     ),
                 )
-                run_inference(session, store, reply_kind=frame.reply_kind)
+                run_inference(
+                    session,
+                    store,
+                    reply_kind=frame.reply_kind,
+                    reply_speaker=known if frame.speaks == "reply" else None,
+                )
         _maybe_schedule(session, last_before)
     except KeyboardInterrupt:
         raise  # ^C is the user speaking, not a crash — the loop handles it
@@ -237,7 +264,7 @@ def submit(line: str, session: Session, store: Store) -> None:
             print()  # the crash report is the command's first output
         session.screen.invalidate()
         path = ErrorLog(session.paths).record(f"command {line.split(' ', 1)[0]!r}", e)
-        print(f"command failed ({type(e).__name__}) — recorded in {pretty_path(path)}")
+        print(error_line(f"command failed ({type(e).__name__}) — recorded in {pretty_path(path)}"))
 
 
 def _maybe_schedule(session: Session, last_before: Message | None) -> None:

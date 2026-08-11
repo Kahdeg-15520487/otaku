@@ -121,6 +121,9 @@ class Session:
     # defer to the model's default. Off unless opted in.
     think: str | None = "none"
     verbose: bool = False  # the stats line after each reply (/set verbose)
+    # Whether a character name typed at the prompt is settled to the cast's
+    # own spelling before the line is stored (/set autocorrect).
+    autocorrect: bool = True
     # The REPL's exit flag: /bye (and Ctrl+D) raise it, and the run loop
     # leaves after the current turn instead of unwinding mid-command.
     should_quit: bool = False
@@ -177,6 +180,7 @@ class Session:
             provider_config=config.providers[provider_name] if model_spec else None,
             model=model,
             verbose=state.verbose,
+            autocorrect=state.autocorrect,
             tui=tui or TUI(),
             worker=worker,
         )
@@ -326,6 +330,7 @@ class Session:
                     model=self.full_model_name,
                     story=self.story_id or 0,
                     verbose=self.verbose,
+                    autocorrect=self.autocorrect,
                     think=self.think if self.think is not None else "default",
                 ),
             )

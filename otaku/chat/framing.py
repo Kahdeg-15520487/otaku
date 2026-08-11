@@ -7,7 +7,10 @@ typed, and it is read again whenever the turn is used.
 
 `framing(line)` is that reading: it returns the line bound to the command
 that opened it, already split into a name, its prose, and any inliner's
-text. Everything that varies between commands lives on the class — the
+text. `update_name` is the one thing that writes a line back — the cast's own
+spelling of a name the writer typed loosely (see `repl`, and `/set
+autocorrect`), settled before the line is stored so that everything after
+reads one text. Everything that varies between commands lives on the class — the
 usage line, the two kinds, the template it names, how the argument splits.
 A subclass carries data only. Prose — a line that opens with no command —
 is the base class itself, so no caller ever tests for one.
@@ -60,6 +63,11 @@ class Framing:
     usage = ""
     request_kind = "dialogue"
     reply_kind = "dialogue"
+    # The side of the exchange the named character speaks: "request" when
+    # the line IS their words (/me), "reply" when it asks them to answer
+    # (/you), "" when the name names nobody's line. Attribution follows
+    # this, not the command, so a new command only has to declare it.
+    speaks = ""
     needs_name = False
     needs_text = False
     template_field = ""
@@ -72,6 +80,21 @@ class Framing:
     def split_name(self, rest: str) -> tuple[str, str]:
         """This command's argument as `(name, text)`."""
         return "", rest
+
+    def join_name(self, name: str, text: str) -> str:
+        """`split_name` backwards — the argument written the way this
+        command writes it. Prose carries no name, so it is all text."""
+        return text
+
+    def update_name(self, name: str) -> str:
+        """This line with its name replaced, everything else exactly as
+        typed — the closing inliner and its text included. Only the cast's
+        own spelling is ever passed in (see repl), so what comes back names
+        the same character the writer did."""
+        if not self.name:
+            return self.line
+        head = f"{self.token} {self.join_name(name, self.text)}".strip()
+        return f"{head} {self.inliner} {self.tail}" if self.inliner else head
 
     def template(self, prompts: Prompts) -> str | None:
         """The prompts.toml template this command names, verbatim — both
@@ -103,6 +126,7 @@ class _Me(Framing):
 
     token = "/me"
     usage = "Usage: /me NAME: PROMPT"
+    speaks = "request"
     needs_name = True
     needs_text = True
     template_field = "me_framing"
@@ -110,6 +134,9 @@ class _Me(Framing):
     def split_name(self, rest: str) -> tuple[str, str]:
         name, _, text = rest.partition(":")
         return name.strip(), text.strip()
+
+    def join_name(self, name: str, text: str) -> str:
+        return f"{name}: {text}"
 
 
 class _You(Framing):
@@ -120,11 +147,15 @@ class _You(Framing):
     token = "/you"
     usage = "Usage: /you NAME"
     request_kind = "ooc"
+    speaks = "reply"
     needs_name = True
     template_field = "you_framing"
 
     def split_name(self, rest: str) -> tuple[str, str]:
         return rest, ""
+
+    def join_name(self, name: str, text: str) -> str:
+        return name
 
 
 class _Ooc(Framing):

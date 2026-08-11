@@ -8,7 +8,7 @@ from otaku.lore import assembler
 from otaku.providers.base import CloudClient
 from otaku.settings.config import ProviderConfig
 from otaku.store import Store
-from otaku.terminal import DIM, RESET
+from otaku.terminal import DIM, RESET, error_line
 
 
 def cmd_context(session: Session, store: Store, args: list[str]) -> None:
@@ -83,7 +83,7 @@ def cmd_balance(session: Session, store: Store, args: list[str]) -> None:
 
     rows = [row for row in session.providers.map(probe) if row]
     if not rows:
-        print("Cannot get balances from cloud providers.")
+        print(error_line("Cannot get balances from cloud providers."))
         return
     width = max(len(name) for name, _ in rows)
     for name, value in rows:

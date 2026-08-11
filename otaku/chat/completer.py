@@ -27,7 +27,7 @@ from prompt_toolkit.document import Document
 
 from otaku.chat import pathcomplete
 from otaku.chat.commands import PATH_LEAF, CompletionTree, completion_tree, inliner_menu
-from otaku.chat.help import describe_command, needs_argument
+from otaku.chat.help import arguments, describe_command, needs_argument
 
 
 class MenuRow(Completion):
@@ -218,14 +218,22 @@ def _rows(menu: dict[str, str], partial: str, path: tuple[str, ...]) -> Iterator
     WHOLE menu, not the filtered subset, so it never resizes as you type.
     `path` is what the keys hang off — the walked command tokens, or `…`
     for the inliners, which is how their /help rows are written."""
-    key_width = max((len(key) for key in menu), default=0)
+    # Each row reads as the line it starts: the command, then what it takes
+    # — dimmed, because only the command is inserted. Widths are measured
+    # over the WHOLE label so the description column still lines up.
+    labels = {key: f"{key} {arguments((*path, key))}".rstrip() for key in menu}
+    key_width = max((len(label) for label in labels.values()), default=0)
     meta_width = max((len(meta) for meta in menu.values()), default=0)
     for key, meta in menu.items():
         if key.startswith(partial):
             yield MenuRow(
                 key,
                 start_position=-len(partial),
-                display=key.ljust(key_width),
+                display=[
+                    ("", key),
+                    ("dim", labels[key][len(key) :]),
+                    ("", " " * (key_width - len(labels[key]))),
+                ],
                 display_meta=meta.ljust(meta_width) if meta_width else None,
                 argument_required=needs_argument((*path, key)),
             )

@@ -16,6 +16,7 @@ from pathlib import Path
 
 from otaku.chat.session import RESUME_TURNS, Session
 from otaku.store import Store
+from otaku.terminal import error_line
 
 
 def cmd_stories(session: Session, store: Store, args: list[str]) -> None:
@@ -111,7 +112,7 @@ def cmd_system(session: Session, store: Store, args: list[str]) -> None:
         try:
             text = path.read_text(encoding="utf-8", errors="replace").strip()
         except OSError as e:
-            print(f"Could not read {path}: {e}")
+            print(error_line(f"Could not read {path}: {e}"))
             return
         if not text:
             print(f"{path} is empty — system prompt unchanged.")

@@ -20,8 +20,8 @@ from otaku.lore import assembler
 from otaku.providers.base import Stats, Text, Thinking
 from otaku.settings.config import ProviderConfig
 from otaku.store import Store
-from otaku.store.schema import Message
-from otaku.terminal import DIM, RESET
+from otaku.store.schema import Character, Message
+from otaku.terminal import DIM, RESET, error_line
 from otaku.terminal.spinner import Spinner
 from otaku.terminal.typography import Typesetter
 
@@ -102,7 +102,13 @@ class _StreamWatcher:
                 return
 
 
-def run_inference(session: Session, store: Store, *, reply_kind: str = "dialogue") -> None:
+def run_inference(
+    session: Session,
+    store: Store,
+    *,
+    reply_kind: str = "dialogue",
+    reply_speaker: Character | None = None,
+) -> None:
     """Stream a completion for the current transcript, append the reply, and
     persist it. A cancelled stream always keeps the received portion: Ctrl+C
     stops and leaves it as the reply; Ctrl+R stops and immediately
@@ -110,15 +116,20 @@ def run_inference(session: Session, store: Store, *, reply_kind: str = "dialogue
     partial surviving in the tree as a sibling like any regenerated reply.
     `reply_kind` is the kind the REPLY is stored under — never inferred
     from the prompt's own kind, because a /you switch
-    also ends on an ((OOC:)) turn yet wants an in-character answer."""
-    _run_step(session, store, reply_kind)
+    also ends on an ((OOC:)) turn yet wants an in-character answer.
+    `reply_speaker` is the cast member the reply is spoken by, when the prompt
+    named one (/you): stored on the reply row, where extraction's own
+    labeling is fill-only, so it stands."""
+    _run_step(session, store, reply_kind, reply_speaker)
     while session.regen_after:
         session.regen_after = False
         session.drop_last_reply(store)
-        _run_step(session, store, reply_kind)
+        _run_step(session, store, reply_kind, reply_speaker)
 
 
-def _run_step(session: Session, store: Store, reply_kind: str) -> None:
+def _run_step(
+    session: Session, store: Store, reply_kind: str, reply_speaker: Character | None
+) -> None:
     """One streaming pass. ^C during the stream is consumed here: partial
     output is kept and persisted so the user can regenerate or continue.
     ^R persists the partial the same way, then sets `session.regen_after`
@@ -212,7 +223,7 @@ def _run_step(session: Session, store: Store, reply_kind: str) -> None:
         # exactly as a Ctrl+C does. The record below runs on whatever
         # arrived; only the stats are meaningless now. A failure before
         # any output starts at the margin — no stray blank above it.
-        out.write(("\n" if content else "") + f"[ error: {error} ]\n")
+        out.write(("\n" if content else "") + error_line(f"[ error: {error} ]") + "\n")
     else:
         out.write("\n")
 
@@ -228,7 +239,8 @@ def _run_step(session: Session, store: Store, reply_kind: str) -> None:
         out.write(DIM + format_stats(final) + RESET + "\n")
 
     if content:
-        # No speaker set here: lore extraction attributes the reply later
+        # The speaker is the character the prompt asked to answer, when it
+        # named one; otherwise extraction attributes the reply later
         # (never for the wire). `kind` still marks an ooc reply.
         session.record_turn(
             store,
@@ -236,6 +248,8 @@ def _run_step(session: Session, store: Store, reply_kind: str) -> None:
                 role="assistant",
                 body="".join(content),
                 kind=reply_kind,
+                speaker=reply_speaker.name if reply_speaker else None,
+                speaker_id=reply_speaker.id if reply_speaker else None,
                 provider=provider_config.name,
                 model=session.model,
             ),

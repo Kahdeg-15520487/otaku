@@ -1,6 +1,7 @@
 """Model and settings commands: /model and /set.
 
-`/set think` and `/set verbose` persist to state.toml (session-wide);
+`/set think`, `/set verbose` and `/set autocorrect` persist to state.toml
+(session-wide);
 `/set parameter` auto-saves per model to models.toml — settings follow the
 thing they describe, and nothing is written into the user-owned config.
 """
@@ -14,7 +15,7 @@ from otaku.chat.session import (
 )
 from otaku.settings import models as models_file
 from otaku.store import Store
-from otaku.terminal import BOLD, RESET
+from otaku.terminal import BOLD, RESET, error_line
 
 
 def cmd_model(session: Session, store: Store, args: list[str]) -> None:
@@ -43,13 +44,18 @@ def cmd_model(session: Session, store: Store, args: list[str]) -> None:
 
 def cmd_set(session: Session, store: Store, args: list[str]) -> None:
     if not args:
-        print("Usage: /set think <level> | /set verbose on|off | /set parameter <name> [value]")
+        print(
+            "Usage: /set think <level> | /set verbose on|off"
+            " | /set autocorrect on|off | /set parameter <name> [value]"
+        )
         return
     sub, *rest = args
     if sub == "think":
         _set_think(session, rest)
     elif sub == "verbose":
         _set_verbose(session, rest)
+    elif sub == "autocorrect":
+        _set_autocorrect(session, rest)
     elif sub == "parameter":
         _set_parameter(session, rest)
     else:
@@ -113,6 +119,22 @@ def _set_verbose(session: Session, rest: list[str]) -> None:
     print(f"Verbose: {'on' if session.verbose else 'off'}.")
 
 
+def _set_autocorrect(session: Session, rest: list[str]) -> None:
+    """Session-wide and persisted, like verbose. Off means a name reaches
+    the story exactly as it was typed, whoever the cast says that is."""
+    if rest:
+        value = rest[0].lower()
+        if value in ("on", "true", "yes"):
+            session.autocorrect = True
+        elif value in ("off", "false", "no"):
+            session.autocorrect = False
+        else:
+            print("Usage: /set autocorrect on|off")
+            return
+        session.save_state()
+    print(f"Autocorrect: {'on' if session.autocorrect else 'off'}.")
+
+
 def _set_parameter(session: Session, rest: list[str]) -> None:
     if not rest:
         if not session.params:
@@ -150,7 +172,7 @@ def _set_parameter(session: Session, rest: list[str]) -> None:
     try:
         value = coerce(raw)
     except ValueError:
-        print(f"Could not parse {raw!r} as {coerce.__name__}.")
+        print(error_line(f"Could not parse {raw!r} as {coerce.__name__}."))
         return
     session.params[name] = value
     print(f"{name} = {value}{_save_params(session)}")

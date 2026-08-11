@@ -8,6 +8,8 @@ changes.
 ## [0.2.3] - [planned]
 
 ### Added
+- `/set autocorrect on|off` — whether a typed character name in `/me` and `/you` commands is
+  settled to the cast's spelling.
 - Two inline commands, typed inside a line rather than opening one: `/ooc` for an aside out of
   character, and `/cue` to steer just the next reply — a cue goes out with the turn it rode in on
   and is not kept in context afterwards.
@@ -17,11 +19,23 @@ changes.
   same color, so a row reads as what it will become once inserted.
 
 ### Changed
+- A character name you type in `/me` and `/you` commands is settled to the cast's own spelling
+  before the line is stored, so `/me keeper:` becomes `/me Keeper:` once the Keeper is in the
+  story — echoed, stored and sent as one text. Only an exact name or alias matches (case aside),
+  so it can settle a spelling and never pick a different character; a name the cast does not know
+  is left alone, and a line already played never changes afterwards. `/set autocorrect off` turns
+  it off.
+- A name the cast knows also attributes the turn to that character — `/me` marks the request as
+  their line, `/you` marks the reply — with certainty, where the extraction pass previously had to
+  guess; everything else is still labeled by extraction.
 - The browsers (`/stories`, `/lore`, `/model`) follow the terminal instead of painting over it:
   the pane, its text and its headings are your own colors, secondary text is dimmed rather than
   greyed, and only what has to be painted is — the selected row and a dialog floating over the
   list. They also come in a dark set now, where before every browser was light whatever the
   terminal looked like.
+- Failures print in red: a provider that refused, a file that would not open, a command that
+  raised. What the app merely declines to do ("Unknown command", "Nothing to regenerate") stays
+  plain — an ordinary typo should not read as a fault.
 
 ### Fixed
 - The terminal is asked for its background before `COLORFGBG` is believed. Some terminals export

@@ -83,6 +83,15 @@ def break_rule(width: int) -> str:
     return _RULE_CHAR * width
 
 
+def error_line(text: str) -> str:
+    """A failure, in the theme's error color. Only what actually BROKE —
+    a provider that refused, a file that would not open, a command that
+    raised. A refusal the app expected ("Unknown command", "Nothing to
+    regenerate") is not one of these: it is the app answering, and colouring
+    it would make an ordinary typo look like a fault."""
+    return f"{theme().error.fg}{text}{RESET}"
+
+
 def latin_key(key: str) -> str:
     """The Latin character(s) on `key`'s physical keys: Cyrillic letters map
     to their QWERTY twins, everything else comes back lowercased as is —

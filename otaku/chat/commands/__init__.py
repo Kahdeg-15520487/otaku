@@ -31,6 +31,7 @@ def _set_tree() -> CompletionTree:
         "think": {level: None for level in levels},
         "parameter": {p: {"reset": None} for p in KNOWN_PARAMS},
         "verbose": {"on": None, "off": None},
+        "autocorrect": {"on": None, "off": None},
     }
 
 

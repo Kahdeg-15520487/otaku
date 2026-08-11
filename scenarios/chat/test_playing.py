@@ -110,17 +110,82 @@ class TestTurns:
 
 
 class TestMe:
-    def test_the_name_goes_out_as_typed(self, app: App) -> None:
-        # The cast is consulted nowhere, even when it holds the name in
-        # another spelling: a turn's wire text depends on that turn alone,
-        # so it can never shift when the cast does.
+    def test_a_name_the_cast_knows_is_settled_before_the_line_is_stored(self, app: App) -> None:
+        # Whatever the writer typed, the story keeps the character it
+        # already has — the lookup is case-insensitive and follows aliases
+        # (store.characters.find owns that). Settled in the LINE, so the
+        # store and the wire cannot say different things.
         for i in range(3):
             app.play(f"Turn number {i}.")
         app.play("/extract")  # the Keeper joins the cast
         app.play("/me keeper: I bow.")
+        stored = app.store.stories.get_messages(app.session.story_id)[-2]
+        assert stored.body == "/me Keeper: I bow."
+        sent = scripted.chat_request(app.server, "I bow.")["messages"][-1]["content"]
+        assert "Keeper" in sent
+        assert sent.endswith("I bow.")
+
+    def test_a_known_name_is_recorded_as_the_requests_speaker(self, app: App) -> None:
+        # /me says the line IS that character's, so the row is attributed
+        # right away — deterministically, where extraction would guess —
+        # and extraction's own labeling is fill-only, so it stands. The
+        # reply stays unattributed: the model may answer as anyone.
+        for i in range(3):
+            app.play(f"Turn number {i}.")
+        app.play("/extract")  # the Keeper joins the cast
+        app.play("/me keeper: I bow.")
+        keeper = app.store.characters.find(app.session.story_id, "Keeper")
+        request, reply = app.store.stories.get_messages(app.session.story_id)[-2:]
+        assert (request.speaker, request.speaker_id) == ("Keeper", keeper.id)
+        assert (reply.speaker, reply.speaker_id) == (None, None)
+
+    def test_autocorrect_off_leaves_the_text_but_still_attributes(self, app: App) -> None:
+        # The toggle governs rewriting what was typed; who spoke is not a
+        # rewrite, and extraction would label the row later anyway — this
+        # just does it with certainty instead of a guess.
+        for i in range(3):
+            app.play(f"Turn number {i}.")
+        app.play("/extract")
+        app.play("/set autocorrect off")
+        app.play("/me keeper: I bow.")
+        stored = app.store.stories.get_messages(app.session.story_id)[-2]
+        assert stored.body == "/me keeper: I bow."
+        assert stored.speaker == "Keeper"
+
+    def test_an_inliner_survives_the_settling(self, app: App) -> None:
+        # The name is replaced in place; what closes the line rides along.
+        for i in range(3):
+            app.play(f"Turn number {i}.")
+        app.play("/extract")
+        app.play("/me keeper: I bow. /cue keep it short")
+        stored = app.store.stories.get_messages(app.session.story_id)[-2]
+        assert stored.body == "/me Keeper: I bow. /cue keep it short"
+
+    def test_a_name_the_cast_does_not_know_is_left_alone(self, app: App) -> None:
+        # Nobody is extracted yet, and a character still has to be able to
+        # speak before the pass that discovers them.
+        app.play("/me keeper: I bow.")
+        stored = app.store.stories.get_messages(app.session.story_id)[-2]
+        assert stored.body == "/me keeper: I bow."
+        assert (stored.speaker, stored.speaker_id) == (None, None)
         sent = scripted.chat_request(app.server, "I bow.")["messages"][-1]["content"]
         assert "keeper" in sent and "Keeper" not in sent
-        assert sent.endswith("I bow.")
+
+    def test_a_played_name_does_not_shift_when_the_cast_does(self, app: App) -> None:
+        # The name is settled once, as the line plays. A turn already said
+        # reads the same tomorrow — folding its character into another
+        # cannot rewrite what the story already contains.
+        for i in range(3):
+            app.play(f"Turn number {i}.")
+        app.play("/extract")  # the Keeper joins the cast
+        app.play("/me keeper: I bow.")
+        story_id = app.session.story_id
+        assert story_id is not None
+        app.store.characters.add(story_id, "Gatewarden")
+        app.play("/merge Keeper into Gatewarden")
+        app.play("/regen")
+        sent = scripted.chat_request(app.server, "I bow.")["messages"][-1]["content"]
+        assert "Keeper" in sent and "Gatewarden" not in sent
 
     def test_a_malformed_direction_plays_nothing(self, app: App) -> None:
         # No colon, so no prose to send. The story must be untouched — a
@@ -145,6 +210,30 @@ class TestYou:
             ("user", "/you Elara"),
             ("assistant", scripted.CHAT_REPLY),
         ]
+
+    def test_a_known_name_is_recorded_as_the_replys_speaker(self, app: App) -> None:
+        # /you asks that character to answer, so the attribution lands on
+        # the REPLY; the request is an instruction, nobody's line.
+        for i in range(3):
+            app.play(f"Turn number {i}.")
+        app.play("/extract")  # the Keeper joins the cast
+        app.play("/you keeper")
+        keeper = app.store.characters.find(app.session.story_id, "Keeper")
+        request, reply = app.store.stories.get_messages(app.session.story_id)[-2:]
+        assert (request.speaker, request.speaker_id) == (None, None)
+        assert (reply.speaker, reply.speaker_id) == ("Keeper", keeper.id)
+
+    def test_a_regenerated_reply_is_the_same_characters(self, app: App) -> None:
+        # The prompt decides what its answer is, the speaker included —
+        # a fresh take on /you Keeper is still Keeper speaking.
+        for i in range(3):
+            app.play(f"Turn number {i}.")
+        app.play("/extract")
+        app.play("/you keeper")
+        app.play("/regen")
+        reply = app.store.stories.get_messages(app.session.story_id)[-1]
+        assert reply.role == "assistant"
+        assert reply.speaker == "Keeper"
 
     def test_resending_a_failed_switch_answers_in_character(self, app: App) -> None:
         # The switch rides an ooc row, yet what it asks for is the scene:

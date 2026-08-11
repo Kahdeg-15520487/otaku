@@ -62,6 +62,7 @@ _HELP_ROWS: list[tuple[str | None, str, str]] = [
     ("/set think <level>", "", "Thinking effort for the model: on|off|none|low|medium|high|max|default"),
     ("/set parameter <name> <val>", "", "Set an inference parameter for the model; no <val> shows it, <val> = reset returns the default"),
     ("/set verbose on|off", "", "Show the stats line after each reply"),
+    ("/set autocorrect on|off", "", "Settle a character name you type in /you and /me commands to the cast's own spelling"),
     ("", "", ""),
     ("/help", "", "Show this help"),
     ("/bye", "Ctrl+D", "Exit"),
@@ -106,6 +107,15 @@ def describe_command(tokens: tuple[str, ...]) -> str:
     row — read from _HELP_ROWS so the menu and /help can never disagree."""
     row = _help_row(tokens)
     return row[2] if row else ""
+
+
+def arguments(tokens: tuple[str, ...]) -> str:
+    """What a command takes, spelled as its /help row spells it —
+    ("/me",) -> "NAME: PROMPT", ("/usage",) -> "[all]". Empty when it takes
+    nothing. The menu shows this beside the command, so the shape of the
+    line is visible while it is being typed rather than only in /help."""
+    row = _help_row(tokens)
+    return " ".join(row[0].split()[len(tokens) :]) if row else ""
 
 
 def needs_argument(tokens: tuple[str, ...]) -> bool:

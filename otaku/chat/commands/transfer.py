@@ -16,7 +16,7 @@ from otaku import __version__
 from otaku.chat.commands import lore
 from otaku.chat.session import RESUME_TURNS, Session
 from otaku.store import Store
-from otaku.terminal import YES_ANSWERS, latin_key
+from otaku.terminal import YES_ANSWERS, error_line, latin_key
 from otaku.transfer import EXPORT_MARKER
 from otaku.transfer import exports as story_exports
 from otaku.transfer import imports as story_imports
@@ -58,7 +58,7 @@ def import_story(session: Session, store: Store, path_text: str) -> bool:
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError as e:
-        print(f"Could not read {path}: {e}")
+        print(error_line(f"Could not read {path}: {e}"))
         return False
 
     # The format is detected — never declared — and the file's NAME and
@@ -84,7 +84,7 @@ def import_story(session: Session, store: Store, path_text: str) -> bool:
             print("The file contains no text to import.")
             return False
     else:
-        print("Cannot detect file format.")
+        print(error_line("Cannot detect file format."))
         return False
     if not export.messages:
         print("The file contains no messages to import.")
@@ -137,7 +137,7 @@ def cmd_export(session: Session, store: Store, args: list[str]) -> None:
     try:
         path.write_text(doc, encoding="utf-8")
     except OSError as e:
-        print(f"Could not write {path}: {e}")
+        print(error_line(f"Could not write {path}: {e}"))
         return
     print(f"Exported to {path}.")
 

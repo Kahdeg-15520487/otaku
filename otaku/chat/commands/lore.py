@@ -12,7 +12,7 @@ from otaku.chat.session import NO_MODEL_HINT, Session
 from otaku.lore.extraction import PassResult, Report
 from otaku.lore.worker import Job
 from otaku.store import Store
-from otaku.terminal import DIM, ERASE_LINE, RESET
+from otaku.terminal import DIM, ERASE_LINE, RESET, error_line
 
 
 def build_job(session: Session) -> Job:
@@ -145,7 +145,11 @@ def _report_pass(store: Store, story_id: int, result: PassResult, report: Report
     elif result is PassResult.TOO_SHORT:
         print("Nothing new since the last scene.")
     elif result is PassResult.FAILED:
-        print("Extraction failed (bad reply or request error) — the tail stays open; try again.")
+        print(
+            error_line(
+                "Extraction failed (bad reply or request error) — the tail stays open; try again."
+            )
+        )
     elif result is PassResult.CLOSED:
         rolled = f", {report.histories} history rollup(s)" if report.histories else ""
         refreshed = "; story-so-far refreshed" if report.scene_histories else ""
