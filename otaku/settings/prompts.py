@@ -70,14 +70,18 @@ Rules:
   in it (their exact name); null when it is narration, several characters, or out
   of character.
 - "characters": only NEW characters first appearing in this scene.
-- "journals": one for EVERY character who appears or acts in this scene.
+- "journals": one for EVERY character present in this scene — speaking, acting,
+  or silently there. The journal row is the story's record of their presence, so
+  a character with nothing to say still gets one.
   "entry" is that character's own record of THIS SCENE ONLY — what they did, saw,
-  heard, and felt, in the order they experienced it. Up to ~250 words, in
-  proportion to how much of the scene is theirs: a bystander gets a few lines,
-  the character the scene turns on gets the full length. Write only what they
-  witnessed or were told — a character does not know what happened while they
-  were absent, and a secret kept from them is not in their entry. This entry is
-  permanent and is never rewritten, so put everything of theirs into it now.
+  heard, and felt, in the order they experienced it; when they arrive or leave
+  partway through, the entry says so at the point it happens. Up to ~250 words,
+  in proportion to how much of the scene is theirs: a silent bystander gets a
+  line or two, the character the scene turns on gets the full length. Write only
+  what they witnessed or were told — a character does not know what happened
+  while they were absent, and a secret kept from them is not in their entry. This
+  entry is permanent and is never rewritten, so put everything of theirs into it
+  now.
   "state" is a snapshot, not a history: 1-3 sentences — where they are, what they
   wear and carry, how they feel, what they want, right now.
 - Lines marked ((OOC: …)) are the players talking out of character: never part of
@@ -233,13 +237,13 @@ def write_stub(paths: Paths) -> bool:
         return False
     lines = [*_HEADER, ""]
     for key, value in _DEFAULTS.items():
-        lines.append(f"{key} = {_toml_string(value)}")
+        lines.append(f"{key} = {toml_string(value)}")
         lines.append("")
     write_atomic(path, "\n".join(lines))
     return True
 
 
-def _toml_string(value: str) -> str:
+def toml_string(value: str) -> str:
     """A TOML string literal that parses back byte-for-byte. A clean single
     line is a single-quoted literal; anything with a newline or an
     apostrophe uses a triple-single literal, whose newline right after the

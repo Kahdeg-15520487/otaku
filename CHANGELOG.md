@@ -36,6 +36,11 @@ changes.
   same color, so a row reads as what it will become once inserted.
 
 ### Changed
+- The extraction writes a journal for every character present in a scene — speaking, acting, or
+  silently there — and entries name arrivals and departures as they happen: a journal row is now
+  the story's record of presence. The refreshed template reaches existing installs too: a
+  `prompts.toml` template still holding a previous release's exact text follows the new built-in,
+  while an edited one is never touched.
 - Browser edit fields open with the cursor at the start and answer PageUp/PageDown.
 - Extraction tolerates a reply whose JSON syntax was typed with typographic quotes — a small
   model mirroring the story's own punctuation — by straightening them when, and only when, the

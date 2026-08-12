@@ -2,8 +2,9 @@
 
 This module holds the shape-change tables themselves and `migrate`, the
 whole launch step; `surgery` is the toolkit every edit is built from,
-and `providers` the moves over providers.toml. Each file has its own
-ordered table — `_MIGRATIONS` and `_provider_migrations` — one
+`providers` the moves over providers.toml, and `prompts` the refreshed
+templates for prompts.toml. Each file has its own ordered table —
+`_CONFIG_MIGRATIONS`, `_provider_migrations`, and `_PROMPT_MIGRATIONS` — one
 entry per shape change across app versions. Everything here is
 idempotent and convergent: it all simply reruns at every launch — no
 version stamp to trust, no one-shot step whose half-state could stick —
@@ -18,6 +19,7 @@ from collections.abc import Callable
 from otaku.paths import Paths
 from otaku.settings.config import ProviderConfig
 from otaku.settings.files import row, write_atomic
+from otaku.settings.migrations.prompts import EXTRACT_0_2_2, refresh_template, update_prompts
 from otaku.settings.migrations.providers import (
     ensure_providers,
     move_providers,
@@ -33,6 +35,7 @@ from otaku.settings.migrations.surgery import (
     update_config,
     update_providers,
 )
+from otaku.settings.prompts import EXTRACT_DEFAULT
 
 __all__ = [
     "Migration",
@@ -47,7 +50,7 @@ __all__ = [
 # config.toml's shape-change table, oldest first: one factory call per
 # change across app versions, each safe to re-run on any config the app
 # ever wrote.
-_MIGRATIONS: list[Migration] = [
+_CONFIG_MIGRATIONS: list[Migration] = [
     # 0.2.2 — dialogue coloring arrives with the [ui] section.
     ensure_section(
         "ui",
@@ -60,6 +63,17 @@ _MIGRATIONS: list[Migration] = [
         + row("dialogue_bold = false", "also bold the spoken lines"),
         after="settings",
     ),
+]
+
+
+# prompts.toml's shape-change table: the stub materializes every template,
+# so a changed built-in must be carried to existing files — and only into
+# files still holding the superseded shipped text, byte-exact (an edited
+# template never matches and is never touched).
+_PROMPT_MIGRATIONS: list[Migration] = [
+    # 0.2.3 — journals become the record of presence: one per character
+    # present, silent bystanders included, arrivals and departures named.
+    refresh_template("extract_prompt", EXTRACT_0_2_2, EXTRACT_DEFAULT),
 ]
 
 
@@ -86,10 +100,11 @@ def migrate(paths: Paths, providers: dict[str, ProviderConfig]) -> None:
     writes, a hand deletion — it is founded empty here, for the ensured
     sections to fill. A missing config is bootstrap's business, and
     failures are swallowed — a migration is never worth a launch."""
-    update_config(paths, _MIGRATIONS)
+    update_config(paths, _CONFIG_MIGRATIONS)
     move_providers(paths)
     if paths.config_file.exists() and not paths.providers_file.exists():
         with contextlib.suppress(OSError):
             write_atomic(paths.providers_file, "")
     update_providers(paths, _provider_migrations(sealer(paths)))
     ensure_providers(paths, providers)
+    update_prompts(paths, _PROMPT_MIGRATIONS)

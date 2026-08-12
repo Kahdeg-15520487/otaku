@@ -8,7 +8,12 @@ current scene, minus the newest `settle` messages — must hold both
 packed into spans each meeting both minimums. Per span, one completion
 (the `extract_prompt`) closes a scene: a narrative summary, new characters
 joining the cast, one journal row per character present, and speaker
-labels filled onto unattributed in-character rows. The rollups then bring
+labels filled onto unattributed in-character rows. The journal row is a
+CONTRACT, not enrichment: one per character present in the scene, silent
+bystanders included, entries naming arrivals and departures — a journal
+row asserts presence, and a character's perspective on the summarized
+past derives from nothing else (their entry into the unsummarized tail
+is their first attributed row; see notes/multichat.md). The rollups then bring
 every history up to date — the story-so-far on the newest scene, each
 active character's history on their newest journal row; a single-source
 rollup is its source verbatim, no model pass. Both self-gate on

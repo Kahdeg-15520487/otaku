@@ -10,6 +10,7 @@ import base64
 import secrets
 import sqlite3
 import subprocess
+import tomllib
 from datetime import datetime
 
 import pytest
@@ -19,6 +20,8 @@ from otaku.app import load_config
 from otaku.paths import Paths
 from otaku.settings import config as config_mod
 from otaku.settings import migrations, sealed
+from otaku.settings import prompts as prompts_mod
+from otaku.settings.migrations.prompts import EXTRACT_0_2_2
 from otaku.store import DatabaseError, Store, is_encrypted
 from otaku.store import migrations as store_migrations
 from otaku.store.database import check_value
@@ -313,6 +316,31 @@ class TestConfigMigration:
         backups = list(app.paths.config_backups_dir.iterdir())
         assert len(backups) == 1
         assert "[ui]" not in backups[0].read_text()
+
+    def test_a_stale_prompt_template_follows_the_built_in(
+        self, server: ModelServer, tmp_path
+    ) -> None:
+        """A prompts.toml still holding a previous release's exact template
+        follows the new built-in at the next launch — the user's own lines
+        riding along untouched, the pre-migration file waiting in
+        configs/backups/. An edited template would not match and never
+        moves (the pure cases in tests/settings/migrations)."""
+        app = launch(tmp_path / "state", server)
+        app.close()
+        prompts_file = app.paths.prompts_file
+        stub = prompts_file.read_text()
+        stale = stub.replace(
+            prompts_mod.toml_string(prompts_mod.EXTRACT_DEFAULT),
+            prompts_mod.toml_string(EXTRACT_0_2_2),
+        )
+        assert stale != stub  # the stub really held the current built-in
+        prompts_file.write_text(stale + "# my note\n")
+
+        load_config(app.paths)
+        migrated = prompts_file.read_text()
+        assert tomllib.loads(migrated)["extract_prompt"] == prompts_mod.EXTRACT_DEFAULT
+        assert "# my note" in migrated
+        assert any(p.name.startswith("prompts-") for p in app.paths.config_backups_dir.iterdir())
 
     def test_a_current_config_is_left_untouched(self, server: ModelServer, tmp_path) -> None:
         app = launch(tmp_path / "state", server)
