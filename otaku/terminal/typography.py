@@ -7,8 +7,9 @@ blockquotes, horizontal rules, and fenced code blocks (rendered dim, the
 info string as a language label).
 
 Dialogue is colored, in both conventions writers use. Paired quotes —
-"…", "…", «…», „…" — open and close a spoken span. A line opening with an
-em or en dash is spoken until a dash that FOLLOWS sentence punctuation
+"…", "…", «…», „…" — open and close a spoken span. A line opening with a
+dash — em, en, or the ASCII hyphen typed for one — is spoken until a dash
+that FOLLOWS sentence punctuation
 hands over to the attribution ("— Yes, — he said. — Come in."), which
 hands back on the next such dash. A dash after an ordinary word is a
 parenthetical and changes nothing. Being forward-only, the typesetter must
@@ -35,15 +36,18 @@ from otaku.terminal.theme import theme
 _MORE: Any = object()  # verdict: keep buffering, block type not yet known
 
 _RE_HEADER = re.compile(r"^ {0,3}(#{1,6}) ")
-_RE_ULIST = re.compile(r"^(\s*)[-*+] ")
+_RE_ULIST = re.compile(r"^(\s*)[*+] ")
 _RE_OLIST = re.compile(r"^(\s*)(\d{1,9})[.)] ")
 _RE_QUOTE = re.compile(r"^(\s*)>")
 _RE_FENCE = re.compile(r"^\s*(`{3,}|~{3,})(.*)$")
 _RE_HR = re.compile(r"^ {0,3}([-*_])[ \t]*(?:\1[ \t]*){2,}$")
 
-# Dialogue. The ASCII hyphen is deliberately absent: `- ` opens a markdown
-# list, and a list marker must stay a list marker.
-_DASHES = "—–"  # noqa: RUF001 — en dash is deliberate
+# Dialogue. The ASCII hyphen counts as a dash, and so a `- ` line is
+# speech, not a markdown list: models type it for the dash convention
+# constantly, and a bullet would rewrite the spoken line's own mark —
+# the wrong render for a list only restyles, this one rewrote. Lists
+# keep `*` and `+`.
+_DASHES = "—–-"  # noqa: RUF001 — en dash is deliberate
 # Opening quote → the marks that may close it. `“` both opens (English) and
 # closes („…“), resolved by whether a span is already open; the straight
 # quote closes itself, so it toggles. `„` accepts either curly mark, because

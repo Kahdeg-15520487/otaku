@@ -150,7 +150,7 @@ class TestSchemaMigration:
         paths = _v1_database(tmp_path / "state")
         store = Store.open(paths, crypto.PlainCipher(), backups=0)
         try:
-            assert "database migrated (1 → 2)" in capsys.readouterr().out
+            assert "Database migrated (v1 → v2)" in capsys.readouterr().out
             (message,) = store.stories.get_messages(1)
             # The v1 `framing` column reads back through the renamed one.
             assert (message.body, message.template) == ("I enter.", "TPL")
@@ -267,7 +267,7 @@ class TestSchemaMigration:
         assert _meta_version(paths) == "2"  # step 2 committed and stamped
         monkeypatch.setitem(store_migrations._STEPS, 3, lambda conn: None)
         Store.open(paths, crypto.PlainCipher(), backups=0).close()
-        assert "database migrated (2 → 3)" in capsys.readouterr().out
+        assert "Database migrated (v2 → v3)" in capsys.readouterr().out
         assert _meta_version(paths) == "3"
 
 

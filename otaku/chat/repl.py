@@ -264,7 +264,7 @@ def submit(line: str, session: Session, store: Store) -> None:
             print()  # the crash report is the command's first output
         session.screen.invalidate()
         path = ErrorLog(session.paths).record(f"command {line.split(' ', 1)[0]!r}", e)
-        print(error_line(f"command failed ({type(e).__name__}) — recorded in {pretty_path(path)}"))
+        print(error_line(f"Command failed ({type(e).__name__}) — recorded in {pretty_path(path)}"))
 
 
 def _maybe_schedule(session: Session, last_before: Message | None) -> None:

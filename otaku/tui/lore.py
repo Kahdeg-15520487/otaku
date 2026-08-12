@@ -106,9 +106,9 @@ class LoreBrowser(ListScreen):
         self.scenes: list[Scene] = store.scenes.get_current(story_id, ids)
         self.ordinal: dict[int, int] = {mid: i + 1 for i, mid in enumerate(ids)}
         self.total_messages = len(ids)
-        self.cast: list[Character] = sorted(
-            store.characters.list(story_id), key=lambda c: c.name.casefold()
-        )
+        # In order of appearance (row order), not by name: the cast reads
+        # as the story introduced it.
+        self.cast: list[Character] = store.characters.list(story_id)
         current = {s.id for s in self.scenes}
         self.jrows: list[JournalRow] = [
             JournalRow(j.id, j.scene_id, j.character_id, j.state, j.history, j.entry)

@@ -23,6 +23,7 @@ from typing import Self
 from cryptography.exceptions import InvalidTag
 
 from otaku.crypto import Cipher, PlainCipher
+from otaku.logs.system import SystemLog
 from otaku.paths import Paths
 from otaku.store.schema import SCHEMA_DDL, SCHEMA_VERSION
 
@@ -209,8 +210,11 @@ class Database:
             conn.execute("VACUUM INTO ?", (str(dest),))
             pattern = re.compile(rf"^{re.escape(stem)}-\d{{8}}{re.escape(suffix)}$")
             dated = sorted(p for p in paths.backups_dir.iterdir() if pattern.match(p.name))
-            for old in dated[:-keep]:
+            pruned = dated[:-keep]
+            for old in pruned:
                 old.unlink()
+            extra = f", {len(pruned)} old pruned" if pruned else ""
+            SystemLog(paths).record(f"daily database backup written at {dest.name}{extra}")
         except (sqlite3.Error, OSError) as e:
             print(f"otaku: daily backup failed: {e}", file=sys.stderr)
 

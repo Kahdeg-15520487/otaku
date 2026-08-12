@@ -1,10 +1,12 @@
-"""The system log: the lore worker's account of itself.
+"""The system log: the app's account of the work nobody watched.
 
-`logs/system-YYYYMMDD.log`, one `<timestamp> <action>` line per action the
-worker performs — scenes closed, rollups rebuilt, retries, failures,
-warm-ups. The worker owns the instance and is the only writer: the log
-exists to make the background work transparent, so it records work done
-(and declined, with the reason), never scheduling noise.
+`logs/system-YYYYMMDD.log`, one `<timestamp> <action>` line per action —
+the lore worker's whole account of itself (scenes closed, rollups
+rebuilt, retries, failures, warm-ups), and the app's administrative
+moments: the schema migration, the daily database backup, an `otaku
+update` run. The log exists to make unattended work transparent, so it
+records work done (and declined, with the reason), never scheduling
+noise.
 
 CONTENT-FREE by contract: actions carry ids and counts, never prose —
 titles, summaries, and message text are sealed in the database, and a

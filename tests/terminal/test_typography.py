@@ -94,7 +94,13 @@ class TestBlocks:
         assert plain("# Title\n") == "Title\n"
 
     def test_renders_a_bullet_for_a_list_item(self) -> None:
-        assert plain("- item\n") == "• item\n"
+        assert plain("* item\n") == "• item\n"
+        assert plain("+ item\n") == "• item\n"
+
+    def test_a_hyphen_is_not_a_list_marker(self) -> None:
+        # `- ` is the dash-dialogue convention, so the hyphen must survive
+        # as typed — a bullet would rewrite the spoken line's own mark.
+        assert plain("- word\n") == "- word\n"
 
     def test_keeps_ordered_list_numbering(self) -> None:
         assert plain("1. first\n") == "1. first\n"
@@ -171,10 +177,19 @@ class TestDialogue:
         assert spans == ["— Yes, ", "\u00abthe sign\u00bb"]
 
     def test_a_list_marker_is_not_a_dialogue_dash(self) -> None:
-        assert spoken("- an item\n") == []
+        assert spoken("* an item\n") == []
+
+    def test_a_hyphen_line_speaks_like_a_dash_line(self) -> None:
+        assert spoken("- Hello, - he said. - Come in.\n") == ["- Hello, ", "- Come in."]
+
+    def test_a_compound_word_is_not_a_handover(self) -> None:
+        # The hyphen inside "Semi-formal" follows a letter, so the voice
+        # holds; the dash after the comma is the attribution as usual.
+        assert spoken("- Semi-formal, - he said.\n") == ["- Semi-formal, "]
 
     def test_a_dash_outside_a_dash_line_is_narration(self) -> None:
         assert spoken("The hall — long and unlit — smelled of stone.\n") == []
+        assert spoken("A well-known road, 3-4 miles.\n") == []
 
     def test_code_is_never_spoken(self) -> None:
         assert spoken('Try `printf("hi")` now.\n') == []

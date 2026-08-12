@@ -147,7 +147,7 @@ class ListScreen:
         if self.in_filter:
             self.query += data
             self._refilter()
-        elif data == "/":
+        elif data in "/.":
             self._open_filter()
         else:
             self._on_key(data)

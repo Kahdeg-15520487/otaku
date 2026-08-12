@@ -36,6 +36,10 @@ changes.
   same color, so a row reads as what it will become once inserted.
 
 ### Changed
+- The lore browser's cast lists in order of appearance — the story's own order — instead of
+  alphabetically.
+- The system log records the app's administrative moments — the schema migration, the daily
+  database backup, `otaku update` runs — besides the lore worker's actions.
 - A character name you type in `/me` and `/you` commands is settled to the cast's own spelling
   before the line is stored, so `/me keeper:` becomes `/me Keeper:` once the Keeper is in the
   story — echoed, stored and sent as one text. Only an exact name or alias matches (case aside),
@@ -55,6 +59,12 @@ changes.
   plain — an ordinary typo should not read as a fault.
 
 ### Fixed
+- The story browser's delete now answers the key macOS captions "delete" (backspace) as well as
+  the PC Del / forward-delete key it always listened for. While a filter is open, backspace still
+  edits the filter.
+- A line opening with `- ` reads as dash-convention dialogue — colored, the hyphen kept — where it
+  used to become a `•` list bullet, which rewrote the spoken line's own mark and left it uncolored.
+  Lists keep `*` and `+`.
 - The terminal is asked for its background before `COLORFGBG` is believed. Some terminals export
   that variable from the wrong profile — iTerm2 reports a white background from a dark window —
   which left the browsers and the played block light on a dark terminal.

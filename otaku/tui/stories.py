@@ -566,10 +566,18 @@ class StoryPicker(ListScreen):
         def _resume_enter(event: Any) -> None:
             self._do_resume()
 
-        self._standard_keys(kb, when=~confirming & ~resuming)
+        idle = ~confirming & ~resuming
+        self._standard_keys(kb, when=idle)
 
         @kb.add("delete")
         def _delete_key(event: Any) -> None:
+            self._request_delete()
+
+        # The key macOS captions "delete" arrives as backspace. Honor the
+        # caption wherever no filter is open for backspace to edit — added
+        # after the standard keys, so it outranks their no-op exactly there.
+        @kb.add("backspace", filter=idle & Condition(lambda: not self.in_filter))
+        def _delete_backspace(event: Any) -> None:
             self._request_delete()
 
         # While the buffer owns the panel, every binding above is suspended —

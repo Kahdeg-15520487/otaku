@@ -19,8 +19,8 @@ How every case at open resolves:
     no file            create at current schema, stamp — no backup, no message
     version == current fast no-op: no write, no backup, no print
     older              backup FIRST, then steps in order, each step + stamp
-                       in one transaction -> one line "database migrated
-                       (1 -> 2)" -> launch
+                       in one transaction -> one line "Database migrated
+                       (v1 -> v2)", echoed to the system log -> launch
     newer              refuse: name both versions - update the app, or
                        restore the pre-migration backup it took
     a step fails       its transaction rolls back -> the database is
@@ -39,6 +39,7 @@ How every case at open resolves:
 import sqlite3
 from pathlib import Path
 
+from otaku.logs.system import SystemLog
 from otaku.paths import Paths
 from otaku.store.migrations import steps
 from otaku.store.schema import SCHEMA_VERSION
@@ -82,11 +83,12 @@ def migrate(conn: sqlite3.Connection, paths: Paths) -> str | None:
             conn.rollback()
             at = target - 1
             raise DatabaseError(
-                f"migrating {paths.database_file} to schema {target} failed ({e}); the "
+                f"Migrating {paths.database_file} to schema v{target} failed ({e}); the "
                 f"database is unharmed at version {at}, and the pre-migration backup at "
                 f"{backup} was not touched"
             ) from e
-    return f"database migrated ({stored} → {current})"
+    SystemLog(paths).record(f"database migrated (v{stored} → v{current}), backup at {backup.name}")
+    return f"Database migrated (v{stored} → v{current})"
 
 
 def _version(conn: sqlite3.Connection, path: Path) -> int:
@@ -126,6 +128,6 @@ def _backup(conn: sqlite3.Connection, paths: Paths, version: int) -> Path:
         conn.execute("VACUUM INTO ?", (str(dest),))
     except (sqlite3.Error, OSError) as e:
         raise DatabaseError(
-            f"could not back up {paths.database_file} before migrating ({e}); nothing was changed"
+            f"Could not back up {paths.database_file} before migrating ({e}); nothing was changed"
         ) from e
     return dest
