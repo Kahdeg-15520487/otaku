@@ -65,6 +65,7 @@ from otaku.tui.screen import (
     ansi_fragments,
     base_style,
     bordered_box,
+    page_step,
     wrap_text,
 )
 
@@ -500,7 +501,9 @@ class StoryPicker(ListScreen):
         text = self.loaded_msgs[orig].body
         self.notice = ""
         self.editing = True
-        self.edit_buffer.document = Document(text, len(text))
+        # Cursor at the START: an edit begins by reading, and a long text
+        # opened at its end shows only its tail.
+        self.edit_buffer.document = Document(text, 0)
         self.app.layout.focus(self._edit_control)
 
     def _finish_edit(self, *, save: bool) -> None:
@@ -592,6 +595,15 @@ class StoryPicker(ListScreen):
         @edit_kb.add("escape", filter=editing, eager=True)
         def _cancel(event: Any) -> None:
             self._finish_edit(save=False)
+
+        # The buffer's own bindings know arrows, not pages.
+        @edit_kb.add("pageup", filter=editing)
+        def _edit_pgup(event: Any) -> None:
+            self.edit_buffer.cursor_up(page_step())
+
+        @edit_kb.add("pagedown", filter=editing)
+        def _edit_pgdn(event: Any) -> None:
+            self.edit_buffer.cursor_down(page_step())
 
         always_kb = KeyBindings()
 

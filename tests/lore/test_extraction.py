@@ -8,7 +8,9 @@ out-of-character row — added when the row has no stored template to show
 one.
 """
 
-from otaku.lore.extraction import numbered_chat, pack
+import pytest
+
+from otaku.lore.extraction import _parse_json, numbered_chat, pack
 from otaku.store.schema import Message
 
 
@@ -73,3 +75,27 @@ class TestNumberedChat:
     def test_an_ooc_row_with_framing_shows_it_as_stored(self) -> None:
         message = Message(role="user", body="Plan?", kind="ooc", template="((OOC: {body}))")
         assert numbered_chat([message]) == "[1] ((OOC: Plan?))"
+
+
+class TestParseJson:
+    """The reply parser's tolerances: fences and prose around the object,
+    and JSON syntax typed with typographic double quotes — a small model
+    mirrors the story's own punctuation — straightened only on retry, so
+    a parsable reply keeps every curly quote inside its values."""
+
+    def test_reads_the_object_out_of_fences_and_prose(self) -> None:
+        assert _parse_json('Sure!\n```json\n{"scene": 1}\n```') == {"scene": 1}
+
+    def test_typographic_quotes_as_syntax_parse_on_retry(self) -> None:
+        assert _parse_json("{“title”: “Quayside”}") == {"title": "Quayside"}
+
+    def test_a_parsable_reply_keeps_curly_quotes_in_values(self) -> None:
+        assert _parse_json('{"line": "She said “hi” — twice"}') == {"line": "She said “hi” — twice"}
+
+    def test_a_reply_without_an_object_refuses(self) -> None:
+        with pytest.raises(ValueError):
+            _parse_json("no json here")
+
+    def test_a_broken_object_still_refuses(self) -> None:
+        with pytest.raises(ValueError):
+            _parse_json('{"scene": }')

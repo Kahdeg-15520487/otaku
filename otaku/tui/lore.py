@@ -48,7 +48,8 @@ from otaku.formatting import flatten, truncate
 from otaku.store import Store
 from otaku.store.schema import Character, Scene
 from otaku.terminal.theme import theme
-from otaku.tui.screen import ListScreen, base_style, wrap_text
+from otaku.terminal.typography import highlight_toml
+from otaku.tui.screen import ListScreen, ansi_fragments, base_style, page_step, wrap_text
 
 
 def _style() -> Style:
@@ -350,6 +351,15 @@ class LoreBrowser(ListScreen):
             if not self.fields:
                 return [("class:preview.muted", "nothing to preview")]
             f = self.fields[self.field_cursor]
+            if f.kind == "card" and f.text:
+                # The archive reads as TOML: keys and macros in the command
+                # color — highlighted after the wrap, so the widths stay
+                # honest (escapes take no columns the wrap could count).
+                wrapped = "\n".join(wrap_text(f.text, width))
+                for line in highlight_toml(wrapped).split("\n"):
+                    out.extend(ansi_fragments(line, "class:preview.body"))
+                    out.append(("class:preview.body", "\n"))
+                return out
             for line in wrap_text(f.text or "(empty)", width):
                 out.append(("class:preview.body", line + "\n"))
             return out
@@ -562,7 +572,9 @@ class LoreBrowser(ListScreen):
         f = self.fields[self.field_cursor]
         self.notice = ""
         self.editing = True
-        self.edit_buffer.document = Document(f.text, len(f.text))
+        # Cursor at the START: an edit begins by reading, and a long text
+        # opened at its end shows only its tail.
+        self.edit_buffer.document = Document(f.text, 0)
         self.app.layout.focus(self._edit_control)
 
     def _edit_width(self) -> int:
@@ -715,6 +727,15 @@ class LoreBrowser(ListScreen):
         @edit_kb.add("escape", filter=editing, eager=True)
         def _cancel(event: Any) -> None:
             self._finish_edit(save=False)
+
+        # The buffer's own bindings know arrows, not pages.
+        @edit_kb.add("pageup", filter=editing)
+        def _edit_pgup(event: Any) -> None:
+            self.edit_buffer.cursor_up(page_step())
+
+        @edit_kb.add("pagedown", filter=editing)
+        def _edit_pgdn(event: Any) -> None:
+            self.edit_buffer.cursor_down(page_step())
 
         always_kb = KeyBindings()
 

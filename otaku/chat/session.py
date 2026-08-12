@@ -44,7 +44,7 @@ from otaku.store.schema import Message
 from otaku.store.stories import StoryListing
 from otaku.terminal import user_block
 from otaku.terminal.statusline import StatusLine
-from otaku.terminal.typography import Typesetter, highlight_commands
+from otaku.terminal.typography import Streamer, highlight_commands
 
 # The inference parameters otaku understands, and how each is read from the
 # saved file or a `/set parameter` argument.
@@ -444,7 +444,7 @@ def message(text: str, role: str) -> str:
     if role == "user":
         return highlight_commands(text, command_tokens())
     out = io.StringIO()
-    typesetter = Typesetter(out)
-    typesetter.feed(text)
-    typesetter.flush()
+    streamer = Streamer(out)
+    streamer.feed(text)
+    streamer.flush()
     return out.getvalue()

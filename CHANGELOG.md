@@ -36,6 +36,10 @@ changes.
   same color, so a row reads as what it will become once inserted.
 
 ### Changed
+- Browser edit fields open with the cursor at the start and answer PageUp/PageDown.
+- Extraction tolerates a reply whose JSON syntax was typed with typographic quotes — a small
+  model mirroring the story's own punctuation — by straightening them when, and only when, the
+  first parse fails.
 - The lore browser's cast lists in order of appearance — the story's own order — instead of
   alphabetically.
 - The system log records the app's administrative moments — the schema migration, the daily

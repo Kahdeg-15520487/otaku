@@ -29,7 +29,7 @@ class TestLoreBrowser:
         browse(app, story_id, ENTER + ENTER + "!" + CTRL_S + ESC * 3)
         ids = app.store.stories.get_messages_ids(story_id)
         scene = app.store.scenes.get_current(story_id, ids)[0]
-        assert scene.title == "The Meeting!"
+        assert scene.title == "!The Meeting"  # typed at the start — the editor opens there
         assert lore_calls(app) == calls_before  # the browser never calls a model
 
     def test_an_emptied_summary_is_refused(self, app: App) -> None:
@@ -47,7 +47,9 @@ class TestLoreBrowser:
         story_id = remembered(app)
         browse(app, story_id, TAB + ENTER + ENTER + "!" + CTRL_S + ESC * 3)
         keeper = app.store.characters.list(story_id)[0]
-        assert keeper.description == "warden of the gate!"
+        assert (
+            keeper.description == "!warden of the gate"
+        )  # typed at the start — the editor opens there
 
     def test_a_journal_entry_edit_invalidates_the_derived_history(self, app: App) -> None:
         # Fix the input, and the output follows: editing an entry clears
@@ -56,7 +58,7 @@ class TestLoreBrowser:
         keeper = app.store.characters.list(story_id)[0]
         browse(app, story_id, ENTER + DOWN + DOWN + ENTER + "!" + CTRL_S + ESC * 3)
         journal = app.store.journals.list(story_id)[-1]
-        assert journal.entry == "I saw the guest.!"
+        assert journal.entry == "!I saw the guest."  # typed at the start — the editor opens there
         assert not journal.history  # invalidated with the edit
         app.play("/extract")  # declines a new scene, heals the rollup
         ids = app.store.stories.get_messages_ids(story_id)

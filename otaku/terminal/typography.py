@@ -64,8 +64,13 @@ _HANDOVER_AFTER = ",.!?…:;"
 
 _DEFAULT_FG = "\x1b[39m"
 
+# The TOML archive's working parts (`highlight_toml`): a `key =` opening a
+# line, and a `{{macro}}` wherever it stands.
+_TOML_KEY = re.compile(r"^(\s*)([A-Za-z0-9_-]+)(\s*=)")
+_TOML_MACRO = re.compile(r"\{\{[^{}]+\}\}")
 
-class Typesetter:
+
+class Streamer:
     """Block-and-inline markdown state machine. Feed text via `feed()`; call
     `flush()` once the stream ends to close any open span or fence."""
 
@@ -432,3 +437,28 @@ def highlight_commands(text: str, commands: tuple[str, ...]) -> str:
     # Default FOREGROUND, not a full reset: the grey played block paints a
     # background band per line, and a reset would knock it out mid-line.
     return pattern.sub(lambda m: f"{escape}{m.group(0)}{_DEFAULT_FG}", text)
+
+
+def highlight_toml(text: str) -> str:
+    """A TOML archive with its working parts picked out, key-agnostic:
+    whatever opens a line as `key =` colors as a key, and a `{{macro}}`
+    colors wherever it stands — both in the command color, the shade
+    syntax wears everywhere else. A line inside a `'''` block is value
+    text, so a `key =` shape there stays prose; the block state is read
+    off the lines themselves — exactly right for the archives `card_toml`
+    writes, and close enough for a hand edit."""
+    escape = theme().command.fg
+    out: list[str] = []
+    in_block = False
+    for line in text.split("\n"):
+        styled = line
+        if not in_block:
+            key = _TOML_KEY.match(line)
+            if key:
+                head = f"{key.group(1)}{escape}{key.group(2)}{_DEFAULT_FG}"
+                styled = head + line[key.end(2) :]
+        if line.count("'''") % 2 == 1:
+            in_block = not in_block
+        styled = _TOML_MACRO.sub(lambda hit: f"{escape}{hit.group(0)}{_DEFAULT_FG}", styled)
+        out.append(styled)
+    return "\n".join(out)

@@ -628,7 +628,7 @@ class ModelPicker(ListScreen):
         # The url edits in place; the api key always starts blank — its
         # current value is never displayed, not even to edit.
         prefill = self._provider_config(name).url if attr == "url" else ""
-        self.edit_buffer.document = Document(prefill, len(prefill))
+        self.edit_buffer.document = Document(prefill, 0)
 
     def _finish_field_edit(self, *, save: bool) -> None:
         self.editing = False

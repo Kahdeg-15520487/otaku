@@ -23,7 +23,7 @@ from otaku.store import Store
 from otaku.store.schema import Character, Message
 from otaku.terminal import DIM, RESET, error_line
 from otaku.terminal.spinner import Spinner
-from otaku.terminal.typography import Typesetter
+from otaku.terminal.typography import Streamer
 
 # POSIX-only raw-terminal control for the in-stream Ctrl+R watcher. Absent
 # on Windows — the watcher degrades to a no-op there; Ctrl+C cancellation
@@ -158,7 +158,7 @@ def _run_step(
     start = time.monotonic()
     try:
         watcher = _StreamWatcher()
-        streamer = Typesetter(out)
+        streamer = Streamer(out)
         client = session.providers.get_client(provider_config.name)
         wire = assembler.assemble_story(
             store, session, client.get_context_size(session.model)

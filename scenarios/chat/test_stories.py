@@ -97,7 +97,7 @@ class TestStoryBrowser:
         _first, second = two_stories(app)
         assert self.pick(app, ENTER + "e" + "!" + CTRL_S + ESC + ESC) is None
         chain = app.store.stories.get_messages(second)
-        assert chain[-1].body == scripted.CHAT_REPLY + "!"
+        assert chain[-1].body == "!" + scripted.CHAT_REPLY
 
     def test_delete_removes_a_story_after_a_confirm(self, app: App) -> None:
         first, _second = two_stories(app)

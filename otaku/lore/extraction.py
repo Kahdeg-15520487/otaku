@@ -671,11 +671,19 @@ def numbered_chat(span: Sequence[Message]) -> str:
 
 def _parse_json(text: str) -> dict[str, object]:
     """Parse the extraction reply: tolerate code fences and surrounding
-    prose by slicing from the first '{' to the last '}'."""
+    prose by slicing from the first '{' to the last '}' — and JSON whose
+    syntax was typed with typographic double quotes (a small model
+    mirrors the story's own punctuation into `“summary”: “…”`) by
+    retrying with them straightened. Only the retry touches them: a reply
+    that parses keeps every curly quote INSIDE its values verbatim."""
     start, end = text.find("{"), text.rfind("}")
     if start < 0 or end <= start:
         raise ValueError("no JSON object in reply")
-    obj = json.loads(text[start : end + 1])
+    sliced = text[start : end + 1]
+    try:
+        obj = json.loads(sliced)
+    except json.JSONDecodeError:
+        obj = json.loads(sliced.replace("“", '"').replace("”", '"'))
     if not isinstance(obj, dict):
         raise ValueError("extraction reply is not a JSON object")
     return obj

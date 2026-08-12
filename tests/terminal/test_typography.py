@@ -20,7 +20,7 @@ import pytest
 
 from otaku.settings.config import Config
 from otaku.terminal.theme import _CURRENT, color, theme, use
-from otaku.terminal.typography import Typesetter, highlight_commands
+from otaku.terminal.typography import Streamer, highlight_commands, highlight_toml
 
 
 def escape(spec: str) -> str:
@@ -230,7 +230,7 @@ class TestChunking:
 
     def test_a_marker_split_across_chunks_still_bolds(self) -> None:
         out = io.StringIO()
-        streamer = Typesetter(out)
+        streamer = Streamer(out)
         streamer.feed("**bo")
         streamer.feed("ld**\n")
         streamer.flush()
@@ -303,11 +303,34 @@ class TestHighlightCommands:
         assert highlight_commands("", _COMMANDS) == ""
 
 
+class TestHighlightToml:
+    """The card archive's view: keys and macros light up, key-agnostic;
+    value text stays prose, block bodies included."""
+
+    def test_colours_a_key_and_not_its_value(self) -> None:
+        assert toml_highlighted("name = 'Elara'") == ["name"]
+
+    def test_colours_a_macro_inside_a_value(self) -> None:
+        assert toml_highlighted("greeting = 'hi {{user}}'") == ["greeting", "{{user}}"]
+
+    def test_a_key_shape_inside_a_block_is_prose(self) -> None:
+        text = "description = '''\nmood = calm\n'''"
+        assert toml_highlighted(text) == ["description"]
+
+    def test_a_macro_inside_a_block_still_colours(self) -> None:
+        text = "description = '''\nsmiles at {{char}}\n'''"
+        assert toml_highlighted(text) == ["description", "{{char}}"]
+
+    def test_keeps_the_visible_text_intact(self) -> None:
+        text = "name = 'Elara'\n\ndescription = '''\nhi {{user}}\n'''\n"
+        assert _ANSI.sub("", highlight_toml(text)) == text
+
+
 def typeset(text: str, *, chunk: int = 0) -> str:
     """`text` through the typesetter, in one chunk or in `chunk`-sized
     bites. The dialogue look comes from the theme the fixture settled."""
     out = io.StringIO()
-    streamer = Typesetter(out)
+    streamer = Streamer(out)
     if chunk:
         for i in range(0, len(text), chunk):
             streamer.feed(text[i : i + chunk])
@@ -328,6 +351,13 @@ def highlighted(text: str, commands: tuple[str, ...]) -> list[str]:
 def visible(text: str, commands: tuple[str, ...]) -> str:
     """The highlighted text with the styling stripped — what a reader sees."""
     return _ANSI.sub("", highlight_commands(text, commands))
+
+
+def toml_highlighted(text: str) -> list[str]:
+    """The parts `highlight_toml` picked out, in order — read off the
+    default-foreground escape that closes each one."""
+    rendered = highlight_toml(text)
+    return re.findall(rf"\x1b\[[0-9;]*m(.*?){re.escape(_DEFAULT_FG)}", rendered, re.S)
 
 
 def plain(text: str, *, chunk: int = 0) -> str:
