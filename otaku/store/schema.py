@@ -169,7 +169,7 @@ class Message:
 
     role: str  # 'user' | 'assistant'
     body: str
-    kind: str = "dialogue"  # 'dialogue' | 'narration' | 'ooc' | 'card' (reserved for card import)
+    kind: str = "dialogue"  # 'dialogue' | 'narration' | 'ooc' | 'card' — plus wire-only 'recap', synthesized by the assembler and never stored (the CHECK refuses it)
     template: str | None = None  # filled at wire time, never mixed into the body
     speaker: str | None = None
     speaker_id: int | None = None

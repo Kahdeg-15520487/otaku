@@ -3,7 +3,7 @@
 import click
 
 from otaku.chat.session import NO_MODEL_HINT, Session
-from otaku.formatting import format_context, format_size, pretty_path
+from otaku.formatting import format_context, format_size, pretty_path, printable
 from otaku.lore import assembler
 from otaku.providers.base import CloudClient
 from otaku.settings.config import ProviderConfig
@@ -22,7 +22,7 @@ def cmd_context(session: Session, store: Store, args: list[str]) -> None:
     # No model: the preview still stands, over the assembler's default
     # window — what WOULD be sent is a question that needs no server.
     prompt = assembler.assemble_story(store, session, context)
-    preview = assembler.render_preview(prompt, dim=DIM, reset=RESET)
+    preview = _render_preview(prompt, dim=DIM, reset=RESET)
     # Long stories make this thousands of lines; page it like `otaku logs`.
     # color=True keeps the dim markers through less (-R).
     click.echo_via_pager(preview, color=True)
@@ -151,3 +151,51 @@ def _print_session(session: Session, store: Store) -> None:
     if session.params:
         rendered = ", ".join(f"{k} = {v}" for k, v in session.params.items())
         print(f"Parameters: {rendered}")
+
+
+def _render_preview(prompt: assembler.AssembledPrompt, *, dim: str = "", reset: str = "") -> str:
+    """The `/context` view: the request EXACTLY as it will be sent. Nothing
+    here is otaku's own text except the dim `[role]` markers (standing for
+    the JSON role field) and the token summary above — every other line is
+    content the model receives, in order."""
+    lines = ["Context preview — the exact request to be sent. Context summary:", ""]
+    used = round(100 * prompt.total_tokens / prompt.context_max) if prompt.context_max else 0
+    lines.append(
+        f"  ~{prompt.total_tokens:,} tokens · {used}% of the {prompt.context_max:,} window"
+    )
+    if prompt.system_tokens:
+        lines.append(f"  system {prompt.system_tokens:,} · transcript {prompt.transcript_tokens:,}")
+    # The summaries are not a third slice of the transcript: they STAND IN
+    # for the messages between head and tail. Naming that count is what
+    # makes the line add up to the story's length instead of to nothing.
+    tail = prompt.transcript_kept - prompt.head_count
+    middle = prompt.transcript_total - prompt.transcript_kept
+    if prompt.scenes_summarized:
+        lines.append(
+            f"  {prompt.head_count} head + {tail} tail verbatim, plus {middle} middle "
+            f"inserted in between as {prompt.scenes_summarized} scene summaries"
+        )
+    else:
+        lines.append(f"  {prompt.transcript_kept} messages verbatim")
+
+    for message in prompt.messages:
+        lines.append("")
+        lines.append(f"{dim}[{message.role}]{reset}")
+        lines.extend(_preview_body(printable(message.body), prompt.recap))
+    return "\n".join(lines)
+
+
+def _preview_body(text: str, recap: str) -> list[str]:
+    """Content lines for the preview. Blank lines are dropped to keep it
+    tight, EXCEPT in the turn carrying the recap, where paragraph breaks
+    are load-bearing: they separate one scene summary from the next (and
+    the last summary from any message text merged in after it)."""
+    if recap and recap in text:
+        out: list[str] = []
+        for line in text.splitlines():
+            if line.strip():
+                out.append(line)
+            elif out and out[-1] != "":
+                out.append("")  # collapse runs, keep one
+        return out
+    return [line for line in text.splitlines() if line.strip()]

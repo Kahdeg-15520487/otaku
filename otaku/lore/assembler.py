@@ -13,6 +13,21 @@ untouched. Then the transcript as HEAD + RECAP + TAIL:
   the last summarized scene's end, targeting the most recent
   `tail_messages`.
 
+Card rows (`kind='card'`) are the one exception to the middle's
+replacement: a card is never summarized and never evicted. One inside a
+summarized region rides the recap verbatim, in front of its scene's
+summary — position deliberately does not matter for reference text, its
+retention does — charged to the whole budget, never the recap's fraction,
+and immune to the trim.
+
+Inside the assembler every part is a row: the header, the rollup, and
+each summary are synthesized user turns (`kind="recap"` — wire-only,
+such a row is never stored), so the recap is joined by the one merge in
+`_wire_turns` — nothing is hand-glued. Card and recap rows ARE their
+wire text and never go through `prompt_to_wire`: a card is composed at
+import, a summary is prose, and neither is a typed prompt to parse for
+syntax.
+
 The recap is capped at `_RECAP_FRACTION` of the budget: beyond it the
 oldest summaries drop out and the story-so-far rollup takes their place at
 the front, so the story never outgrows its own recap. A short story — or
@@ -38,12 +53,12 @@ in a row instead of sliding every turn (a rolling cut would invalidate the
 server's prompt cache on every request).
 """
 
+from bisect import bisect_left
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
 from otaku.chat.framing import prompt_to_wire
-from otaku.formatting import printable
 from otaku.store import Store
 from otaku.store.schema import Message, Scene
 
@@ -74,7 +89,7 @@ class AssembledPrompt:
     transcript_tokens: int  # head + recap + tail estimate
     head_count: int  # verbatim opening messages on the wire
     scenes_summarized: int  # scene summaries standing in for the middle
-    recap: str  # the recap text, "" when none (render_preview needs it)
+    recap: str  # the recap text, "" when none (/context's preview keys on it)
     transcript_kept: int  # verbatim messages on the wire (head + tail)
     transcript_total: int
 
@@ -99,6 +114,16 @@ class StoryView(Protocol):
     def head_messages(self) -> int: ...
     @property
     def tail_messages(self) -> int: ...
+
+
+@dataclass
+class _Chapter:
+    """One covered scene of the recap: its summary and the card rows its
+    span held — paired so the cap can drop a summary without losing what
+    must float (`_recap_rows`)."""
+
+    cards: list[Message]
+    summary: str
 
 
 def assemble_story(store: Store, view: StoryView, context_max: int | None) -> AssembledPrompt:
@@ -136,8 +161,11 @@ def assemble(
     system_tokens = estimate_tokens(system) if system else 0
     budget = max(0, window - _RESPONSE_RESERVE - system_tokens)
 
-    head, summaries, tail = _split_transcript(messages, scenes, head_messages, tail_messages)
-    recap, kept_summaries = _compose_recap(summaries, scenes, recap_header, budget)
+    head, chapters, tail = _split_transcript(messages, scenes, head_messages, tail_messages)
+    recap_rows, kept_summaries = _recap_rows(chapters, scenes, recap_header, budget)
+    # The recap's cost and /context's marker are its merged text — the
+    # join `_wire_turns` will make of these rows.
+    recap = "\n\n".join(_wire_text(m) for m in recap_rows)
 
     used = (
         sum(_wire_tokens(m) for m in head)
@@ -147,15 +175,10 @@ def assemble(
     if used > budget:
         used, head, tail = _trim_overflow(used, head, tail, budget)
 
-    shaped: list[Message] = list(head)
-    if recap:
-        shaped.append(Message(role="user", body=recap))
-    shaped.extend(tail)
-
     wire: list[Message] = []
     if system:
         wire.append(Message(role="system", body=system))
-    wire.extend(_wire_turns(shaped))
+    wire.extend(_wire_turns(head + recap_rows + tail))
     return AssembledPrompt(
         messages=wire,
         context_max=window,
@@ -167,38 +190,6 @@ def assemble(
         transcript_kept=len(head) + len(tail),
         transcript_total=len(messages),
     )
-
-
-def render_preview(prompt: AssembledPrompt, *, dim: str = "", reset: str = "") -> str:
-    """The `/context` view: the request EXACTLY as it will be sent. Nothing
-    here is otaku's own text except the dim `[role]` markers (standing for
-    the JSON role field) and the token summary above — every other line is
-    content the model receives, in order."""
-    lines = ["Context preview — the exact request to be sent. Context summary:", ""]
-    used = round(100 * prompt.total_tokens / prompt.context_max) if prompt.context_max else 0
-    lines.append(
-        f"  ~{prompt.total_tokens:,} tokens · {used}% of the {prompt.context_max:,} window"
-    )
-    if prompt.system_tokens:
-        lines.append(f"  system {prompt.system_tokens:,} · transcript {prompt.transcript_tokens:,}")
-    # The summaries are not a third slice of the transcript: they STAND IN
-    # for the messages between head and tail. Naming that count is what
-    # makes the line add up to the story's length instead of to nothing.
-    tail = prompt.transcript_kept - prompt.head_count
-    middle = prompt.transcript_total - prompt.transcript_kept
-    if prompt.scenes_summarized:
-        lines.append(
-            f"  {prompt.head_count} head + {tail} tail verbatim, plus {middle} middle "
-            f"inserted in between as {prompt.scenes_summarized} scene summaries"
-        )
-    else:
-        lines.append(f"  {prompt.transcript_kept} messages verbatim")
-
-    for message in prompt.messages:
-        lines.append("")
-        lines.append(f"{dim}[{message.role}]{reset}")
-        lines.extend(_preview_body(printable(message.body), prompt.recap))
-    return "\n".join(lines)
 
 
 # ---------- assembly internals ----------
@@ -215,11 +206,16 @@ def _split_transcript(
     scenes: Sequence[Scene],
     head_messages: int,
     tail_messages: int,
-) -> tuple[list[Message], list[str], list[Message]]:
-    """HEAD + covering scene summaries + TAIL. The tail is scene-aligned:
-    it starts right after the last summarized scene's end, targeting the
-    most recent `tail_messages`. Scenes ending inside the head or the tail
-    stay verbatim there and are not summarized. Falls back to
+) -> tuple[list[Message], list[_Chapter], list[Message]]:
+    """HEAD + the covered scenes as chapters + TAIL. The tail is
+    scene-aligned: it starts right after the last summarized scene's end,
+    targeting the most recent `tail_messages`. Scenes ending inside the
+    head or the tail stay verbatim there and are not summarized.
+
+    A card row in the replaced region is never replaced with it: it joins
+    the chapter of the first covered scene ending at or after it — the
+    summary it will stand in front of. A card's position deliberately
+    does not matter, its retention does. Falls back to
     everything-verbatim when the transcript is short or no scene summary
     covers the middle."""
     if len(messages) <= head_messages + tail_messages:
@@ -242,30 +238,60 @@ def _split_transcript(
         # never be what overflows (the head is always sent verbatim).
         return messages[:head_messages], [], messages[head_messages:]
     boundary = position[covered[-1].end_message_id]
-    return messages[:head_messages], [s.summary for s in covered], messages[boundary + 1 :]
+    chapters = [_Chapter(cards=[], summary=s.summary) for s in covered]
+    ends = [position[s.end_message_id] for s in covered]
+    for m in messages[head_messages : boundary + 1]:
+        if m.kind == "card":
+            chapters[bisect_left(ends, position[m.id])].cards.append(m)
+    return messages[:head_messages], chapters, messages[boundary + 1 :]
 
 
-def _compose_recap(
-    summaries: list[str], scenes: Sequence[Scene], recap_header: str, budget: int
-) -> tuple[str, int]:
-    """The recap block plus how many scene summaries it carries: the
-    covering summaries, oldest first — capped at `_RECAP_FRACTION` of the
-    budget, the oldest dropping out and the story-so-far rollup (the newest
-    scene history) taking their place."""
-    if not summaries:
-        return "", 0
+def _recap_rows(
+    chapters: list[_Chapter],
+    scenes: Sequence[Scene],
+    recap_header: str,
+    budget: int,
+) -> tuple[list[Message], int]:
+    """The recap as wire-ready rows, plus how many scene summaries ride
+    it: each chapter's cards in front of its summary, oldest chapter
+    first — capped at `_RECAP_FRACTION` of the budget, the oldest
+    summaries dropping out and the story-so-far rollup (the newest scene
+    history) taking their place.
+
+    The cap weighs summaries alone: card rows are charged to the WHOLE
+    budget, never to the recap's fraction — one large card would
+    otherwise keep the cap permanently overflowed and silently evict
+    every summary — and they never drop: a dropped chapter's cards float
+    to the front, above the rollup that replaced their summary."""
+    if not chapters:
+        return [], 0
     recap_budget = int(budget * _RECAP_FRACTION)
-    kept = list(summaries)
-    used = sum(estimate_tokens(s) for s in kept)
+    kept = list(chapters)
+    used = sum(estimate_tokens(ch.summary) for ch in kept)
+    floated: list[Message] = []
     while len(kept) > 1 and used > recap_budget:
-        used -= estimate_tokens(kept.pop(0))
-    count = len(kept)
-    if count < len(summaries):
+        dropped = kept.pop(0)
+        used -= estimate_tokens(dropped.summary)
+        floated.extend(dropped.cards)
+
+    rows: list[Message] = []
+    if recap_header:
+        rows.append(_recap_row(recap_header))
+    rows.extend(floated)
+    if len(kept) < len(chapters):
         story_so_far = next((s.history for s in reversed(scenes) if s.history), "")
         if story_so_far:
-            kept.insert(0, story_so_far)
-    parts = [recap_header] if recap_header else []
-    return "\n\n".join(parts + kept), count
+            rows.append(_recap_row(story_so_far))
+    for chapter in kept:
+        rows.extend(chapter.cards)
+        rows.append(_recap_row(chapter.summary))
+    return rows, len(kept)
+
+
+def _recap_row(text: str) -> Message:
+    """A synthesized user turn of the recap — marked wire-only, its body
+    already wire text (see `_wire_text`)."""
+    return Message(role="user", body=text, kind="recap")
 
 
 def _trim_overflow(
@@ -277,7 +303,10 @@ def _trim_overflow(
     block would eat half of what fits, where the cache is a lost cause
     anyway and context wins. The head is sent verbatim while anything else
     can give: only when the tail is down to its floor does the head's own
-    start trim — a window the whole opening cannot fit beats no request."""
+    start trim — a window the whole opening cannot fit beats no request.
+    Card rows are never dropped from either end: never-evicted is the
+    card promise, and a window they alone overflow is the user's call
+    (the import warned)."""
     target = budget - int(budget * _TRIM_SLACK)
     dropped = 0
     while dropped < len(tail) - 1 and len(head) + len(tail) - dropped > _MIN_KEEP:
@@ -294,19 +323,36 @@ def _trim_overflow(
     if len(tail) - snapped >= max(_MIN_KEEP, affordable // 2):
         used -= sum(_wire_tokens(m) for m in tail[dropped:snapped])
         dropped = snapped
-    tail = tail[dropped:]
+    # A card is never evicted: the cut passes over card rows and they stay
+    # on the wire wherever it lands, their tokens restored to the count.
+    rescued = [m for m in tail[:dropped] if m.kind == "card"]
+    used += sum(_wire_tokens(m) for m in rescued)
+    tail = rescued + tail[dropped:]
     lost = 0
     while used > target and lost < len(head) and len(head) - lost + len(tail) > _MIN_KEEP:
+        if head[lost].kind == "card":
+            break  # the head's own trim stops at a card rather than skip it
         used -= _wire_tokens(head[lost])
         lost += 1
     return used, head[lost:], tail
+
+
+def _wire_text(message: Message, *, is_last: bool = False) -> str:
+    """One row's wire text. A card or recap row's body IS its wire text —
+    composed at import, or synthesized here — and never goes through
+    `prompt_to_wire`: card prose that happens to spell an inliner
+    (` /cue …` in an example) would be split as syntax, and summary prose
+    is not a typed prompt either."""
+    if message.kind in ("card", "recap"):
+        return message.body
+    return prompt_to_wire(message.body, message.template, is_last=is_last)
 
 
 def _wire_tokens(message: Message, *, is_last: bool = False) -> int:
     """Tokens one row costs on the wire. `is_last` defaults to False for
     the trim, which only ever weighs rows it is dropping — and the newest
     row is never dropped (the two-message floor keeps it)."""
-    return estimate_tokens(prompt_to_wire(message.body, message.template, is_last=is_last))
+    return estimate_tokens(_wire_text(message, is_last=is_last))
 
 
 def _wire_turns(kept: list[Message]) -> list[Message]:
@@ -318,25 +364,9 @@ def _wire_turns(kept: list[Message]) -> list[Message]:
         # Newest = the LAST POSITION, never object identity: two turns can
         # hold the same text, and only where a row sits decides whether its
         # cue is still live.
-        text = prompt_to_wire(message.body, message.template, is_last=position == len(kept) - 1)
+        text = _wire_text(message, is_last=position == len(kept) - 1)
         if out and out[-1].role == message.role:
             out[-1] = Message(role=message.role, body=out[-1].body + "\n\n" + text)
         else:
             out.append(Message(role=message.role, body=text))
     return out
-
-
-def _preview_body(text: str, recap: str) -> list[str]:
-    """Content lines for the preview. Blank lines are dropped to keep it
-    tight, EXCEPT in the turn carrying the recap, where paragraph breaks
-    are load-bearing: they separate one scene summary from the next (and
-    the last summary from any message text merged in after it)."""
-    if recap and recap in text:
-        out: list[str] = []
-        for line in text.splitlines():
-            if line.strip():
-                out.append(line)
-            elif out and out[-1] != "":
-                out.append("")  # collapse runs, keep one
-        return out
-    return [line for line in text.splitlines() if line.strip()]

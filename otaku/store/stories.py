@@ -237,6 +237,17 @@ class StoryOps:
         decrypted, so callers that need boundaries pay nothing."""
         return self._get_chain_ids(self.get_head(story_id))
 
+    def get_card_message_ids(self, story_id: int) -> builtins.list[int]:
+        """Ids of the story's card rows (any branch; callers intersect with
+        the chain). Id-only — extraction subtracts these without decrypting
+        anything, exactly like the boundary queries above."""
+        # fmt: off
+        rows = self._db.conn.execute(
+            "SELECT id FROM messages WHERE story_id = ? AND kind = 'card' ORDER BY id", (story_id,)
+        ).fetchall()
+        # fmt: on
+        return [int(row[0]) for row in rows]
+
     def get_texts(self) -> dict[int, str]:
         """Each story's full current-chain text, lowercased — the browser's
         content-filter index, built lazily on the first search keystroke

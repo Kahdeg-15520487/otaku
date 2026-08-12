@@ -199,6 +199,12 @@ class Extractor:
             return PassResult.NO_STORY, report
 
         ids = self._store.stories.get_messages_ids(self._story_id)
+        # Card rows never enter a pass: not the char gate (one import would
+        # clear `min_chars` alone), not the spans, not the numbered chat —
+        # a scene about a character sheet is not a scene. Their retention
+        # is the assembler's business.
+        cards = set(self._store.stories.get_card_message_ids(self._story_id))
+        ids = [i for i in ids if i not in cards]
         ends = self._store.scenes.get_current_ends(self._story_id, ids)
         last_end = max(ends, default=None)
         tail_ids = ids if last_end is None else [i for i in ids if i > last_end]

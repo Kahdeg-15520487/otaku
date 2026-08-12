@@ -8,6 +8,13 @@ changes.
 ## [0.2.3] - [planned]
 
 ### Added
+- `/card FILE [NAME]` — import a character card (SillyTavern formats, PNG or JSON) into the
+  current story. The card becomes a prompt: its fields compose through the `card_framing`
+  template into one out-of-character block that rides every request verbatim — never summarized,
+  never evicted — and the character speaks the card's own greeting. The cast row archives the
+  card's fields as TOML, editable in `/lore`; `{{char}}` and `{{user}}` bind at import (the
+  import asks who you play, and the story remembers the answer); a card's lorebook is not
+  supported and is dropped with a note.
 - The database migrates itself between schema versions: a backup is taken first, each step is
   transactional (a failure leaves the database unharmed at its version, the backup untouched),
   and a database written by a newer otaku is refused with directions instead of being guessed at.
