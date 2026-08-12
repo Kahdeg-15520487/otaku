@@ -103,8 +103,11 @@ def _ask(query: str, response: re.Pattern[bytes]) -> re.Match[bytes] | None:
     except termios.error:
         return None
     try:
-        sys.stdout.write(query)
-        sys.stdout.flush()
+        # Straight to the fd, past every sys.stdout wrapper: a query is
+        # terminal I/O, not output — decorated (a dispatch window's lead
+        # blank) or counted (an output tracker), it would move the very
+        # cursor the caller is about to measure from.
+        os.write(sys.stdout.fileno(), query.encode())
         return _read(fd, response)
     except OSError:
         return None

@@ -63,6 +63,11 @@ changes.
   plain — an ordinary typo should not read as a fault.
 
 ### Fixed
+- Typed `/undo` and `/regen` erase the whole exchange again: the cursor-position query was
+  triggering the blank line that separates a command's output from its typed line, quietly moving
+  the cursor one row down right before the erase measured from it — so the first line of what
+  should vanish stayed on screen. The shortcuts, which erase the typed line first, never armed
+  that blank, which is why they were immune (#6).
 - The story browser's delete now answers the key macOS captions "delete" (backspace) as well as
   the PC Del / forward-delete key it always listened for. While a filter is open, backspace still
   edits the filter.

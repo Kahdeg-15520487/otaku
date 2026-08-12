@@ -124,6 +124,29 @@ class TestStreaming:
         assert terminal.quit() == 0
 
 
+class TestErasing:
+    def test_a_typed_regen_erases_from_an_unmoved_cursor(
+        self, server: ModelServer, tmp_path: Path
+    ) -> None:
+        """Issue #6: the cursor query guarding an erase must not read as
+        command output — the separating blank it once triggered dropped
+        the cursor a row right before the erase measured from it, and
+        every TYPED /undo and /regen came up one row short, the reply's
+        first line surviving (the shortcuts, which erase the typed line
+        first, never arm that blank). The pin is the byte shape: the
+        query runs straight into the three-row erase — typed line, gap,
+        one-row reply — with nothing printed in between."""
+        terminal = launch_remembered(server, tmp_path / "state")
+        play(terminal, "I walk the corridor.", "stirred")
+        server.script = lambda body: "It came up six."
+        terminal.send("/regen")
+        terminal.arm_cpr(20)
+        terminal.send(ENTER, 1.0)
+        terminal.expect("It came up six.")
+        erase = terminal.raw.index(b"\x1b[6n\x1b[3A\r\x1b[J")
+        assert not terminal.raw[:erase].endswith(b"\r\n")
+
+
 class TestBlocks:
     """The `\"\"\"` convention: a way to press Enter without submitting, and
     nothing more. What it collects is an ordinary prompt — read for its
