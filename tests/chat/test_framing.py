@@ -16,8 +16,9 @@ text becomes its own enclosure; a cue is there only while its turn is the
 newest.
 """
 
-from otaku.chat.framing import framing, prompt_to_wire
+from otaku.chat.framing import card_to_wire, framing, prompt_to_wire
 from otaku.settings.prompts import Prompts
+from otaku.transfer.card import Card, card_toml
 
 PROMPTS = Prompts(
     me_framing="<<{name} speaks>>\n{body}",
@@ -252,6 +253,50 @@ class TestPromptToWire:
     def test_a_url_spelling_an_inliner_is_prose(self) -> None:
         got = prompt_to_wire("Read https://x.co/ooc now", None, is_last=True)
         assert got == "Read https://x.co/ooc now"
+
+
+class TestCardToWire:
+    TEMPLATE = (
+        "((OOC: You are joined by {name}.\n"
+        "Description: {description}\n"
+        "Personality: {personality}\n"
+        "Scenario: {scenario}\n"
+        "How they speak: {examples}\n"
+        "Note: {depth_note}))"
+    )
+
+    def test_fills_and_binds_in_one_pass(self) -> None:
+        card = Card(name="Elara", description="{{char}} guards {{user}}", personality="stern")
+        got = card_to_wire(card_toml(card, user="Alex"), self.TEMPLATE)
+        assert "You are joined by Elara." in got
+        assert "Description: Elara guards Alex" in got
+        assert "Personality: stern" in got
+
+    def test_a_line_of_empty_placeholders_is_dropped(self) -> None:
+        card = Card(name="Elara", description="warden")
+        got = card_to_wire(card_toml(card, user="A"), self.TEMPLATE)
+        assert "Scenario:" not in got
+        assert "Note:" not in got
+        assert "How they speak:" not in got  # no examples — the label goes with them
+
+    def test_the_examples_join_as_blocks(self) -> None:
+        card = Card(name="E", examples=("a: hi", "b: yo"))
+        got = card_to_wire(card_toml(card, user="U"), "X:\n{examples}")
+        assert "a: hi\n\nb: yo" in got
+
+    def test_braces_inside_card_text_are_never_placeholders(self) -> None:
+        # One pass over the TEMPLATE only: values are not re-scanned.
+        card = Card(name="E", description="use {personality} literally")
+        got = card_to_wire(card_toml(card, user="U"), "D: {description}\nP: {personality}")
+        assert "D: use {personality} literally" in got
+        assert "\nP:" not in got  # personality itself is empty -> line dropped
+
+    def test_an_unknown_placeholder_is_left_as_written(self) -> None:
+        got = card_to_wire(card_toml(Card(name="E"), user="U"), "hello {nonsense}")
+        assert got == "hello {nonsense}"
+
+
+# ---------- building card files in memory ----------
 
 
 def _kinds(line: str) -> tuple[str, str]:

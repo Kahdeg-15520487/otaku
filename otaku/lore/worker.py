@@ -86,6 +86,10 @@ class Job:
         return self.prompts.recap_header
 
     @property
+    def card_framing(self) -> str:
+        return self.prompts.card_framing
+
+    @property
     def head_messages(self) -> int:
         return self.config.head_messages
 

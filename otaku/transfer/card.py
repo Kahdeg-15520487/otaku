@@ -6,24 +6,24 @@ A card arrives as JSON or as a PNG with base64 JSON in its text chunks
 real files carry the same card twice (V2 beside V3, or duplicate `chara`
 chunks that differ), so `load_card` returns candidates through an explicit
 selection — `ccv3` first, as the V3 spec instructs a reader, else the
-FIRST `chara` — and reports when the copies genuinely disagree, which no
-real file observed so far does.
+FIRST `chara` — and reports when the copies genuinely disagree, which
+duplicate `chara` chunks in the wild do.
 
 Normalization is an ALLOWLIST: the fields below are read, everything else
 drops on the floor — the format leaks runtime junk (`chat`, `char_persona`)
 and a denylist can never keep up. `{{char}}`/`{{user}}` macros stay
 UNBOUND here: binding needs the chosen character name and the player's,
-which only the import command knows; `bind` applies them, `compose` fills
-a template. Line endings are normalized to `\\n` — cards mix them, even
-within one file — and `mes_example` is split on its `<START>` delimiter
-into separate example blocks, because passed through whole the model reads
-the delimiter as literal text.
+which only the import command knows; `bind` applies them. Line endings
+are normalized to `\\n` — cards mix them, even within one file — and
+`mes_example` is split on its `<START>` delimiter into separate example
+blocks, because passed through whole the model reads the delimiter as
+literal text.
 
 `card_toml` renders a card as the user-readable TOML the characters table
 archives ("the fields the prompt was built from"), macros intact and the
-`name`/`user` bindings recorded as data; `compose` parses that text back
-and fills a prompt template, dropping any template line whose placeholders
-all came up empty, so a card without a scenario ships no dangling label.
+`name`/`user` bindings recorded as data. What a card row SENDS is not
+this module's business: `chat.framing.card_to_wire` parses the archive
+back and fills the prompt template at wire time.
 
 Everything here is pure: bytes and strings in, values out, no disk and no
 model — the import command owns the store and the screen.
@@ -33,7 +33,6 @@ import base64
 import json
 import re
 import struct
-import tomllib
 import zlib
 from dataclasses import dataclass, fields
 from dataclasses import replace as _replace
@@ -47,7 +46,6 @@ _CHAR_MACRO = re.compile(r"\{\{\s*char\s*\}\}|<BOT>", re.IGNORECASE)
 _USER_MACRO = re.compile(r"\{\{\s*user\s*\}\}|<USER>", re.IGNORECASE)
 _ANY_MACRO = re.compile(r"\{\{[^{}]{1,40}\}\}")
 _START = re.compile(r"<START>", re.IGNORECASE)
-_PLACEHOLDER = re.compile(r"\{(\w+)\}")
 
 
 class CardError(ValueError):
@@ -95,13 +93,16 @@ def load_card(data: bytes, *, file_name: str = "") -> tuple[Card, list[str]]:
         (entry for entry in valid if entry[0] == "ccv3"), valid[0]
     )  # the V3 spec: prefer ccv3; else the FIRST chara — never a dict's accident
     _, payload, card = chosen
-    if file_name:
-        card = _replace(card, file_name=file_name)
     notes = []
+    # Compared BEFORE the file name is stamped on: every candidate came
+    # out of `_normalize` bare, and a stamped copy would "disagree" with
+    # its own identical twin on the name alone.
     if any(other != card for _, _, other in valid):
         notes.append(
             f"the file embeds {len(valid)} cards that disagree; imported the {chosen[0]} one"
         )
+    if file_name:
+        card = _replace(card, file_name=file_name)
     book = _card_dict(payload).get("character_book")
     entries = book.get("entries") if isinstance(book, dict) else None
     if isinstance(entries, list) and entries:
@@ -125,7 +126,8 @@ def card_toml(card: Card, *, user: str) -> str:
     """The card as the TOML the characters table archives: `name` and
     `user` first — the bindings, recorded as data — then every non-empty
     field, macros intact, so a later feature can re-compose or re-bind.
-    Round-trips through `tomllib` field for field."""
+    One blank line between fields, so the archive reads in the `/lore`
+    view. Round-trips through `tomllib` field for field."""
     lines = [_toml_pair("name", card.name), _toml_pair("user", user)]
     for field in fields(Card):
         if field.name == "name":
@@ -136,37 +138,7 @@ def card_toml(card: Card, *, user: str) -> str:
         elif isinstance(value, tuple) and value:
             items = ", ".join(json.dumps(item) for item in value)
             lines.append(f"{field.name} = [{items}]")
-    return "\n".join(lines) + "\n"
-
-
-def compose(toml_text: str, template: str) -> str:
-    """The card prompt: `template`'s `{field}` placeholders filled from the
-    card TOML, every text bound to its recorded `name`/`user` on the way.
-    One pass, so braces inside card text are never re-read as placeholders.
-    A template line whose placeholders ALL came up empty is dropped — a
-    card without a scenario ships no dangling `Scenario:` label."""
-    data = tomllib.loads(toml_text)
-    char, user = str(data.get("name", "")), str(data.get("user", ""))
-    # Every card field answers, empty when the archive omitted it — an
-    # absent scenario must drop its template line, not survive as a
-    # literal `{scenario}`. Only names outside the card's vocabulary are
-    # left as written.
-    values: dict[str, str] = {field.name: "" for field in fields(Card)}
-    values["user"] = user
-    for key, value in data.items():
-        if isinstance(value, str):
-            values[key] = bind(value, char=char, user=user)
-        elif isinstance(value, list):
-            joined = "\n\n".join(str(item) for item in value)
-            values[key] = bind(joined, char=char, user=user)
-    out = []
-    for line in template.split("\n"):
-        holes = _PLACEHOLDER.findall(line)
-        known = [name for name in holes if name in values]
-        if known and all(not values[name].strip() for name in known):
-            continue
-        out.append(_PLACEHOLDER.sub(lambda m: values.get(m.group(1), m.group(0)), line))
-    return "\n".join(out)
+    return "\n\n".join(lines) + "\n"
 
 
 # ---------- reading the containers ----------

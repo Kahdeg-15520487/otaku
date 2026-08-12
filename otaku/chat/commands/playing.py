@@ -12,6 +12,7 @@ because it lands below the exchange it describes, and draws the ledger's
 break rule over what it says.
 """
 
+from otaku.chat.commands.card import drop_unplayed_card
 from otaku.chat.framing import framing
 from otaku.chat.inference import run_inference
 from otaku.chat.session import NO_MODEL_HINT, Session, message
@@ -26,7 +27,9 @@ _LAST_TURNS_DEFAULT = 5
 def cmd_undo(session: Session, store: Store, args: list[str]) -> None:
     """Discard the last exchange: the reply plus the prompt that caused it.
     Nothing is deleted — the head moves back and the undone turns stay in
-    the tree as siblings. When the exchange still sits directly above the
+    the tree as siblings. The one exception is a card import's character,
+    dropped with the exchange while unplayed (`card.drop_unplayed_card`).
+    When the exchange still sits directly above the
     prompt, it is erased from the screen as if never played; otherwise the
     new ending is reported. The re-echoed turns below the report are
     turns — the next /undo or /regen works them — and taking them takes
@@ -37,6 +40,7 @@ def cmd_undo(session: Session, store: Store, args: list[str]) -> None:
         session.screen.invalidate()
         print("Nothing to undo.")
         return
+    drop_unplayed_card(session, store, popped)
     refreshing = session.screen.top_is_report()
     if session.screen.erase_exchange():
         if refreshing:

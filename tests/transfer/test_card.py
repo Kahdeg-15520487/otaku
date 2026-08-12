@@ -8,7 +8,7 @@ are reported. Normalization is an allowlist; macros stay unbound; line
 endings normalize; `mes_example` splits on `<START>`.
 
 `bind` resolves the name macros case-insensitively. `card_toml` renders
-the archive the characters table stores, round-trip exact. `compose`
+the archive the characters table stores, round-trip exact.
 fills a template from that TOML, binding on the way, and drops any
 template line whose placeholders all came up empty.
 
@@ -23,7 +23,7 @@ import zlib
 
 import pytest
 
-from otaku.transfer.cards import Card, CardError, bind, card_toml, compose, load_card
+from otaku.transfer.card import Card, CardError, bind, card_toml, load_card
 
 
 class TestLoadCard:
@@ -74,6 +74,19 @@ class TestLoadCard:
         copy = _v2(name="Elara", description="warden")
         card, notes = load_card(_png(_text_chunk(b"chara", copy), _text_chunk(b"ccv3", copy)))
         assert card.name == "Elara"
+        assert notes == []
+
+    def test_the_file_name_never_makes_the_copies_disagree(self) -> None:
+        # The name is stamped on the chosen card AFTER the comparison —
+        # stamped first, it made every import "disagree" with its own
+        # identical candidates.
+        copy = _v2(name="Elara", description="warden")
+        png = _png(_text_chunk(b"chara", copy), _text_chunk(b"ccv3", copy))
+        _, notes = load_card(png, file_name="elara.png")
+        assert notes == []
+
+    def test_a_single_card_never_disagrees_with_itself(self) -> None:
+        _, notes = load_card(_json(_v2(name="Elara")), file_name="elara.json")
         assert notes == []
 
     def test_an_unreadable_chunk_is_skipped_not_fatal(self) -> None:
@@ -208,50 +221,6 @@ class TestCardToml:
         card = Card(name="E", description="she said '''no'''")
         data = tomllib.loads(card_toml(card, user="U"))
         assert data["description"] == "she said '''no'''"
-
-
-class TestCompose:
-    TEMPLATE = (
-        "((OOC: You are joined by {name}.\n"
-        "Description: {description}\n"
-        "Personality: {personality}\n"
-        "Scenario: {scenario}\n"
-        "How they speak: {examples}\n"
-        "Note: {depth_note}))"
-    )
-
-    def test_fills_and_binds_in_one_pass(self) -> None:
-        card = Card(name="Elara", description="{{char}} guards {{user}}", personality="stern")
-        got = compose(card_toml(card, user="Alex"), self.TEMPLATE)
-        assert "You are joined by Elara." in got
-        assert "Description: Elara guards Alex" in got
-        assert "Personality: stern" in got
-
-    def test_a_line_of_empty_placeholders_is_dropped(self) -> None:
-        card = Card(name="Elara", description="warden")
-        got = compose(card_toml(card, user="A"), self.TEMPLATE)
-        assert "Scenario:" not in got
-        assert "Note:" not in got
-        assert "How they speak:" not in got  # no examples — the label goes with them
-
-    def test_the_examples_join_as_blocks(self) -> None:
-        card = Card(name="E", examples=("a: hi", "b: yo"))
-        got = compose(card_toml(card, user="U"), "X:\n{examples}")
-        assert "a: hi\n\nb: yo" in got
-
-    def test_braces_inside_card_text_are_never_placeholders(self) -> None:
-        # One pass over the TEMPLATE only: values are not re-scanned.
-        card = Card(name="E", description="use {personality} literally")
-        got = compose(card_toml(card, user="U"), "D: {description}\nP: {personality}")
-        assert "D: use {personality} literally" in got
-        assert "\nP:" not in got  # personality itself is empty -> line dropped
-
-    def test_an_unknown_placeholder_is_left_as_written(self) -> None:
-        got = compose(card_toml(Card(name="E"), user="U"), "hello {nonsense}")
-        assert got == "hello {nonsense}"
-
-
-# ---------- building card files in memory ----------
 
 
 def _v2(**data: object) -> dict:

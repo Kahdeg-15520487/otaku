@@ -7,7 +7,7 @@ subtree. The names themselves — and their descriptions — belong to
 
 from collections.abc import Callable
 
-from otaku.chat.commands import cards, inspect, lore, meta, playing, settings, stories, transfer
+from otaku.chat.commands import card, inspect, lore, meta, playing, settings, stories, transfer
 from otaku.chat.framing import FRAMING_COMMANDS, FRAMING_INLINERS, framing
 from otaku.chat.help import command_tokens, describe_command
 from otaku.chat.session import KNOWN_PARAMS, Session
@@ -63,7 +63,7 @@ COMMANDS: dict[str, tuple[CommandHandler, CompletionTree | str | None]] = {
     "/usage": (inspect.cmd_usage, {"all": None}),
     "/balance": (inspect.cmd_balance, None),
     "/info": (inspect.cmd_info, None),
-    "/card": (cards.cmd_card, PATH_LEAF),
+    "/card": (card.cmd_card, PATH_LEAF),
     "/import": (transfer.cmd_import, PATH_LEAF),
     "/export": (transfer.cmd_export, PATH_LEAF),
     "/model": (settings.cmd_model, None),
@@ -115,7 +115,7 @@ def inliner_menu() -> dict[str, str]:
 # the dispatch window watches for the write rather than assuming one (see
 # `ScreenLedger.command_output`), so a picker left without a choice costs
 # the exchanges above it nothing.
-_PLAYING = {"/undo", "/regen"}
+_PLAYING = {"/undo", "/regen", "/card"}
 
 
 def dispatch(line: str, session: Session, store: Store) -> bool:

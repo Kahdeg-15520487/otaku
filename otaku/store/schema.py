@@ -173,7 +173,7 @@ class Message:
     template: str | None = None  # filled at wire time, never mixed into the body
     speaker: str | None = None
     speaker_id: int | None = None
-    provider: str | None = None  # set on assistant turns
+    provider: str | None = None  # set on assistant turns ('card' + file name on a card greeting)
     model: str | None = None
     id: int = 0
 

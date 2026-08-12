@@ -207,6 +207,10 @@ class Session:
         return self.prompts.recap_header
 
     @property
+    def card_framing(self) -> str:
+        return self.prompts.card_framing
+
+    @property
     def head_messages(self) -> int:
         return self.config.head_messages
 
@@ -342,7 +346,7 @@ class Session:
         out: list[str] = []
         for message in self.messages[-count:]:
             out.append("")
-            out.append(self._rendered_turn(message))
+            out.append(self.rendered_turn(message))
         return "\n".join(out).lstrip("\n")
 
     def restore_screen_tail(self, count: int, above: str = "") -> None:
@@ -370,13 +374,13 @@ class Session:
             groups.append((prompt, reply))
         for prompt, reply in reversed(groups):
             self.screen.restore_exchange(
-                self._rendered_turn(prompt) if prompt else None,
-                self._rendered_turn(reply) if reply is not None else None,
+                self.rendered_turn(prompt) if prompt else None,
+                self.rendered_turn(reply) if reply is not None else None,
                 above=above,
             )
             above = ""  # the report belongs to the oldest exchange only
 
-    def _rendered_turn(self, turn: Message) -> str:
+    def rendered_turn(self, turn: Message) -> str:
         """One turn exactly as the echoes print it: a user turn as the grey
         block, a model turn as it streamed — the trailing newline
         normalized away, the caller joining and terminating lines. One

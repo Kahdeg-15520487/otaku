@@ -122,6 +122,9 @@ milliseconds. The fast offline suite is therefore
 3. The code documents itself first: module docstrings say what a module owns;
    comments only for non-obvious whys. Docs cover what code can't: product
    intent, cross-module contracts, operational rules.
+4. The changelog diffs against the LAST RELEASE, not the working tree: no
+   entry for a fix or change to something this same version introduced —
+   that detail belongs inside the feature's own entry, or nowhere.
 
 ## Architecture
 
@@ -202,6 +205,14 @@ autocompletion (the menu pops at `@` and filters while typing — see
 `otaku/chat/pathcomplete.py`). Commands must ignore it: every handler
 that reads a path strips a leading `@` (`removeprefix("@")`) and never
 branches on it — it is a UI trigger, not part of any name or value.
+
+## Copy conventions
+
+User-facing printed messages start with a capital letter. Deliberately
+lowercase: the `otaku: …` stderr warnings (the Unix `program: message`
+convention), system-log lines, the transient status-line fragments a
+worker updates in place, and the dim `[ … ]` report blocks beside a turn
+(the stats line's family).
 
 ## Module conventions
 

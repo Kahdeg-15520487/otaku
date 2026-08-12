@@ -163,6 +163,23 @@ class TestCards:
         prompt = assemble("", [card(1, "Speech example: hi /cue whisper"), user("I wave.")], 8192)
         assert prompt.messages[0].body.startswith("Speech example: hi /cue whisper")
 
+    def test_a_card_in_the_recap_is_never_read_as_syntax(self) -> None:
+        # The recap path too: relocated into the recap, the body must ride
+        # as a row of its own — merged into one turn as a STRING, the old
+        # recap went through `prompt_to_wire`, which ate the "cue".
+        rows = turns(40)
+        rows[9] = card(10, "Example: breathe /cue whisper softly")
+        prompt = assemble(
+            "",
+            rows,
+            8192,
+            scenes=[scene(20, "The heist unfolded.")],
+            head_messages=5,
+            tail_messages=10,
+        )
+        sent = "\n".join(m.body for m in prompt.messages)
+        assert "breathe /cue whisper softly" in sent
+
     def test_a_card_in_the_middle_survives_before_its_scenes_summary(self) -> None:
         rows = turns(40)
         rows[9] = card(10, "((OOC: Elara joins.))")  # inside the covered scene

@@ -28,8 +28,11 @@ CLAUDE.md) without a cycle. It must stay that way.
 """
 
 import re
+import tomllib
+from dataclasses import fields
 
 from otaku.settings.prompts import Prompts
+from otaku.transfer.card import Card, bind
 
 # The inliners a line may close with.
 FRAMING_INLINERS = ("/ooc", "/cue")
@@ -37,6 +40,8 @@ FRAMING_INLINERS = ("/ooc", "/cue")
 # An inliner is a whole token whose slash follows whitespace — never at the
 # start of the line, which is where the command lives.
 _FRAMING_INLINERS_REGEX = re.compile(r"(?<=\s)(" + "|".join(FRAMING_INLINERS) + r")(?=\s|$)")
+# The card template's `{field}` holes (`card_to_wire`).
+_PLACEHOLDER = re.compile(r"\{(\w+)\}")
 
 # The out-of-character enclosure an inliner's text is wrapped in. Not a
 # prompts.toml template: it carries no wording to tune, and the extraction
@@ -231,6 +236,40 @@ def prompt_to_wire(body: str, template: str | None, *, is_last: bool) -> str:
     if frame.tail and (frame.inliner == "/ooc" or (frame.inliner == "/cue" and is_last)):
         parts.append(OOC_FRAME.replace("{body}", frame.tail))
     return " ".join(part for part in parts if part)
+
+
+def card_to_wire(toml_text: str, template: str) -> str:
+    """What a `kind='card'` turn sends: the card template's `{field}`
+    placeholders filled from the character's archived TOML, every text
+    bound to its recorded `name`/`user` on the way — at WIRE time, so a
+    `/lore` correction to the archive reaches every future request. The
+    same dualism as every command here, composed from the archive instead
+    of the line. One pass, so braces inside card text are never re-read
+    as placeholders; a template line whose placeholders ALL came up empty
+    is dropped — a card without a scenario ships no dangling `Scenario:`
+    label."""
+    data = tomllib.loads(toml_text)
+    char, user = str(data.get("name", "")), str(data.get("user", ""))
+    # Every card field answers, empty when the archive omitted it — an
+    # absent scenario must drop its template line, not survive as a
+    # literal `{scenario}`. Only names outside the card's vocabulary are
+    # left as written.
+    values: dict[str, str] = {field.name: "" for field in fields(Card)}
+    values["user"] = user
+    for key, value in data.items():
+        if isinstance(value, str):
+            values[key] = bind(value, char=char, user=user)
+        elif isinstance(value, list):
+            joined = "\n\n".join(str(item) for item in value)
+            values[key] = bind(joined, char=char, user=user)
+    out = []
+    for line in template.split("\n"):
+        holes = _PLACEHOLDER.findall(line)
+        known = [name for name in holes if name in values]
+        if known and all(not values[name].strip() for name in known):
+            continue
+        out.append(_PLACEHOLDER.sub(lambda m: values.get(m.group(1), m.group(0)), line))
+    return "\n".join(out)
 
 
 def _split_inliner(line: str) -> tuple[str, str | None, str]:

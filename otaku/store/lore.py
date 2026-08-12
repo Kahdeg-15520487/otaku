@@ -223,6 +223,18 @@ class CharacterOps:
 
     # ---------- getters and setters ----------
 
+    def delete(self, character_id: int) -> None:
+        """Remove a cast row — the undo of an import whose character is
+        still unplayed (the caller checks the journals; a row with any
+        would CASCADE them away). The declared references do the rest:
+        message rows keep their speaker name and drop the id link."""
+        with self._db.conn as conn:
+            # fmt: off
+            conn.execute(
+                "DELETE FROM characters WHERE id = ?", (character_id,)
+            )
+            # fmt: on
+
     def set_description(self, character_id: int, description: str) -> None:
         """The author's correction — unlike `update`, this replaces the
         existing text; "" clears it."""
@@ -236,9 +248,9 @@ class CharacterOps:
 
     def set_card(self, character_id: int, card: str) -> None:
         """The author's correction of an imported card's archive — replaces
-        the text. The card message already played is untouched: the archive
-        feeds future features and the next import's persona default, never
-        a turn already said."""
+        the text, and the wire follows: the card row composes its block
+        from this archive at every request, so the correction reaches the
+        next one (and the next import's persona default)."""
         with self._db.conn as conn:
             # fmt: off
             conn.execute(

@@ -24,9 +24,10 @@ Inside the assembler every part is a row: the header, the rollup, and
 each summary are synthesized user turns (`kind="recap"` — wire-only,
 such a row is never stored), so the recap is joined by the one merge in
 `_wire_turns` — nothing is hand-glued. Card and recap rows ARE their
-wire text and never go through `prompt_to_wire`: a card is composed at
-import, a summary is prose, and neither is a typed prompt to parse for
-syntax.
+wire text and never go through `prompt_to_wire`: a card row stores the
+`/card` line as typed and its block is composed from the character's
+CURRENT archive as the request assembles (`assemble_story`), a summary
+is prose, and neither is a typed prompt to parse for syntax.
 
 The recap is capped at `_RECAP_FRACTION` of the budget: beyond it the
 oldest summaries drop out and the story-so-far rollup takes their place at
@@ -55,10 +56,10 @@ server's prompt cache on every request).
 
 from bisect import bisect_left
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol
 
-from otaku.chat.framing import prompt_to_wire
+from otaku.chat.framing import card_to_wire, prompt_to_wire
 from otaku.store import Store
 from otaku.store.schema import Message, Scene
 
@@ -111,6 +112,8 @@ class StoryView(Protocol):
     @property
     def recap_header(self) -> str: ...
     @property
+    def card_framing(self) -> str: ...
+    @property
     def head_messages(self) -> int: ...
     @property
     def tail_messages(self) -> int: ...
@@ -129,11 +132,13 @@ class _Chapter:
 def assemble_story(store: Store, view: StoryView, context_max: int | None) -> AssembledPrompt:
     """`assemble` over the story's current scenes — the one wrapper every
     call site (the turn, /context, the warm-up) goes through, so none can
-    disagree on what the next request looks like."""
+    disagree on what the next request looks like. Card rows compose HERE,
+    from the cast's CURRENT archives: the stored row is the line as
+    typed, and what it sends follows the TOML wherever `/lore` took it."""
     scenes = _current_scenes(store, view.story_id, view.messages)
     return assemble(
         view.system,
-        view.messages,
+        _composed_cards(store, view),
         context_max,
         scenes=scenes,
         recap_header=view.recap_header,
@@ -199,6 +204,22 @@ def _current_scenes(store: Store, story_id: int | None, messages: list[Message])
     if story_id is None or not messages:
         return []
     return store.scenes.get_current(story_id, [m.id for m in messages])
+
+
+def _composed_cards(store: Store, view: StoryView) -> list[Message]:
+    """The transcript with each card row's wire text composed from its
+    character's archive (`framing.card_to_wire`), found through the
+    row's speaker link. A row with no reachable archive — the body
+    predates the typed-row shape, or the link is gone — sends its body as
+    it stands."""
+    if view.story_id is None or all(m.kind != "card" for m in view.messages):
+        return view.messages
+    archives = {c.id: c.card for c in store.characters.list(view.story_id) if c.card}
+    out: list[Message] = []
+    for m in view.messages:
+        toml = archives.get(m.speaker_id) if m.kind == "card" and m.speaker_id else None
+        out.append(replace(m, body=card_to_wire(toml, view.card_framing)) if toml else m)
+    return out
 
 
 def _split_transcript(
