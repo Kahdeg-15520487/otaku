@@ -37,7 +37,13 @@ classifiers = [
 # bounds mean something, and neither describes an install nobody performs.
 dependencies = [
     "click>=8.4,<9.0",
-    "cryptography>=49,<51",
+    # cryptography's macOS wheels went arm64-only at 49, and 48 is the last
+    # line with a universal2 build. Without the split, an Intel Mac finds no
+    # wheel it can use and falls back to the sdist, which wants a Rust
+    # toolchain — an install nobody performs, for the one platform that
+    # cannot get the newer line.
+    "cryptography>=49,<51; sys_platform != 'darwin' or platform_machine == 'arm64'",
+    "cryptography>=48,<49; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "httpx>=0.28,<1.0",
     "prompt_toolkit>=3.0.53,<4.0",
     "psutil>=7,<8",
