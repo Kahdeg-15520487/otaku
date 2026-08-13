@@ -72,8 +72,9 @@ _ERASE_UP = "\x1b[{}A\r\x1b[J"
 class ScreenLedger:
     """Built once per session; the run loop, `submit`, and the playing
     commands talk to it. Everything inline happens on the REPL thread —
-    the spinner and the pinned status row write straight to stdout and are
-    cursor-neutral, so they stay outside the count by construction."""
+    the spinner and the pinned status row write straight to the terminal
+    (past any sys.stdout wrapper) and are cursor-neutral, so they stay
+    outside the count by construction."""
 
     def __init__(self) -> None:
         # Rows the current submission's typed input still occupies on

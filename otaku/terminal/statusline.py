@@ -29,6 +29,7 @@ import shutil
 import sys
 import threading
 from collections.abc import Callable, Iterator
+from typing import TextIO
 
 from otaku.terminal import (
     DIM,
@@ -41,6 +42,16 @@ from otaku.terminal import (
     SCROLL_ALL,
     UP_ONE,
 )
+
+
+def _terminal() -> TextIO:
+    """The real terminal stream — past every `sys.stdout` wrapper. A
+    repaint is not command output: written through a dispatch window's
+    wrapper it would fire the armed lead blank or invalidate the screen
+    ledger from the repaint thread (the same rule terminal queries
+    follow)."""
+    return sys.__stdout__ if sys.__stdout__ is not None else sys.stdout
+
 
 LABEL = " background task: "
 
@@ -71,7 +82,7 @@ class StatusLine:
         off a TTY. The region is always released, including on Ctrl+C — a
         stray region would leave the terminal scrolling in a short
         window."""
-        if not sys.stdout.isatty() or os.environ.get("TERM") == "dumb":
+        if not _terminal().isatty() or os.environ.get("TERM") == "dumb":
             yield
             return
         self.open()
@@ -92,7 +103,7 @@ class StatusLine:
             # status overwriting live text. Stepping back up afterwards
             # leaves the cursor exactly where it started.
             region = SCROLL_ABOVE.format(self._rows - 1)
-            sys.stdout.write(f"\n{SAVE_CURSOR}{region}{RESTORE_CURSOR}{UP_ONE}")
+            _terminal().write(f"\n{SAVE_CURSOR}{region}{RESTORE_CURSOR}{UP_ONE}")
             self._open = True
             atexit.register(self.close)
         self.refresh()
@@ -104,11 +115,11 @@ class StatusLine:
             self._open = False
             # Clear the reserved row, then release the region. Both move
             # the cursor, so both are wrapped in save/restore.
-            sys.stdout.write(
+            _terminal().write(
                 f"{SAVE_CURSOR}{GOTO_ROW.format(self._rows)}{ERASE_LINE}{RESTORE_CURSOR}"
                 f"{SAVE_CURSOR}{SCROLL_ALL}{RESTORE_CURSOR}"
             )
-            sys.stdout.flush()
+            _terminal().flush()
         atexit.unregister(self.close)
 
     def refresh(self) -> None:
@@ -121,11 +132,11 @@ class StatusLine:
             if size.lines != self._rows and size.lines >= 3:
                 # Resized under us: re-reserve against the new height.
                 self._rows = size.lines
-                sys.stdout.write(
+                _terminal().write(
                     f"{SAVE_CURSOR}{SCROLL_ABOVE.format(self._rows - 1)}{RESTORE_CURSOR}"
                 )
             body = render(self._read())[: max(0, size.columns - 1)]
-            sys.stdout.write(
+            _terminal().write(
                 f"{SAVE_CURSOR}{GOTO_ROW.format(self._rows)}{ERASE_LINE}{DIM}{body}{RESET}{RESTORE_CURSOR}"
             )
-            sys.stdout.flush()
+            _terminal().flush()

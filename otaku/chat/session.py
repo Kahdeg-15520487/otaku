@@ -172,12 +172,19 @@ class Session:
         story, all applied. A value the files no longer make sense of is
         reported and skipped — a stale setting must never cost a launch."""
         provider_name, _, model = model_spec.partition("/")
+        provider_config = config.providers.get(provider_name) if model_spec else None
+        if model_spec and provider_config is None:
+            # The docstring's own promise, kept: reported and skipped,
+            # never a KeyError at launch.
+            print(f"The remembered model ({model_spec}) names no configured provider.")
+            print(NO_MODEL_HINT)
+            model = ""
         session = cls(
             config=config,
             prompts=prompts_file.load(paths),
             paths=paths,
             providers=providers,
-            provider_config=config.providers[provider_name] if model_spec else None,
+            provider_config=provider_config,
             model=model,
             verbose=state.verbose,
             autocorrect=state.autocorrect,

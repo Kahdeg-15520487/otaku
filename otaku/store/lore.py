@@ -200,24 +200,26 @@ class CharacterOps:
         *,
         aliases: tuple[str, ...] = (),
         description: str | None = None,
+        card: str | None = None,
     ) -> None:
         """Fill in details for a character created bare (a speaker label
         creates the row before the extraction's own entry arrives). Strictly
-        additive: aliases merge, an existing description is never
+        additive: aliases merge, an existing description or card is never
         overwritten."""
         row = self._db.conn.execute(
-            "SELECT aliases, description FROM characters WHERE id = ?", (character_id,)
+            "SELECT aliases, description, card FROM characters WHERE id = ?", (character_id,)
         ).fetchone()
         if row is None:
             return
         merged = list(dict.fromkeys([*self._decode_aliases(row[0]), *aliases]))
         sealed_aliases = self._db.seal_opt(json.dumps(merged) if merged else None)
         kept_description = row[1] if row[1] is not None else self._db.seal_opt(description)
+        kept_card = row[2] if row[2] is not None else self._db.seal_opt(card)
         with self._db.conn as conn:
             # fmt: off
             conn.execute(
-                "UPDATE characters SET aliases = ?, description = ?, updated_at = ? WHERE id = ?",
-                (sealed_aliases, kept_description, self._db.now(), character_id),
+                "UPDATE characters SET aliases = ?, description = ?, card = ?, updated_at = ? WHERE id = ?",
+                (sealed_aliases, kept_description, kept_card, self._db.now(), character_id),
             )
             # fmt: on
 

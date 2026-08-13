@@ -17,10 +17,12 @@ import pytest
 
 from otaku import crypto
 from otaku.app import load_config
+from otaku.chat.session import Session
 from otaku.paths import Paths
 from otaku.settings import config as config_mod
 from otaku.settings import migrations, sealed
 from otaku.settings import prompts as prompts_mod
+from otaku.settings import state as state_mod
 from otaku.settings.migrations.prompts import EXTRACT_0_2_2
 from otaku.store import DatabaseError, Store, is_encrypted
 from otaku.store import migrations as store_migrations
@@ -534,6 +536,25 @@ class TestResume:
             assert relaunched.session.story_id is None
         finally:
             relaunched.close()
+
+    def test_a_model_spec_of_a_deleted_provider_reports_and_skips(self, app: App, capsys) -> None:
+        """`Session.start`'s own promise: a value the files no longer make
+        sense of is reported and skipped — never a KeyError. The launch
+        path pre-guards with `cfg.serves`, so this holds the contract for
+        the caller that trusts the docstring instead."""
+        capsys.readouterr()
+        session = Session.start(
+            config=app.session.config,
+            paths=app.paths,
+            providers=app.session.providers,
+            model_spec="ghost/model",
+            state=state_mod.AppState(),
+            store=app.store,
+            worker=app.session.worker,
+        )
+        assert session.provider_config is None
+        assert session.model == ""
+        assert "ghost/model" in capsys.readouterr().out
 
 
 def set_encryption(root, key: str) -> None:

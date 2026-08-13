@@ -102,16 +102,18 @@ def cmd_info(session: Session, store: Store, args: list[str]) -> None:
     if session.provider_config is None:
         print(NO_MODEL_HINT)
     else:
-        _print_model(session)
+        _print_model(session, session.provider_config.name)
     print()
     _print_session(session, store)
 
 
-def _print_model(session: Session) -> None:
-    """The active model's half of `/info`."""
-    provider_config = session.provider_config
-    assert provider_config is not None
-    client = session.providers.get_client(provider_config.name)
+def _print_model(session: Session, provider_name: str) -> None:
+    """The active model's half of `/info` — the provider name passed in by
+    the caller that checked a model is active."""
+    client = session.providers.get_client(provider_name)
+    # The registry's copy, not the session's snapshot: a URL or key edited
+    # in the picker panel shows here immediately.
+    provider_config = client.provider_config
     print(f"Model:    {session.full_model_name}")
     print(f"Backend:  {client.kind} ({provider_config.url})")
     if provider_config.api_key:

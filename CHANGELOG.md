@@ -12,9 +12,11 @@ changes.
   current story. The card becomes a prompt: its fields compose through the `card_framing`
   template into one out-of-character block that rides every request verbatim — never summarized,
   never evicted — and the character speaks the card's own greeting. The cast row archives the
-  card's fields as TOML, editable in `/lore`; `{{char}}` and `{{user}}` bind at import (the
-  import asks who you play, and the story remembers the answer); a card's lorebook is not
-  supported and is dropped with a note.
+  card's fields as TOML, editable in `/lore`, and the wire follows the archive: the block
+  composes from it at request time, so a correction reaches every later request. The archive
+  rides `/export` too, so a re-imported story keeps the living card. `{{char}}` and
+  `{{user}}` are recorded at import (the import asks who you play, and the story remembers the
+  answer) and bind at wire time; a card's lorebook is not supported and is dropped with a note.
 - The database migrates itself between schema versions: a backup is taken first, each step is
   transactional (a failure leaves the database unharmed at its version, the backup untouched),
   and a database written by a newer otaku is refused with directions instead of being guessed at.
@@ -66,8 +68,18 @@ changes.
 - Failures print in red: a provider that refused, a file that would not open, a command that
   raised. What the app merely declines to do ("Unknown command", "Nothing to regenerate") stays
   plain — an ordinary typo should not read as a fault.
+- An export document declaring a newer format version than this app reads is refused with
+  directions — the way a database written by a newer otaku is — instead of being parsed by
+  guesswork; every older format still imports.
 
 ### Fixed
+- A remembered model naming a provider no longer in `providers.toml` no longer fails the launch —
+  it is reported and skipped like any other stale setting.
+- `/info` reads the provider's current url and key state instead of the session's snapshot, so an
+  edit made in the model picker's provider panel shows immediately.
+- The pinned status row writes straight to the terminal, past the screen accounting a command's
+  output runs under — a background repaint landing mid-command could trigger the spacing meant
+  for real output and leave a later erase one row short.
 - Typed `/undo` and `/regen` erase the whole exchange again: the cursor-position query was
   triggering the blank line that separates a command's output from its typed line, quietly moving
   the cursor one row down right before the erase measured from it — so the first line of what

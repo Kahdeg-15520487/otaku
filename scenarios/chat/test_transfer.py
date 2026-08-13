@@ -9,6 +9,7 @@ each triggers the same forced extraction pass live play gets.
 import json
 from pathlib import Path
 
+from otaku.transfer import EXPORT_MARKER
 from otaku.transfer.exports import read_story
 from otaku.transfer.imports import parse_story
 from scenarios.support import server as scripted
@@ -76,6 +77,22 @@ class TestImport:
         broken.write_text("<!-- otaku export -->\nno structure here")
         app.play(f"/import {broken}")
         assert "to import" in capsys.readouterr().out  # refused, not imported
+        assert app.session.story_id is None
+        assert app.server.requests == []
+
+    def test_a_newer_format_is_refused_with_directions(
+        self, app: App, capsys, tmp_path: Path
+    ) -> None:
+        # The reader's law across releases: any older format parses (the
+        # chapel fixture itself declares format-version 1, read by every
+        # test here), a newer one refuses instead of importing silently
+        # wrong.
+        newer = tmp_path / "newer.md"
+        newer.write_text(
+            CHAPEL.read_text().replace(EXPORT_MARKER, f"{EXPORT_MARKER}\nformat-version: 99", 1)
+        )
+        app.play(f"/import {newer}")
+        assert "newer otaku" in capsys.readouterr().out
         assert app.session.story_id is None
         assert app.server.requests == []
 
@@ -208,6 +225,34 @@ class TestExport:
             "I enter the hall.",
             app.session.messages[-1].body,
         ]
+
+    def test_a_card_story_exports_typed_and_the_archive_travels(
+        self, app: App, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A card row exports as its typed `/card` line, and the archive
+        it composes from rides the Cast section — so a re-import restores
+        the dualism whole: the typed line stored, `characters.card` back
+        in the cast, and the wire composed from the archive, never the
+        literal command line."""
+        monkeypatch.chdir(tmp_path)
+        card = Path(__file__).parent.parent / "fixtures" / "seraphina.png"
+        app.play(f"/card {card}")
+        app.play("/title Glade")
+        archive = app.store.characters.find(app.session.story_id, "Seraphina").card
+        app.play("/export")
+        document = (tmp_path / "glade.md").read_text()
+        assert f"/card {card}" in document
+        assert "#### Seraphina" in document
+
+        app.play("/new")
+        app.play(f"/import {tmp_path / 'glade.md'}")
+        restored = app.store.characters.find(app.session.story_id, "Seraphina")
+        assert restored is not None and restored.card == archive
+        assert app.session.messages[0].body == f"/card {card}"
+        app.play("I sit up slowly.")
+        wire = "\n".join(str(m["content"]) for m in app.server.requests[-1]["messages"])
+        assert "Seraphina joins the story" in wire
+        assert "/card" not in wire
 
     def test_overwriting_an_existing_file_needs_a_yes(
         self, app: App, tmp_path: Path, monkeypatch

@@ -17,7 +17,7 @@ from otaku.chat.commands import lore
 from otaku.chat.session import RESUME_TURNS, Session
 from otaku.store import Store
 from otaku.terminal import YES_ANSWERS, error_line, latin_key
-from otaku.transfer import EXPORT_MARKER
+from otaku.transfer import EXPORT_FORMAT_VERSION, EXPORT_MARKER
 from otaku.transfer import exports as story_exports
 from otaku.transfer import imports as story_imports
 from otaku.transfer.plaintext import parse_plaintext
@@ -67,7 +67,14 @@ def import_story(session: Session, store: Store, path_text: str) -> bool:
     suffix = path.suffix.lower()
     native = False
     if suffix == ".md" and EXPORT_MARKER in text:
-        export = story_imports.parse_story(text)
+        try:
+            export = story_imports.parse_story(text)
+        except story_imports.NewerFormatError as e:
+            print(
+                f"This export was written by a newer otaku (format {e.declared}; this version "
+                f"reads up to {EXPORT_FORMAT_VERSION}) — run 'otaku update' first."
+            )
+            return False
         if export is None:
             print("This looks like an otaku export, but it does not parse.")
             return False

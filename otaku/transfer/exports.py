@@ -17,7 +17,11 @@ from otaku.transfer.imports import STRUCTURE_LINE
 
 def read_story(store: Store, story_id: int) -> StoryExport:
     """The story out of the store as a `StoryExport`: its current chain
-    and current scenes, ready for `render_story`."""
+    and current scenes, ready for `render_story`. Bodies export as
+    stored — a card row keeps its typed `/card` line — and each cast
+    row's card archive travels with the cast, so a re-import restores
+    the dualism intact: the typed line on screen, the block composed
+    from the archive on the wire."""
     story = store.stories.get(story_id)
     messages = store.stories.get_messages(story_id)
     ordinal = {m.id: i for i, m in enumerate(messages, 1)}
@@ -40,7 +44,7 @@ def read_story(store: Store, story_id: int) -> StoryExport:
         system=story.system if story else "",
         story_so_far=store.scenes.get_story_so_far(story_id, list(ordinal)),
         cast=tuple(
-            ExportedCharacter(c.name, c.aliases, c.description)
+            ExportedCharacter(c.name, c.aliases, c.description, c.card or "")
             for c in store.characters.list(story_id)
         ),
         scenes=tuple(
@@ -97,6 +101,11 @@ def render_story(export: StoryExport, *, otaku_version: str, model: str, exporte
                 desc = f" — {character.description}" if character.description else ""
                 out.append(f"- **{character.name}**{aka}{desc}")
             out.append("")
+            # A card archive under its carrier, escaped like any body —
+            # card text is free to hold heading-shaped lines of its own.
+            for character in export.cast:
+                if character.card:
+                    out += [f"#### {character.name}", "", _escape(character.card), ""]
 
     if export.scenes:
         out += ["## Scenes", ""]

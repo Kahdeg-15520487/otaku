@@ -51,6 +51,26 @@ persists elsewhere and is rewritten wholesale: `configs/state.toml` for
 session-wide values (the resumed model and story, `/set` toggles) and
 `configs/models.toml` for per-model overrides.
 
+## Migrations
+
+Three compatibility frameworks, one per artifact that outlives a
+release — a format change lands inside one of them, never beside them:
+
+- **Settings** (`otaku/settings/migrations`) — convergent, rerun at
+  every launch, self-healing; detailed under Configuration files above.
+- **Database** (`otaku/store/migrations`) — the versioned ladder;
+  detailed under Architecture below.
+- **Export format** (`otaku/transfer`) — the import parser IS the
+  upward migration: it reads every format version ever written.
+  `EXPORT_FORMAT_VERSION` bumps when an older reader would misread the
+  layout, and a document declaring a newer format is refused with
+  directions (`imports.NewerFormatError`), never guessed at.
+
+Before a release, all three are exercised against REAL artifacts of the
+last released version, not only the suites' synthetic fixtures: a state
+dir the released build wrote must launch clean (settings converge, the
+database ladders up), and a document it exported must import.
+
 ## Tests
 
 Every principle in `docs/core_principles.md` must be covered — that is the

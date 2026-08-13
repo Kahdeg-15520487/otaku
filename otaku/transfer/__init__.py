@@ -4,7 +4,8 @@ The package owns the story document so the round-trip is a law:
 `imports.parse_story(exports.render_story(x))` returns `x` exactly. The
 document is one Markdown file, readable as prose and parseable as data —
 a metadata comment (recognition + versions), the optional `# title`
-heading, a `## Story` section (story so far, system, cast), `## Scenes`
+heading, a `## Story` section (story so far, system, cast — an imported
+card's archive TOML as a `#### Name` block under the roster), `## Scenes`
 (span, summary, per-character journals), and `## Messages` — one
 `### n · role (kind) · speaker · "template"` header per message, the kind,
 speaker, and JSON-quoted template present only when they exist, with the
@@ -26,9 +27,11 @@ the import command triggers exactly like `/extract`.
 
 from dataclasses import dataclass
 
-# Bumped when the layout changes in a way an importer must know about —
-# recorded in every file's metadata block so a reader can dispatch on it.
-EXPORT_FORMAT_VERSION = 1
+# Bumped when the layout changes in a way an older reader would misread —
+# recorded in every file's metadata block. The reader's law: every older
+# format parses (the current parser reads them all), and a newer one is
+# refused with directions (`imports.NewerFormatError`), never guessed at.
+EXPORT_FORMAT_VERSION = 2  # 2: `card` message kind; cast carries card archives
 
 # What recognizes the document — the first line of its metadata block.
 EXPORT_MARKER = "<!-- otaku export"
@@ -39,6 +42,7 @@ class ExportedCharacter:
     name: str
     aliases: tuple[str, ...] = ()
     description: str = ""
+    card: str = ""  # the /card archive TOML; the wire composes from it after re-import
 
 
 @dataclass(frozen=True)

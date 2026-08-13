@@ -138,7 +138,9 @@ def card_toml(card: Card, *, user: str) -> str:
         elif isinstance(value, tuple) and value:
             items = ", ".join(json.dumps(item) for item in value)
             lines.append(f"{field.name} = [{items}]")
-    return "\n\n".join(lines) + "\n"
+    # Edge-clean: no trailing newline, so the archive is exactly what a
+    # document round-trip (which trims body edges) gives back.
+    return "\n\n".join(lines)
 
 
 # ---------- reading the containers ----------
