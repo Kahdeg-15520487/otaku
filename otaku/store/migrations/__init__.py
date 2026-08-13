@@ -1,7 +1,11 @@
 """Schema migrations: an old database brought to the current version.
 
 This module is the machinery — the ladder, the backup, the refusals; the
-steps themselves live in `steps`, one frozen function per version.
+steps live one module per version (`v2`, `v3`), each frozen WHOLE: a
+step writes what its target version WAS, as literals kept beside it, and
+its helpers are its own, shared with no sibling — so no later change can
+silently rewrite what an old step writes and break every precondition
+after it.
 
 A versioned ladder, distinct from the settings migrations on purpose: a
 TOML file has no cursor, so those steps re-detect their own applicability
@@ -41,13 +45,13 @@ from pathlib import Path
 
 from otaku.logs.system import SystemLog
 from otaku.paths import Paths
-from otaku.store.migrations import steps
+from otaku.store.migrations import v2, v3
 from otaku.store.schema import SCHEMA_VERSION
 
-# The ladder itself: one entry per schema version, each a frozen function
-# from `steps`. Mirrors the settings migrations, whose tables also live in
-# their package root with the moves in sibling modules.
-_STEPS = {2: steps.to_2}
+# The ladder itself: one entry per schema version, each a version
+# module's frozen step. Mirrors the settings migrations, whose tables
+# also live in their package root with the moves in sibling modules.
+_STEPS = {2: v2.to_2, 3: v3.to_3}
 
 
 def migrate(conn: sqlite3.Connection, paths: Paths) -> str | None:

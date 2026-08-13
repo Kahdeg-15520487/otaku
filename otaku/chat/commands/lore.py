@@ -78,7 +78,7 @@ def cmd_extract(session: Session, store: Store, args: list[str]) -> None:
         return
     print(f"\r{ERASE_LINE}", end="")
     result, report = outcome[0]
-    _report_pass(store, session.story_id, result, report)
+    _report_pass(store, session.story_id, result, report, held=session.worker.get_status())
 
 
 def cmd_lore(session: Session, store: Store, args: list[str]) -> None:
@@ -115,6 +115,17 @@ def cmd_merge(session: Session, store: Store, args: list[str]) -> None:
     if source.id == target.id:
         print(f"'{src_raw.strip()}' and '{dst_raw.strip()}' are already the same character.")
         return
+    if source.card:
+        # A merge deletes the source row, its card archive with it — and
+        # the card rows pointing at the target would send their typed
+        # line instead of the composed block. Refused toward the
+        # direction that keeps the archive.
+        print(
+            f"{source.name} carries an imported card, which a merge would destroy — "
+            f"merge the other direction (/merge {target.name} into {source.name}) "
+            f"so the card survives."
+        )
+        return
     store.characters.merge(session.story_id, source.id, target.id)
     # SOURCE is now an alias of TARGET, so a later /me or /you naming it
     # still resolves — nothing else to update.
@@ -137,19 +148,22 @@ def _open_lore(session: Session, store: Store, lens: str) -> None:
     session.tui.browse_lore(store, session.story_id, lens)
 
 
-def _report_pass(store: Store, story_id: int, result: PassResult, report: Report) -> None:
-    """The outcome of a forced close, printed once it is known — shared by
-    the worker-backed wait and the inline no-worker path."""
+def _report_pass(
+    store: Store, story_id: int, result: PassResult, report: Report, *, held: str = ""
+) -> None:
+    """The outcome of a forced close, printed once it is known. `held` is
+    the worker's held status row: when the pass CRASHED it names the real
+    cause, and the foreground report repeats it instead of blaming the
+    model's reply for every failure."""
     if result is PassResult.NO_STORY:
         print("Nothing is recorded for this story, so there is nothing to extract.")
     elif result is PassResult.TOO_SHORT:
         print("Nothing new since the last scene.")
     elif result is PassResult.FAILED:
-        print(
-            error_line(
-                "Extraction failed (bad reply or request error) — the tail stays open; try again."
-            )
-        )
+        reason = "bad reply or request error"
+        if held.startswith("extraction failed (") and held.endswith(")"):
+            reason = held[len("extraction failed (") : -1]
+        print(error_line(f"Extraction failed ({reason}) — the tail stays open; try again."))
     elif result is PassResult.CLOSED:
         rolled = f", {report.histories} history rollup(s)" if report.histories else ""
         refreshed = "; story-so-far refreshed" if report.scene_histories else ""

@@ -27,7 +27,8 @@ from otaku.settings.migrations.prompts import EXTRACT_0_2_2
 from otaku.store import DatabaseError, Store, is_encrypted
 from otaku.store import migrations as store_migrations
 from otaku.store.database import check_value
-from otaku.store.migrations import steps as store_steps
+from otaku.store.migrations import v2 as store_v2
+from otaku.store.migrations import v3 as store_v3
 from otaku.store.schema import SCHEMA_DDL
 from otaku.terminal import BOLD, RESET
 from scenarios.support import server as scripted
@@ -155,7 +156,7 @@ class TestSchemaMigration:
         paths = _v1_database(tmp_path / "state")
         store = Store.open(paths, crypto.PlainCipher(), backups=0)
         try:
-            assert "Database migrated (v1 → v2)" in capsys.readouterr().out
+            assert "Database migrated (v1 → v3)" in capsys.readouterr().out
             (message,) = store.stories.get_messages(1)
             # The v1 `framing` column reads back through the renamed one.
             assert (message.body, message.template) == ("I enter.", "TPL")
@@ -167,9 +168,15 @@ class TestSchemaMigration:
                 "warden of the gate",
                 None,
             )
+            # The v3 rebuild copied the derivative rows whole: the scene
+            # and the Keeper's journal crossed the table recreation.
+            ids = store.stories.get_messages_ids(1)
+            (scene,) = store.scenes.get_current(1, ids)
+            assert scene.summary == "The entry."
+            assert store.journals.get_current(1, ids)[keeper.id].state == "at the gate"
         finally:
             store.close()
-        assert _meta_version(paths) == "2"
+        assert _meta_version(paths) == "3"
 
     def test_a_current_database_opens_silently(self, tmp_path, capsys) -> None:
         paths = _v1_database(tmp_path / "state")
@@ -253,24 +260,22 @@ class TestSchemaMigration:
             pytest.skip("the v0.2.2 tag is not reachable here")
         shipped = proc.stdout
         for table, frozen in (
-            ("messages", store_steps._V1_MESSAGES),
-            ("characters", store_steps._V1_CHARACTERS),
+            ("messages", store_v2._V1_MESSAGES),
+            ("characters", store_v2._V1_CHARACTERS),
+            ("scenes", store_v3._V2_SCENES),
+            ("journals", store_v3._V2_JOURNALS),
         ):
             start = shipped.index(f"CREATE TABLE {table}")
             end = shipped.index(");", start) + 1
             assert shipped[start:end] == frozen, table
 
     def test_the_ladder_resumes_from_where_it_stamped(self, tmp_path, monkeypatch, capsys) -> None:
-        from otaku.store import database as database_mod
-
-        monkeypatch.setattr(store_migrations, "SCHEMA_VERSION", "3")
-        monkeypatch.setattr(database_mod, "SCHEMA_VERSION", "3")
         paths = _v1_database(tmp_path / "state")
         monkeypatch.setitem(store_migrations._STEPS, 3, _raise)
         with pytest.raises(DatabaseError, match="unharmed at version 2"):
             Store.open(paths, crypto.PlainCipher(), backups=0)
         assert _meta_version(paths) == "2"  # step 2 committed and stamped
-        monkeypatch.setitem(store_migrations._STEPS, 3, lambda conn: None)
+        monkeypatch.setitem(store_migrations._STEPS, 3, store_v3.to_3)
         Store.open(paths, crypto.PlainCipher(), backups=0).close()
         assert "Database migrated (v2 → v3)" in capsys.readouterr().out
         assert _meta_version(paths) == "3"
@@ -575,8 +580,11 @@ def _v1_database(root) -> Paths:
     paths.ensure_tree()
     v1_ddl = SCHEMA_DDL
     for table, shipped in (
-        ("messages", store_steps._V1_MESSAGES),
-        ("characters", store_steps._V1_CHARACTERS),
+        ("messages", store_v2._V1_MESSAGES),
+        ("characters", store_v2._V1_CHARACTERS),
+        # Unchanged v1 → v2, so step 3's preconditions ARE the v1 texts.
+        ("scenes", store_v3._V2_SCENES),
+        ("journals", store_v3._V2_JOURNALS),
     ):
         start = v1_ddl.index(f"CREATE TABLE {table}")
         end = v1_ddl.index(");", start) + 1
@@ -608,6 +616,18 @@ def _v1_database(root) -> Paths:
         "INSERT INTO characters (id, story_id, name, description, created_at, updated_at)"
         " VALUES (1, 1, ?, ?, ?, ?)",
         (b"Keeper", b"warden of the gate", now, now),
+    )
+    # A scene and its journal: rows the v3 step must carry across its
+    # table rebuilds, not only re-admit.
+    conn.execute(
+        "INSERT INTO scenes (id, story_id, start_message_id, end_message_id, summary,"
+        " created_at, updated_at) VALUES (1, 1, 1, 1, ?, ?, ?)",
+        (b"The entry.", now, now),
+    )
+    conn.execute(
+        "INSERT INTO journals (id, story_id, scene_id, character_id, entry, state,"
+        " created_at, updated_at) VALUES (1, 1, 1, 1, ?, ?, ?, ?)",
+        (b"I watched.", b"at the gate", now, now),
     )
     # fmt: on
     conn.commit()

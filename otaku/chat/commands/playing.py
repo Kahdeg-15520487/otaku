@@ -1,8 +1,8 @@
 """The playing commands: /undo, /regen, /last, /clear.
 
 The roleplay directions /me, /you and /ooc are NOT commands — they are
-prompt syntax, read off the typed line by `formatting.parse_prompt` and
-played by `repl._play` like any other prompt.
+prompt syntax, read off the typed line by `chat.framing` and played by
+`repl.submit` like any other prompt.
 
 /undo and /regen work the
 screen through the ledger (chat/screen.py): the erased exchange or reply

@@ -110,7 +110,7 @@ def inliner_menu() -> dict[str, str]:
 
 
 # The playing commands manage the screen ledger themselves: two take an
-# exchange back (a played prompt echoes its own block, in repl._play). Every other command's output
+# exchange back (a played prompt echoes its own block, in repl.submit). Every other command's output
 # lands below the last exchange and invalidates the ledger — when it comes:
 # the dispatch window watches for the write rather than assuming one (see
 # `ScreenLedger.command_output`), so a picker left without a choice costs

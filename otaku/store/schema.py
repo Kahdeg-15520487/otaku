@@ -16,7 +16,9 @@ Semantics:
   own edit through the UI is the one deliberate exception.
 - Scenes only exist closed: one INSERT writes start, end, title, summary.
   On fork, a scene cut mid-span is not copied — its messages count as
-  unextracted tail in the new story.
+  unextracted tail in the new story. A rewind leaves the abandoned scene
+  standing, and the new branch may close a scene starting at the same
+  message — scene starts are deliberately NOT unique.
 - Two-level rollup pattern, identical in scenes and journals:
   `scenes.summary` / `journals.entry` hold this scene only and are
   append-only; `scenes.history` (the story so far THROUGH this scene) and
@@ -39,7 +41,7 @@ Semantics:
 
 from dataclasses import dataclass
 
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "3"
 
 SCHEMA_DDL = """
 -- ---------- source: what was actually said ----------
@@ -90,7 +92,6 @@ CREATE TABLE scenes (
     created_at       TEXT NOT NULL,
     updated_at       TEXT NOT NULL,
     UNIQUE (story_id, id),               -- composite-FK target: same-story references only
-    UNIQUE (story_id, start_message_id),
     FOREIGN KEY (story_id, start_message_id) REFERENCES messages(story_id, id),
     FOREIGN KEY (story_id, end_message_id)   REFERENCES messages(story_id, id)
 );
@@ -103,21 +104,23 @@ CREATE TABLE characters (
     description BLOB,
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL,
-    card        BLOB                     -- an imported card as TOML
+    card        BLOB,                    -- an imported card as TOML
+    UNIQUE (story_id, id)                -- composite-FK target: same-story references only
 );
 
 CREATE TABLE journals (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     story_id     INTEGER NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
     scene_id     INTEGER NOT NULL,
-    character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    character_id INTEGER NOT NULL,
     entry        BLOB NOT NULL,          -- their record of this scene only
     state        BLOB NOT NULL,          -- snapshot right now; latest row wins
     history      BLOB,                   -- cumulative rollup from their entries
     created_at   TEXT NOT NULL,
     updated_at   TEXT NOT NULL,
     UNIQUE (scene_id, character_id),
-    FOREIGN KEY (story_id, scene_id) REFERENCES scenes(story_id, id) ON DELETE CASCADE
+    FOREIGN KEY (story_id, scene_id) REFERENCES scenes(story_id, id) ON DELETE CASCADE,
+    FOREIGN KEY (story_id, character_id) REFERENCES characters(story_id, id) ON DELETE CASCADE
 );
 
 -- ---------- bookkeeping ----------

@@ -1,29 +1,20 @@
-"""The step functions, one frozen per schema version — the registry
-mapping versions to them lives in the package root, the way the settings
-migrations keep their tables there.
+"""Schema step 2: what a version-1 database becomes.
 
-A step is HISTORY: it writes what its target version WAS, as a literal
-kept beside it, never what `schema.py` currently says — otherwise a later
-schema change would silently rewrite an old step's output and break every
-precondition after it. `schema.py` stays the CURRENT shape; the
-fresh-equals-migrated scenario holds the end of this chain against it, so
-a schema edit without a new step fails loudly.
-
-Step 1 -> 2 rewrites the `messages` and `characters` DDL in place — SQLite's documented
-"simpler procedure" (`writable_schema`): a CHECK constraint and a column
-name are only text in the stored DDL, nothing on disk depends on them, so
-the CHECK widens to admit 'card', `framing` becomes `template`, and
-`characters` gains its `card` column, all without rebuilding a table. The
-step demands the stored DDL match what version 1 shipped (a hand-edited
-schema is refused rather than guessed at) and writes the version-2 text
-verbatim.
+The step rewrites the `messages` and `characters` DDL in place —
+SQLite's documented "simpler procedure" (`writable_schema`): a CHECK
+constraint and a column name are only text in the stored DDL, nothing on
+disk depends on them, so the CHECK widens to admit 'card', `framing`
+becomes `template`, and `characters` gains its `card` column, all
+without rebuilding a table. The step demands the stored DDL match what
+version 1 shipped (a hand-edited schema is refused rather than guessed
+at) and writes the version-2 text verbatim.
 """
 
 import re
 import sqlite3
 
-# The `messages` DDL exactly as each version shipped it. V1 is step 2's
-# precondition; V2 is what it writes.
+# The `messages` DDL exactly as each version shipped it. V1 is the
+# step's precondition; V2 is what it writes.
 _V1_MESSAGES = """CREATE TABLE messages (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     story_id    INTEGER NOT NULL REFERENCES stories(id) ON DELETE CASCADE,

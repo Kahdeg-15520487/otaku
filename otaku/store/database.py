@@ -91,6 +91,12 @@ class Database:
             # Late import: the ladder raises this module's DatabaseError.
             from otaku.store import migrations
 
+            # Schema surgery runs unenforced — a rebuild step's DROP must
+            # not fire cascades into the tables that reference it (SQLite's
+            # own rebuild procedure opens the same way); the steps check
+            # their own consistency, and enforcement returns with the
+            # reopen below, or explicitly on the no-op path.
+            conn.execute("PRAGMA foreign_keys = OFF")
             migrated = migrations.migrate(conn, paths)
             if migrated is not None:
                 # The stored DDL changed under `writable_schema`: a fresh
@@ -105,6 +111,8 @@ class Database:
                         f"pre-migration backup from {paths.backups_dir}"
                     )
                 print(migrated)
+            else:
+                conn.execute("PRAGMA foreign_keys = ON")
             cls._guard(conn, path, cipher)
         if backups > 0:
             cls._daily_backup(conn, paths, keep=backups)

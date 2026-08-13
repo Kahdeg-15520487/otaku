@@ -13,7 +13,7 @@ CONTRACT, not enrichment: one per character present in the scene, silent
 bystanders included, entries naming arrivals and departures — a journal
 row asserts presence, and a character's perspective on the summarized
 past derives from nothing else (their entry into the unsummarized tail
-is their first attributed row; see notes/multichat.md). The rollups then bring
+is their first attributed row). The rollups then bring
 every history up to date — the story-so-far on the newest scene, each
 active character's history on their newest journal row; a single-source
 rollup is its source verbatim, no model pass. Both self-gate on
@@ -280,7 +280,8 @@ class Extractor:
         """Close the tail as one scene — or several, when it has run long.
         Only now is the story decrypted; the spans' journals feed each next
         extraction, so the story stays continuous across them."""
-        by_id = {m.id: m for m in self._store.stories.get_messages(self._story_id)}
+        chain = self._store.stories.get_messages(self._story_id)
+        by_id = {m.id: m for m in chain}
         if any(i not in by_id for i in tail_ids):
             # The story moved between the gate's snapshot and this read (an
             # undo on the REPL thread) — this pass is stale; the next one
@@ -291,9 +292,10 @@ class Extractor:
         sizes = [len(m.body) for m in tail]
         spans = [tail[a:b] for a, b in pack(sizes, min_chars=min_chars, min_messages=min_messages)]
         # Message NUMBER = 1-based position on the chain (what the resume
-        # line counts), so the progress line can name the span's range.
-        ids = self._store.stories.get_messages_ids(self._story_id)
-        number = {mid: i for i, mid in enumerate(ids, 1)}
+        # line counts), so the progress line can name the span's range —
+        # off the SAME read the staleness check guarded: a second read
+        # could see an undo that landed after it.
+        number = {m.id: i for i, m in enumerate(chain, 1)}
         cast = Cast.load(self._store, self._story_id)
         pass_started = time.monotonic()
         self._log(

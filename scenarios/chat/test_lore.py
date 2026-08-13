@@ -20,6 +20,7 @@ from scenarios.support.screens import CTRL_S, DOWN, ENTER, ESC, TAB, run_screen
 from scenarios.support.server import numbered_script
 
 CHAPEL = Path(__file__).parent.parent / "fixtures" / "chapel.md"
+SERAPHINA = Path(__file__).parent.parent / "fixtures" / "seraphina.png"
 
 
 class TestLoreBrowser:
@@ -200,6 +201,31 @@ class TestRewind:
         ][-1]
         assert "at the gate" not in analyst  # the rewound state is gone
         assert "(none yet)" in analyst
+        # The store-side of the same story: the second close WRITES its
+        # scene — starting where the abandoned one did, which the
+        # branching model allows — instead of dying on a uniqueness
+        # constraint and killing every later pass.
+        ids = app.store.stories.get_messages_ids(story_id)
+        current = app.store.scenes.get_current(story_id, ids)
+        assert [s.start_message_id for s in current] == [ids[0]]
+
+    def test_a_truncated_story_extracts_again(self, app: App) -> None:
+        # Resuming a story from an earlier message rewinds the head the
+        # way a deep undo does (`stories.set_head` is what the browser's
+        # truncate settles into) — the easiest road past a closed scene's
+        # end, and the next close must land, not collide.
+        for i in range(3):
+            app.play(f"Turn number {i}.")
+        app.play("/extract")
+        story_id = app.session.story_id
+        ids = app.store.stories.get_messages_ids(story_id)
+        app.store.stories.set_head(story_id, ids[1])
+        app.session.switch_to(app.store, story_id)
+        app.play("Onward from the cut.")
+        app.play("/extract")
+        ids = app.store.stories.get_messages_ids(story_id)
+        current = app.store.scenes.get_current(story_id, ids)
+        assert [s.start_message_id for s in current] == [ids[0]]
 
 
 class TestDisabled:
@@ -559,6 +585,22 @@ class TestMerge:
         # The duplicate's newer journal followed the merge.
         ids = app.store.stories.get_messages_ids(story_id)
         assert app.store.journals.get_current(story_id, ids)[cast[0].id].state == "by the door"
+
+    def test_merge_refuses_to_destroy_an_imported_card(self, app: App) -> None:
+        # A merge deletes the source row, archive and all — so a card
+        # carrier may only be merged INTO, never away.
+        app.play(f"/card {SERAPHINA}")
+        story_id = app.session.story_id
+        app.store.characters.add(story_id, "Sera the Second")
+        app.play("/merge Seraphina into Sera the Second")
+        kept = app.store.characters.find(story_id, "Seraphina")
+        assert kept is not None and kept.card  # refused: the archive survives
+        assert app.store.characters.find(story_id, "Sera the Second").card is None
+
+        app.play("/merge Sera the Second into Seraphina")
+        merged = app.store.characters.find(story_id, "Sera the Second")
+        assert merged is not None and merged.id == kept.id  # now an alias
+        assert merged.card == kept.card
 
     def test_merge_invalidates_the_rolled_up_memory(self, app: App) -> None:
         # A rollup composed before the merge covers only one side; the

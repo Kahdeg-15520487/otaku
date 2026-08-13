@@ -155,7 +155,7 @@ forbidden:
     cli        → app, crypto, logs, paths, settings, store, update,
                  formatting
     app        → chat, tui, lore, store, providers, settings, crypto, logs,
-                 paths, formatting
+                 paths, terminal, formatting
     chat       → transfer, lore, store, providers, settings, logs, paths,
                  terminal, formatting
     tui        → store, providers, settings, paths, terminal, formatting

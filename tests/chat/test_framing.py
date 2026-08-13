@@ -128,6 +128,15 @@ class TestPromptToWire:
         got = prompt_to_wire("/me elara: I bow.", ME, is_last=True)
         assert got == "<<elara speaks>>\nI bow."
 
+    def test_an_edited_away_command_drops_its_template(self) -> None:
+        # The browser edit can strip a row's leading command; the framing
+        # goes with it — never a literal `{name}` on the wire. A v1
+        # framing, its name baked in and no placeholder, still joins.
+        assert prompt_to_wire("Just prose now.", ME, is_last=True) == "Just prose now."
+        v1 = "((OOC: The user writes as Elara.))\n{body}"
+        got = prompt_to_wire("Edited prose.", v1, is_last=True)
+        assert got == "((OOC: The user writes as Elara.))\nEdited prose."
+
     def test_an_inliner_becomes_its_own_enclosure(self) -> None:
         got = prompt_to_wire("She looks up /ooc make her nervous", None, is_last=True)
         assert got == "She looks up ((OOC: make her nervous))"

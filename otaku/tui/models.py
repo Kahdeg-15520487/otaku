@@ -660,12 +660,16 @@ class ModelPicker(ListScreen):
         # A backend not in providers.toml yet gets its section written
         # first — this is how a cloud provider is added deliberately.
         block = f"[{name}]\nurl = {toml_scalar(provider_config.url)}\n" + 'api_key = ""'
-        migrations.update_providers(
+        written = migrations.update_providers(
             self.paths,
             [migrations.ensure_section(name, block), migrations.set_key(name, attr, line)],
         )
         self.providers.update_provider(updated)
         self._refresh_provider(name)
+        if not written:
+            # The registry took the value, the file did not — say so, or
+            # the next launch silently forgets what the panel confirmed.
+            self.notice = "saved for this session only — providers.toml could not be written"
 
     def _set_field(self, text: str) -> None:
         """A paste onto a CLOSED field sets it outright: the field opens,
@@ -692,9 +696,14 @@ class ModelPicker(ListScreen):
         provider_config = self._provider_config(name)
         if not provider_config.api_key:
             return  # nothing to clear — and no hint: the field is visibly bare
-        migrations.update_providers(
+        written = migrations.update_providers(
             self.paths, [migrations.set_key(name, "api_key", 'api_key = ""')]
         )
+        if not written:
+            # Forgetting that does not reach the file is not forgetting:
+            # the key stays — in the session too, so the mark stays honest.
+            self.notice = "not forgotten — providers.toml could not be written"
+            return
         self.providers.update_provider(replace(provider_config, api_key=""))
         self._refresh_provider(name)  # the vanished (set) mark reports it
 

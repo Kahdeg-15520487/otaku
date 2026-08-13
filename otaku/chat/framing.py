@@ -227,7 +227,11 @@ def prompt_to_wire(body: str, template: str | None, *, is_last: bool) -> str:
     its turn is the newest, and from the next turn onward it is not there.
     """
     if template and not body.startswith("/"):
-        return _join(body, template)
+        # A v2 template on a command-less body means the command was
+        # edited away — its framing goes with it: better the plain prose
+        # than a literal `{name}` on the wire. A v1 framing (its name
+        # baked in, no placeholder) still joins.
+        return body if "{name}" in template else _join(body, template)
     frame = framing(body)
     parts = [frame.compose(_fill_name(template, frame.name))]
     # Each inliner named, so a new one sends nothing until it is named

@@ -7,6 +7,17 @@ changes.
 
 ## [0.2.3] - [planned]
 
+**TL;DR**
+
+- New feature: character card import with the `/card` command.
+- Commands `/me` and `/you` suggest and autocorrect cast names.
+- New commands available mid-prompt only: `/ooc` and `/cue`, both hinting the LLM — `/ooc`
+  introduces a standing note, `/cue` a one-time steer that the LLM won't see later.
+- The browsers (`/stories`, `/lore`, `/model`) follow the terminal theme.
+- Commands get highlighted.
+
+**Full version:**
+
 ### Added
 - `/card FILE [NAME]` — import a character card (SillyTavern formats, PNG or JSON) into the
   current story. The card becomes a prompt: its fields compose through the `card_framing`
@@ -43,23 +54,10 @@ changes.
   the story's record of presence. The refreshed template reaches existing installs too: a
   `prompts.toml` template still holding a previous release's exact text follows the new built-in,
   while an edited one is never touched.
-- Browser edit fields open with the cursor at the start and answer PageUp/PageDown.
-- Extraction tolerates a reply whose JSON syntax was typed with typographic quotes — a small
-  model mirroring the story's own punctuation — by straightening them when, and only when, the
-  first parse fails.
 - The lore browser's cast lists in order of appearance — the story's own order — instead of
   alphabetically.
 - The system log records the app's administrative moments — the schema migration, the daily
   database backup, `otaku update` runs — besides the lore worker's actions.
-- A character name you type in `/me` and `/you` commands is settled to the cast's own spelling
-  before the line is stored, so `/me keeper:` becomes `/me Keeper:` once the Keeper is in the
-  story — echoed, stored and sent as one text. Only an exact name or alias matches (case aside),
-  so it can settle a spelling and never pick a different character; a name the cast does not know
-  is left alone, and a line already played never changes afterwards. `/set autocorrect off` turns
-  it off.
-- A name the cast knows also attributes the turn to that character — `/me` marks the request as
-  their line, `/you` marks the reply — with certainty, where the extraction pass previously had to
-  guess; everything else is still labeled by extraction.
 - The browsers (`/stories`, `/lore`, `/model`) follow the terminal instead of painting over it:
   the pane, its text and its headings are your own colors, secondary text is dimmed rather than
   greyed, and only what has to be painted is — the selected row and a dialog floating over the
@@ -73,13 +71,15 @@ changes.
   guesswork; every older format still imports.
 
 ### Fixed
-- A remembered model naming a provider no longer in `providers.toml` no longer fails the launch —
-  it is reported and skipped like any other stale setting.
-- `/info` reads the provider's current url and key state instead of the session's snapshot, so an
-  edit made in the model picker's provider panel shows immediately.
-- The pinned status row writes straight to the terminal, past the screen accounting a command's
-  output runs under — a background repaint landing mid-command could trigger the spacing meant
-  for real output and leave a later erase one row short.
+- Rewinding past a closed scene's end — a deep undo, or resuming a story from an earlier
+  message — no longer kills every later extraction with a constraint failure: the abandoned
+  scene stays in the tree, and the new branch closes its own scene starting at the same message.
+  When a pass does crash, the failure line now names the real cause instead of blaming the
+  model's reply.
+- A provider edit that could not be written to `providers.toml` — a hand-broken file, a
+  disk error — now says so in the panel instead of confirming a change the next launch would
+  silently forget; a key that could not be forgotten on disk stays in the session too, so the
+  mark never lies.
 - Typed `/undo` and `/regen` erase the whole exchange again: the cursor-position query was
   triggering the blank line that separates a command's output from its typed line, quietly moving
   the cursor one row down right before the erase measured from it — so the first line of what
@@ -91,14 +91,6 @@ changes.
 - A line opening with `- ` reads as dash-convention dialogue — colored, the hyphen kept — where it
   used to become a `•` list bullet, which rewrote the spoken line's own mark and left it uncolored.
   Lists keep `*` and `+`.
-- The terminal is asked for its background before `COLORFGBG` is believed. Some terminals export
-  that variable from the wrong profile — iTerm2 reports a white background from a dark window —
-  which left the browsers and the played block light on a dark terminal.
-- Text on anything otaku paints — the played block's band, a selected row, a dialog — now carries
-  its own color instead of the terminal's, so a background that cannot be detected at all still
-  reads.
-- The banner's rule below the mark is dimmed rather than a fixed near-black, which had all but
-  vanished on a dark terminal.
 
 ## [0.2.2] - 2026-08-08
 

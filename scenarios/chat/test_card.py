@@ -71,6 +71,18 @@ class TestImport:
         assert "You wake with a start" in wire
         assert f"/card {SERAPHINA}" not in wire  # the typed line never sends
 
+    def test_a_fork_carries_the_card_to_the_wire(self, app: App) -> None:
+        # The fork copies the archive with the cast, so the branch's card
+        # rows keep composing — the model must never see the typed line.
+        app.play(f"/card {SERAPHINA}")
+        app.play("/fork")
+        app.play("I look around the glade.")
+        wire = "\n".join(str(m["content"]) for m in app.server.requests[-1]["messages"])
+        # Card CONTENT only the composed block carries — the greeting rows
+        # never mention the description fields.
+        assert "Seraphina's Personality" in wire
+        assert "/card" not in wire
+
     def test_a_lore_correction_reaches_the_next_request(self, app: App) -> None:
         # The archive is the source at WIRE time, not at import: a /lore
         # edit of the card TOML changes what every later request sends.

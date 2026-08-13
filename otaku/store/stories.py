@@ -305,13 +305,13 @@ class StoryOps:
 
             character_map: dict[int, int] = {}
             rows = conn.execute(
-                "SELECT id, name, aliases, description FROM characters WHERE story_id = ?",
+                "SELECT id, name, aliases, description, card FROM characters WHERE story_id = ?",
                 (story_id,),
             ).fetchall()
-            for cid, name, aliases, description in rows:
+            for cid, name, aliases, description, card in rows:
                 cur = conn.execute(
-                    "INSERT INTO characters (story_id, name, aliases, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                    (new_story, name, aliases, description, now, now),
+                    "INSERT INTO characters (story_id, name, aliases, description, card, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (new_story, name, aliases, description, card, now, now),
                 )
                 character_map[int(cid)] = int(cur.lastrowid or 0)
 
