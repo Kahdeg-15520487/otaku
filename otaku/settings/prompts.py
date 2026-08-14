@@ -69,9 +69,11 @@ Rules:
 - "speakers": for EVERY numbered message, the single character who speaks or acts
   in it (their exact name); null when it is narration, several characters, or out
   of character.
-- "characters": only NEW characters first appearing in this scene.
+- "characters": only NEW characters first appearing in this scene. A character
+  worth listing was present: write their "journals" row too.
 - "journals": one for EVERY character present in this scene — speaking, acting,
-  or silently there. The journal row is the story's record of their presence, so
+  or silently there; anyone named in "speakers" or "characters" was present and
+  gets one. The journal row is the story's record of their presence, so
   a character with nothing to say still gets one.
   "entry" is that character's own record of THIS SCENE ONLY — what they did, saw,
   heard, and felt, in the order they experienced it; when they arrive or leave

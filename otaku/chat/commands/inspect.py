@@ -172,7 +172,17 @@ def _render_preview(prompt: assembler.AssembledPrompt, *, dim: str = "", reset: 
     # makes the line add up to the story's length instead of to nothing.
     tail = prompt.transcript_kept - prompt.head_count
     middle = prompt.transcript_total - prompt.transcript_kept
-    if prompt.scenes_summarized:
+    if prompt.scenes_rolled_up:
+        # Displaced summaries are named, not folded in: the rollup covers
+        # the dropped scenes, and the line says so or the count would
+        # claim the kept summaries cover the whole middle.
+        plural = "s" if prompt.scenes_rolled_up != 1 else ""
+        lines.append(
+            f"  {prompt.head_count} head + {tail} tail verbatim, plus {middle} middle "
+            f"inserted in between as a rollup and {prompt.scenes_summarized} last scene "
+            f"summaries. the rollup includes {prompt.scenes_rolled_up} older scene{plural}"
+        )
+    elif prompt.scenes_summarized:
         lines.append(
             f"  {prompt.head_count} head + {tail} tail verbatim, plus {middle} middle "
             f"inserted in between as {prompt.scenes_summarized} scene summaries"

@@ -90,6 +90,7 @@ class AssembledPrompt:
     transcript_tokens: int  # head + recap + tail estimate
     head_count: int  # verbatim opening messages on the wire
     scenes_summarized: int  # scene summaries standing in for the middle
+    scenes_rolled_up: int  # older scenes the story-so-far rollup covers instead
     recap: str  # the recap text, "" when none (/context's preview keys on it)
     transcript_kept: int  # verbatim messages on the wire (head + tail)
     transcript_total: int
@@ -167,7 +168,7 @@ def assemble(
     budget = max(0, window - _RESPONSE_RESERVE - system_tokens)
 
     head, chapters, tail = _split_transcript(messages, scenes, head_messages, tail_messages)
-    recap_rows, kept_summaries = _recap_rows(chapters, scenes, recap_header, budget)
+    recap_rows, kept_summaries, rolled_up = _recap_rows(chapters, scenes, recap_header, budget)
     # The recap's cost and /context's marker are its merged text — the
     # join `_wire_turns` will make of these rows.
     recap = "\n\n".join(_wire_text(m) for m in recap_rows)
@@ -191,6 +192,7 @@ def assemble(
         transcript_tokens=used,
         head_count=len(head),
         scenes_summarized=kept_summaries,
+        scenes_rolled_up=rolled_up,
         recap=recap,
         transcript_kept=len(head) + len(tail),
         transcript_total=len(messages),
@@ -272,12 +274,15 @@ def _recap_rows(
     scenes: Sequence[Scene],
     recap_header: str,
     budget: int,
-) -> tuple[list[Message], int]:
+) -> tuple[list[Message], int, int]:
     """The recap as wire-ready rows, plus how many scene summaries ride
-    it: each chapter's cards in front of its summary, oldest chapter
-    first — capped at `_RECAP_FRACTION` of the budget, the oldest
-    summaries dropping out and the story-so-far rollup (the newest scene
-    history) taking their place.
+    it and how many dropped scenes the rollup covers in their stead: each
+    chapter's cards in front of its summary, oldest chapter first —
+    capped at `_RECAP_FRACTION` of the budget, the oldest summaries
+    dropping out and the story-so-far rollup (the newest scene history)
+    taking their place. The rolled-up count is what the WIRE shows: zero
+    when nothing dropped, and zero again when no history exists to stand
+    in — dropped-and-uncovered is not a rollup.
 
     The cap weighs summaries alone: card rows are charged to the WHOLE
     budget, never to the recap's fraction — one large card would
@@ -285,7 +290,7 @@ def _recap_rows(
     every summary — and they never drop: a dropped chapter's cards float
     to the front, above the rollup that replaced their summary."""
     if not chapters:
-        return [], 0
+        return [], 0, 0
     recap_budget = int(budget * _RECAP_FRACTION)
     kept = list(chapters)
     used = sum(estimate_tokens(ch.summary) for ch in kept)
@@ -299,14 +304,16 @@ def _recap_rows(
     if recap_header:
         rows.append(_recap_row(recap_header))
     rows.extend(floated)
+    rolled_up = 0
     if len(kept) < len(chapters):
         story_so_far = next((s.history for s in reversed(scenes) if s.history), "")
         if story_so_far:
             rows.append(_recap_row(story_so_far))
+            rolled_up = len(chapters) - len(kept)
     for chapter in kept:
         rows.extend(chapter.cards)
         rows.append(_recap_row(chapter.summary))
-    return rows, len(kept)
+    return rows, len(kept), rolled_up
 
 
 def _recap_row(text: str) -> Message:

@@ -104,6 +104,7 @@ class TestShaping:
             tail_messages=10,
         )
         assert prompt.scenes_summarized == 1
+        assert prompt.scenes_rolled_up == 0  # nothing dropped, nothing rolled up
         sent = "\n".join(m.body for m in prompt.messages)
         assert "[So far:]" in sent
         assert "The heist unfolded." in sent
@@ -147,6 +148,7 @@ class TestShaping:
         ]
         prompt = assemble("", turns(40), 8192, scenes=scenes, head_messages=5, tail_messages=10)
         assert prompt.scenes_summarized == 1
+        assert prompt.scenes_rolled_up == 1  # the dropped scene, covered by the rollup
         sent = "\n".join(m.body for m in prompt.messages)
         assert "Newest arc." in sent  # the rollup stands in for dropped summaries
         assert "Recent scene summary." in sent
