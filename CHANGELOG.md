@@ -5,7 +5,7 @@ All notable changes to otaku are documented in this file. The format is based on
 [Semantic Versioning](https://semver.org/) — while pre-1.0, minor releases may include breaking
 changes.
 
-## [0.2.3] - [planned]
+## [0.3.0] - [planned]
 
 **TL;DR**
 

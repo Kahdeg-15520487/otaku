@@ -50,36 +50,36 @@ NanoGPT.
 
 ## Installation
 
+The script first installs the `uv` package manager — if you don't have it yet — and then
+installs otaku with it.
+
 ```bash
-uv tool install otaku
+curl -LsSf https://otaku.sh/install.sh | sh
 ```
 
-<details>
-<summary>Other ways to install</summary>
+Other ways to install:
 
 ```bash
-# if you don't have `uv`, use the installation script, one of:
-curl -LsSf https://otaku.sh/install.sh | sh
-wget -qO- https://otaku.sh/install.sh | sh
+# directly with uv
+uv tool install otaku
 
-# alternatively, use Homebrew
+# alternatively, via Homebrew
 brew trust enclavum/tap
 brew install enclavum/tap/otaku
 ```
 
-</details>
-
-### How to update
+### Updating
 
 ```bash
 otaku update
 ```
 
-The command detects how otaku was installed and runs that installer's own upgrade.
+The command detects how otaku was installed (uv, brew, etc.) and runs that installer's own
+upgrade.
 
 ## User guide
 
-### First start
+### Launching for the first time
 
 ```bash
 otaku
@@ -97,7 +97,7 @@ and `/context` commands.
 
 The commands cheatsheet is available at `/help`.
 
-### How to start a story
+### Starting a story
 
 From there, you can start your own story with the `/new` command. You can also import a
 SillyTavern chat with `/import`. Note that importing takes time, because it doesn't only import
@@ -105,7 +105,7 @@ the messages — it also extracts characters and scenes from them (more on that 
 can cancel the extraction. You can also import a plain text file the same way; it will be split
 into messages.
 
-### How to play
+### Playing
 
 You send messages as usual, as your persona; the LLM infers which character to play from the
 dialogue. There are helper commands — `/you`, `/me`, and `/ooc` — which only frame your prompt
@@ -115,6 +115,16 @@ with minimal injections like "you play as …" (you can see and configure these 
 Mid-prompt, there are also two helper commands: `/ooc` and `/cue`. Both wrap the text after
 them in an OOC block; the difference is that the `/ooc` block persists — right for a standing
 note to the LLM — while the `/cue` block is sent only once — right for one-time story steering.
+
+A few example prompts:
+
+- `I follow the keeper deeper into the vault.` — plain play
+- `/ooc Keep replies under three paragraphs.` — out of character, a standing note
+- `"Who goes there?" I whisper. /ooc the keeper does not know me yet` — play with an aside
+- `"Come away with me," I tell the keeper. /cue she refuses` — play with a one-time steer
+- `/me Keeper: You are late again.` — hint the LLM you are playing as Keeper now
+- `/you Keeper` — tell the LLM to play as Keeper
+- `/you Keeper: she is furious` — the same but with a direction
 
 During play, you can `/undo` (Ctrl+U) the last exchange and `/regen` (Ctrl+R) the last reply.
 
@@ -134,7 +144,7 @@ story. You can also fork a new version of the story you are playing with the `/f
 Forking copies all scenes, characters, journals, etc. to the new branch. Note that you can edit
 messages in the stories picker with the `e` key.
 
-### Summaries and lore
+### Extracting summaries and lore
 
 After you've sent around 50 messages, a summary pass starts automatically in the background once
 you've been idle for 5 minutes, so it doesn't disturb your roleplay. You can also run it on
@@ -145,12 +155,13 @@ Once the extraction completes, you can browse and edit the extracted summaries a
 with the `/lore` and `/cast` commands. Summaries are editable, so you can correct them however
 you like.
 
-### How the context is constructed
+### Understanding the context
 
 The summaries only kick in once you have more than around 200 messages in the chat. The first 20
 and the last 150 messages (both configurable) are always sent as-is, to preserve maximum detail
-and your prose style; everything in between is replaced with scene summaries. So even though
-summaries may exist up to the latest message, only the older ones are actually used.
+of recent story development and your prose style; everything in between is replaced with scene
+summaries. Even though summaries may exist up to the latest message, only the older ones are
+actually used. Nothing is included in the context by a condition or a trigger word.
 
 You can use the `/context` command to see what exactly will be sent to the LLM.
 

@@ -71,7 +71,7 @@ _CONFIG_MIGRATIONS: list[Migration] = [
 # files still holding the superseded shipped text, byte-exact (an edited
 # template never matches and is never touched).
 _PROMPT_MIGRATIONS: list[Migration] = [
-    # 0.2.3 — journals become the record of presence: one per character
+    # 0.3.0 — journals become the record of presence: one per character
     # present, silent bystanders included, arrivals and departures named.
     refresh_template("extract_prompt", EXTRACT_0_2_2, EXTRACT_DEFAULT),
 ]
