@@ -51,6 +51,13 @@ note() { printf '    %s%s%s\n' "$DIM" "$*" "$RESET"; }
 warn() { printf '%swarning:%s %s\n' "$YELLOW" "$RESET" "$*" >&2; }
 die()  { printf '%serror:%s %s\n' "$RED" "$RESET" "$*" >&2; exit 1; }
 
+# What the owner of an already-installed otaku needs: how to run it, and
+# how to bring it to the newest release.
+hints() {
+    say "  otaku            start playing"
+    say "  otaku update     update to the newest version"
+}
+
 # ------------------------------------------------------------- utilities
 
 # `readlink -f` is GNU; BSD only grew it recently and this has to run on
@@ -149,27 +156,33 @@ check_existing() {
     _otaku=$(find_tool otaku) || return 0
     _real=$(resolve "$_otaku")
 
+    # The name with its version when the binary answers — "otaku 0.2.2 is
+    # already installed" says what they have and sets up the update row
+    # below. A binary that will not answer still gets the plain report.
+    _name=$("$_otaku" --version 2>/dev/null) || _name=''
+    case "$_name" in
+        otaku*) _name=$(printf '%s\n' "$_name" | sed 's/, version / /') ;;
+        *)      _name='otaku' ;;
+    esac
+
     case "$_real" in
         */Cellar/*)
-            say "otaku is already installed, and Homebrew owns it:"
+            say "$_name is already installed, and Homebrew owns it:"
             note "$_real"
             say ""
-            say "Update it:"
-            say "    otaku update"
+            hints
             exit 0 ;;
         */pipx/*)
-            say "otaku is already installed, and pipx owns it:"
+            say "$_name is already installed, and pipx owns it:"
             note "$_real"
             say ""
-            say "Update it:"
-            say "    otaku update"
+            hints
             exit 0 ;;
         */uv/tools/*)
-            say "otaku is already installed:"
+            say "$_name is already installed in:"
             note "$_real"
             say ""
-            say "Update it:"
-            say "    otaku update"
+            hints
             exit 0 ;;
         *)
             warn "another otaku is already on your PATH:
@@ -188,7 +201,7 @@ ensure_uv() {
         return 0
     fi
 
-    step "installing uv — otaku's installer, and its Python when the system has none"
+    step "installing uv — otaku's installer (python package and project manager)"
     note "$UV_INSTALLER_URL, about 35 MB, into $BIN_DIR"
 
     # To a file rather than straight into a pipe: POSIX sh has no
@@ -206,26 +219,6 @@ ensure_uv() {
 
     UV="$BIN_DIR/uv"
     [ -x "$UV" ] || die "uv installed but is not at $UV — please report this at $ISSUES_URL"
-}
-
-install_otaku() {
-    step "installing otaku"
-
-    # --force because the check above only sees an otaku that is on PATH:
-    # one uv installed into a directory the shell never picked up is
-    # invisible there, and a plain install would stop at "already
-    # installed" rather than making the shim this run promises.
-    if "$UV" tool install --force otaku; then
-        return 0
-    fi
-
-    # The likeliest reason for that failure is the interpreter: otaku
-    # needs 3.11+ and uv reached for something older. Ask for a version
-    # by name and uv downloads a managed CPython rather than searching.
-    step "retrying with a managed CPython $PYTHON_FALLBACK — the usual cause is no Python 3.11+"
-    "$UV" tool install --force --python "$PYTHON_FALLBACK" otaku \
-        || die "the install failed. The output above says why; if it is not
-       something you can fix, please report it at $ISSUES_URL"
 }
 
 # uv puts otaku's shim in the same directory it puts itself, so one check
@@ -282,6 +275,26 @@ ensure_path() {
         $_line"
 }
 
+install_otaku() {
+    step "installing otaku"
+
+    # --force because the check above only sees an otaku that is on PATH:
+    # one uv installed into a directory the shell never picked up is
+    # invisible there, and a plain install would stop at "already
+    # installed" rather than making the shim this run promises.
+    if "$UV" tool install --force otaku; then
+        return 0
+    fi
+
+    # The likeliest reason for that failure is the interpreter: otaku
+    # needs 3.11+ and uv reached for something older. Ask for a version
+    # by name and uv downloads a managed CPython rather than searching.
+    step "retrying with a managed CPython $PYTHON_FALLBACK — the usual cause is no Python 3.11+"
+    "$UV" tool install --force --python "$PYTHON_FALLBACK" otaku \
+        || die "the install failed. The output above says why; if it is not
+       something you can fix, please report it at $ISSUES_URL"
+}
+
 verify() {
     VERSION=$("$BIN_DIR/otaku" --version 2>/dev/null) \
         || die "otaku installed but will not run — please report this at $ISSUES_URL"
@@ -292,9 +305,8 @@ finish() {
     step "$VERSION"
     say ""
     say "  otaku            start playing"
-    say "  otaku update     upgrade, whenever"
     say ""
-    note "your stories live in ~/.otaku"
+    say "Your stories and settings are in ~/.otaku"
 
     case "$PATH_ACTION" in
         # Something the script did, not something the reader must fix.
