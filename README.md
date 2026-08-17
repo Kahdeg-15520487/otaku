@@ -7,7 +7,7 @@
 
 Stories that branch and grow their own lore — on your machine, with optional at-rest encryption.
 
-![otaku demo](https://otaku.sh/demo.gif)
+![otaku demo](https://otaku.sh/demo.gif?v=0.3.0)
 
 ## What it is
 
