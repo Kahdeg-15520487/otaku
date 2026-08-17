@@ -18,6 +18,22 @@ _ENV_VAR = "OTAKU_CONFIG_DIR"
 _DEFAULT_ROOT = "~/.otaku"
 
 
+def existing_file(text: str) -> Path | None:
+    """The file `text` names, or None when it names none — including when
+    the filesystem REFUSES to answer.
+
+    A command argument is text until proven a path, and the proof is a
+    question the OS can decline: a component over 255 bytes raises
+    ENAMETOOLONG instead of returning false, so `/system <a paragraph>`
+    used to crash on the very question meant to rule a path out. Anything
+    the lookup itself raises means the same thing here — not a file."""
+    try:
+        candidate = Path(text).expanduser()
+        return candidate if candidate.is_file() else None
+    except (OSError, ValueError, RuntimeError):
+        return None
+
+
 @dataclass(frozen=True)
 class Paths:
     root: Path

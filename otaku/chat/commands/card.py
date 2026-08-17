@@ -28,6 +28,7 @@ from pathlib import Path
 
 from otaku.chat.framing import card_to_wire
 from otaku.chat.session import Session, message
+from otaku.paths import existing_file
 from otaku.store import Store
 from otaku.store.schema import Message
 from otaku.terminal import DIM, RESET, error_line
@@ -146,8 +147,8 @@ def _file_and_name(raw: str) -> tuple[Path, str]:
     matching falls through whole, for `read_bytes` to refuse honestly."""
     tokens = raw.split()
     for i in range(len(tokens), 0, -1):
-        candidate = Path(" ".join(tokens[:i])).expanduser()
-        if candidate.is_file():
+        candidate = existing_file(" ".join(tokens[:i]))
+        if candidate is not None:
             return candidate, " ".join(tokens[i:]).strip()
     return Path(raw).expanduser(), ""
 

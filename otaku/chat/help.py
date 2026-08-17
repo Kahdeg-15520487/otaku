@@ -119,6 +119,15 @@ def arguments(tokens: tuple[str, ...]) -> str:
     return " ".join(row[0].split()[len(tokens) :]) if row else ""
 
 
+def shortcut(tokens: tuple[str, ...]) -> str:
+    """The key that runs this command without typing it — ("/undo",) ->
+    "Ctrl+U". Empty when it has none, which is most of them. The menu
+    shows it beside the command, so the faster way is learned where the
+    slower one is being used."""
+    row = _help_row(tokens)
+    return row[1] if row else ""
+
+
 def needs_argument(tokens: tuple[str, ...]) -> bool:
     """Whether this command is INCOMPLETE as it stands — its /help row names
     something that must follow, a parameter (`/me NAME: PROMPT`) or a

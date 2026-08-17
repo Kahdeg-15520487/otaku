@@ -33,7 +33,7 @@ from otaku.chat.commands import (
     completion_tree,
     inliner_menu,
 )
-from otaku.chat.help import arguments, describe_command, needs_argument
+from otaku.chat.help import arguments, describe_command, needs_argument, shortcut
 from otaku.terminal import latin_key
 
 # What a cast callable answers with: (name, one-line description) rows —
@@ -286,10 +286,14 @@ def _rows(menu: dict[str, str], partial: str, path: tuple[str, ...]) -> Iterator
     `path` is what the keys hang off — the walked command tokens, or `…`
     for the inliners, which is how their /help rows are written."""
     # Each row reads as the line it starts: the command, then what it takes
-    # — dimmed, because only the command is inserted. Widths are measured
-    # over the WHOLE label so the description column still lines up.
+    # — dimmed, because only the command is inserted — and then the key
+    # that runs it without typing at all, in a column of its own so the
+    # keys read down the menu as a list. Both widths are measured over the
+    # WHOLE menu, so no column moves as the filter narrows it.
     labels = {key: f"{key} {arguments((*path, key))}".rstrip() for key in menu}
+    keys = {key: shortcut((*path, key)) for key in menu}
     key_width = max((len(label) for label in labels.values()), default=0)
+    shortcut_width = max((len(text) for text in keys.values()), default=0)
     meta_width = max((len(meta) for meta in menu.values()), default=0)
     for key, meta in menu.items():
         if key.startswith(latin_key(partial)):
@@ -300,6 +304,7 @@ def _rows(menu: dict[str, str], partial: str, path: tuple[str, ...]) -> Iterator
                     ("", key),
                     ("dim", labels[key][len(key) :]),
                     ("", " " * (key_width - len(labels[key]))),
+                    ("dim", f"  {keys[key].ljust(shortcut_width)}" if shortcut_width else ""),
                 ],
                 display_meta=meta.ljust(meta_width) if meta_width else None,
                 argument_required=needs_argument((*path, key)),

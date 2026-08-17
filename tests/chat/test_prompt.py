@@ -70,6 +70,25 @@ class TestLineAssembler:
     def test_a_single_line_block_closes_immediately(self) -> None:
         assert LineAssembler().feed('"""text"""') == "text"
 
+    def test_a_command_may_open_a_block(self) -> None:
+        # `/system """` is the obvious way to give a command a multiline
+        # argument; the command survives, the delimiters do not.
+        assembler = LineAssembler()
+        assert assembler.feed('/system """## Premise') is None
+        assert assembler.feed("") is None
+        assert assembler.feed('a second paragraph"""') == "/system ## Premise\n\na second paragraph"
+
+    def test_a_command_opens_a_one_line_block_too(self) -> None:
+        assert LineAssembler().feed('/system """the premise"""') == "/system the premise"
+
+    def test_only_a_real_command_opens_one(self) -> None:
+        # Prose that merely mentions the delimiter is prose, and its line
+        # has to survive as typed.
+        assert LineAssembler().feed('/ooc the marker is """this"""') == (
+            '/ooc the marker is """this"""'
+        )
+        assert LineAssembler().feed('/nonsense """x') == '/nonsense """x'
+
     def test_a_block_keeps_the_whitespace_at_its_edges(self) -> None:
         # The layout is the reason to open one; stripping it would undo
         # what the writer opened the block to do.

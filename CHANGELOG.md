@@ -5,7 +5,7 @@ All notable changes to otaku are documented in this file. The format is based on
 [Semantic Versioning](https://semver.org/) — while pre-1.0, minor releases may include breaking
 changes.
 
-## [0.3.0] - [planned]
+## [0.3.0] - 2026-08-17
 
 **TL;DR**
 
@@ -71,6 +71,11 @@ changes.
   guesswork; every older format still imports.
 
 ### Fixed
+- A long `/system` premise no longer fails: deciding whether the argument named a file asked the
+  filesystem a question it refuses over 255 characters, so any premise worth writing crashed the
+  command instead of being stored. `/card` and `/export` asked the same question the same way.
+- A command can open a multiline block — `/system """` and the lines that follow, closed with
+  `"""` — where before the delimiters were stored as part of the text.
 - Rewinding past a closed scene's end — a deep undo, or resuming a story from an earlier
   message — no longer kills every later extraction with a constraint failure: the abandoned
   scene stays in the tree, and the new branch closes its own scene starting at the same message.

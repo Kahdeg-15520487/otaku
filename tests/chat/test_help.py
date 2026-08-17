@@ -10,9 +10,13 @@ meant, and Enter should send it rather than reach for the rarer option.
 `command_tokens` reads the same labels for the names alone: the vocabulary
 display picks commands out by. A label that is a key at the prompt rather
 than a command ("Up / Down", `@`) must not contribute one.
+
+`shortcut` reads the row's other column — the key that runs the command
+without typing it — which the menu shows beside the name, so the faster
+way is learned where the slower one is being used.
 """
 
-from otaku.chat.help import command_tokens, needs_argument
+from otaku.chat.help import command_tokens, needs_argument, shortcut
 
 
 class TestNeedsArgument:
@@ -49,6 +53,23 @@ class TestNeedsArgument:
 
     def test_an_unknown_command_needs_nothing(self) -> None:
         assert needs_argument(("/nonesuch",)) is False
+
+
+class TestShortcut:
+    def test_a_command_with_a_key_reports_it(self) -> None:
+        assert shortcut(("/undo",)) == "Ctrl+U"
+        assert shortcut(("/model",)) == "Ctrl+O"
+
+    def test_a_command_without_one_reports_nothing(self) -> None:
+        for command in ("/me", "/new", "/card", "/extract"):
+            assert shortcut((command,)) == "", command
+
+    def test_an_unknown_command_reports_nothing(self) -> None:
+        assert shortcut(("/nonsense",)) == ""
+
+    def test_a_subcommand_takes_its_own_row(self) -> None:
+        # `/set think` has no key of its own, and must not inherit one.
+        assert shortcut(("/set", "think")) == ""
 
 
 class TestCommandTokens:

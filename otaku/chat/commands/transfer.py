@@ -15,6 +15,7 @@ from pathlib import Path
 from otaku import __version__
 from otaku.chat.commands import lore
 from otaku.chat.session import RESUME_TURNS, Session
+from otaku.paths import existing_file
 from otaku.store import Store
 from otaku.terminal import YES_ANSWERS, error_line, latin_key
 from otaku.transfer import EXPORT_FORMAT_VERSION, EXPORT_MARKER
@@ -132,7 +133,9 @@ def cmd_export(session: Session, store: Store, args: list[str]) -> None:
     )
     name = session.raw_args.strip().removeprefix("@")
     path = Path(name).expanduser() if name else Path(_default_filename(session, store))
-    if path.exists():
+    # A name the filesystem will not even look up (too long, say) is not an
+    # existing file: fall through, and let the write refuse it out loud.
+    if existing_file(str(path)) is not None:
         try:
             answer = latin_key(input(f"{path} already exists — overwrite? [y/N] ").strip())
         except (EOFError, KeyboardInterrupt):

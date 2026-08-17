@@ -195,6 +195,25 @@ class TestSystem:
         assert "System prompt set (15 chars)." in capsys.readouterr().out
         assert app.store.stories.get_system(app.session.story_id) == "Answer briefly."
 
+    def test_a_long_premise_is_text_not_a_filename(self, app: App, capsys) -> None:
+        # An argument is TEXT until proven a path, and the proof is a
+        # question the filesystem can refuse: over 255 bytes in one
+        # component it raises ENAMETOOLONG rather than answering, which
+        # used to crash the command on any premise worth writing.
+        premise = "You are the narrator of a careful story. " * 12  # ~480 chars, no slashes
+        app.play(f"/system {premise}")
+        app.play("I enter the hall.")
+        assert app.store.stories.get_system(app.session.story_id) == premise.strip()
+        assert "Traceback" not in capsys.readouterr().out
+
+    def test_a_multiline_premise_survives_whole(self, app: App) -> None:
+        # What a `/system """…"""` block collects: newlines and all, and
+        # no stray delimiters in the stored text.
+        premise = "## Premise\n\nA quiet story.\n- one rule\n- another"
+        app.play(f"/system {premise}")
+        app.play("I enter the hall.")
+        assert app.store.stories.get_system(app.session.story_id) == premise
+
     def test_a_file_argument_supplies_the_prompt(self, app: App, tmp_path) -> None:
         premise = tmp_path / "premise.md"
         premise.write_text("You are the narrator.\n", encoding="utf-8")

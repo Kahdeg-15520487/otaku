@@ -47,6 +47,7 @@ from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.styles import Style
 
 from otaku.chat.completer import SlashCompleter
+from otaku.chat.help import command_tokens
 from otaku.chat.session import Session, message
 from otaku.formatting import flatten, truncate
 from otaku.store import Store
@@ -121,11 +122,12 @@ class LineAssembler:
             text = "\n".join(self._lines)
             self.reset()
             return text
-        if line.startswith(_TRIPLE):
-            rest, closed = _cut_suffix(line[len(_TRIPLE) :], _TRIPLE)
+        head, opened = _cut_opener(line)
+        if opened:
+            rest, closed = _cut_suffix(line[len(head) + len(_TRIPLE) :], _TRIPLE)
             if closed:
-                return rest  # single-line \"\"\"text\"\"\"
-            self._lines = [rest]
+                return head + rest  # a whole block on one line
+            self._lines = [head + rest]
             self.in_block = True
             return None
         return line.strip()
@@ -456,6 +458,25 @@ def _menu_anchor_index(partial: str | None, cursor: int) -> int | None:
     if partial is None:
         return None
     return cursor - len(partial)
+
+
+def _cut_opener(line: str) -> tuple[str, bool]:
+    """The text a `\"\"\"` opener follows, and whether the line opens a block
+    at all. Usually nothing precedes it — but a COMMAND may (`/system
+    \"\"\"`), because a multiline argument is the obvious reason to want a
+    block, and the delimiters would otherwise land in that argument as
+    text. The command is kept and the quotes dropped, so the block reads
+    as the one long line the writer meant to type.
+
+    Only a real command opens one, and only with the quotes right after
+    it: `/ooc the docstring is \"\"\"x\"\"\"` is prose about quotes, and its
+    line has to survive as typed."""
+    if line.startswith(_TRIPLE):
+        return "", True
+    head, quotes, _ = line.partition(_TRIPLE)
+    if quotes and head.rstrip(" ") in command_tokens():
+        return head, True
+    return line, False
 
 
 def _cut_suffix(text: str, suffix: str) -> tuple[str, bool]:

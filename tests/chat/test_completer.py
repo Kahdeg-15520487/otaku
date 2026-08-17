@@ -138,6 +138,36 @@ class TestLayoutFold:
         assert _offered("/m") == ["/me", "/merge", "/model"]
 
 
+class TestRowShape:
+    """A row reads as the line it starts: the command, then what it takes,
+    then the key that runs it without typing at all — the last two dimmed,
+    since only the command is inserted. The keys are a COLUMN of their own,
+    so they read down the menu as a list rather than trailing each label."""
+
+    def test_a_shortcut_ends_the_row(self) -> None:
+        assert _shown("/undo").endswith("Ctrl+U")
+        assert _shown("/model").startswith("/model [PROVIDER/MODEL]")
+
+    def test_the_keys_share_one_column(self) -> None:
+        starts = {_shown(command).index("Ctrl+") for command in ("/undo", "/model", "/bye")}
+        assert len(starts) == 1
+
+    def test_a_command_without_one_shows_none(self) -> None:
+        assert _shown("/new") == "/new"
+        assert _shown("/card") == "/card FILE [NAME]"
+
+    def test_only_the_command_is_undimmed(self) -> None:
+        # What is inserted is what reads as typed; the rest is guidance.
+        row = next(r for r in _rows_for("/und") if r.text == "/undo")
+        assert [style for style, _ in row.display if _.strip()] == ["", "dim"]
+
+    def test_every_row_pads_to_one_width(self) -> None:
+        # Fixed over the WHOLE menu, so the description column never moves
+        # as the filter narrows it.
+        widths = {len("".join(text for _, text in r.display)) for r in _rows_for("/")}
+        assert len(widths) == 1
+
+
 class TestCastSuggestions:
     """The commands whose argument is a character offer the cast, shaped
     per command: /me inserts `Name:` and the prompt follows, /you inserts
@@ -190,6 +220,12 @@ class TestCastSuggestions:
 
 def _offered(text: str) -> list[str]:
     return [r.text for r in _rows_for(text)]
+
+
+def _shown(command: str) -> str:
+    """A row's visible label, padding dropped."""
+    row = next(r for r in _rows_for(command) if r.text == command)
+    return "".join(text for _, text in row.display).rstrip()
 
 
 def _rows_for(text: str) -> list[Completion]:

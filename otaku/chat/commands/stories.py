@@ -12,9 +12,8 @@ and `/new` announce, the way every break is drawn. `/fork` draws none:
 the copy continues the scene already on screen.
 """
 
-from pathlib import Path
-
 from otaku.chat.session import RESUME_TURNS, Session
+from otaku.paths import existing_file
 from otaku.store import Store
 from otaku.terminal import error_line
 
@@ -107,8 +106,8 @@ def cmd_system(session: Session, store: Store, args: list[str]) -> None:
     if not text:
         print(f'System: "{session.system}"' if session.system else "System: (none)")
         return
-    path = Path(text).expanduser()
-    if path.is_file():
+    path = existing_file(text)
+    if path is not None:
         try:
             text = path.read_text(encoding="utf-8", errors="replace").strip()
         except OSError as e:
