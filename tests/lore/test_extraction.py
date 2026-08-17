@@ -3,12 +3,14 @@
 `pack`'s contract: every span meets BOTH minimums (characters and item
 count), and a leftover under the minimums merges into the span before it.
 `numbered_chat`'s: the analysis model sees `[n]` numbering, an attributed
-line's speaker, composed framing, and an `((OOC: …))` enclosure on every
-out-of-character row — added when the row has no stored framing to show
+line's speaker, composed template, and an `((OOC: …))` enclosure on every
+out-of-character row — added when the row has no stored template to show
 one.
 """
 
-from otaku.lore.extraction import numbered_chat, pack
+import pytest
+
+from otaku.lore.extraction import _parse_json, numbered_chat, pack
 from otaku.store.schema import Message
 
 
@@ -51,13 +53,49 @@ class TestNumberedChat:
         assert text == "[1] Ryn: I wait."
 
     def test_framing_is_composed_onto_the_body(self) -> None:
-        message = Message(role="user", body="I wait.", framing="((OOC: as Ryn.))\n{body}")
+        message = Message(role="user", body="I wait.", template="((OOC: as Ryn.))\n{body}")
         assert numbered_chat([message]) == "[1] ((OOC: as Ryn.))\nI wait."
 
     def test_a_bare_ooc_row_gains_the_enclosure(self) -> None:
-        message = Message(role="assistant", body="Good plan.", kind="ooc", framing=None)
+        message = Message(role="assistant", body="Good plan.", kind="ooc", template=None)
         assert numbered_chat([message]) == "[1] ((OOC: Good plan.))"
 
+    def test_an_attributed_framed_row_keeps_its_framing(self) -> None:
+        # The speaker decorates the COMPOSED line. Prefixing the body first
+        # would hide its leading slash from the composer, sending the row
+        # down the legacy path with `{name}` left unfilled.
+        message = Message(
+            role="user",
+            body="/me Elara: I bow.",
+            speaker="Elara",
+            template="((OOC: as {name}.))\n{body}",
+        )
+        assert numbered_chat([message]) == "[1] Elara: ((OOC: as Elara.))\nI bow."
+
     def test_an_ooc_row_with_framing_shows_it_as_stored(self) -> None:
-        message = Message(role="user", body="Plan?", kind="ooc", framing="((OOC: {body}))")
+        message = Message(role="user", body="Plan?", kind="ooc", template="((OOC: {body}))")
         assert numbered_chat([message]) == "[1] ((OOC: Plan?))"
+
+
+class TestParseJson:
+    """The reply parser's tolerances: fences and prose around the object,
+    and JSON syntax typed with typographic double quotes — a small model
+    mirrors the story's own punctuation — straightened only on retry, so
+    a parsable reply keeps every curly quote inside its values."""
+
+    def test_reads_the_object_out_of_fences_and_prose(self) -> None:
+        assert _parse_json('Sure!\n```json\n{"scene": 1}\n```') == {"scene": 1}
+
+    def test_typographic_quotes_as_syntax_parse_on_retry(self) -> None:
+        assert _parse_json("{“title”: “Quayside”}") == {"title": "Quayside"}
+
+    def test_a_parsable_reply_keeps_curly_quotes_in_values(self) -> None:
+        assert _parse_json('{"line": "She said “hi” — twice"}') == {"line": "She said “hi” — twice"}
+
+    def test_a_reply_without_an_object_refuses(self) -> None:
+        with pytest.raises(ValueError):
+            _parse_json("no json here")
+
+    def test_a_broken_object_still_refuses(self) -> None:
+        with pytest.raises(ValueError):
+            _parse_json('{"scene": }')

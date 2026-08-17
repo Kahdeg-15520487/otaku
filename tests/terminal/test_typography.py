@@ -1,22 +1,55 @@
-"""The streaming typesetter.
+"""The streaming typesetter, and the request highlighter beside it.
 
 The typesetter's contract: text arrives in arbitrary chunks and is written
 out immediately with ANSI styling, never repainted. So the tests check two
 things — that the visible text survives (markers consumed, content kept),
 and that how the input is split into chunks changes nothing.
+
+The highlighter's contract is the vocabulary: it colours the words it is
+GIVEN and nothing else, so which `/word` is a command is the caller's
+answer, never a guess from the slash. Both are checked by structure — the
+escapes that open and close a span — never by which shade the terminal
+running the tests happens to pick.
 """
 
 import io
 import re
+from collections.abc import Iterator
 
-from otaku.terminal import color
-from otaku.terminal.typography import Typesetter
+import pytest
+
+from otaku.settings.config import Config
+from otaku.terminal.theme import _CURRENT, color, theme, use
+from otaku.terminal.typography import Streamer, highlight_commands, highlight_toml
+
+
+def escape(spec: str) -> str:
+    """A color spec as the foreground escape it resolves to. Defined here,
+    above the constants, because they are built from it."""
+    return color(spec).fg
+
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _BOLD = "\x1b[1m"
 _ITALIC = "\x1b[3m"
 _RESET = "\x1b[0m"
-_SPEECH = color("cyan")  # the tests pin an explicit spec, independent of the shipped default
+_SPEECH_SPEC = "cyan"  # pinned by the fixture, so no test reads the real terminal
+_SPEECH = escape(_SPEECH_SPEC)
+_DEFAULT_FG = "\x1b[39m"  # what closes a highlighted command
+# A vocabulary with the overlaps that matter: a command that prefixes
+# another, and one that prefixes an ordinary word.
+_COMMANDS = ("/me", "/merge", "/ooc", "/cue", "/set", "/bye")
+
+
+@pytest.fixture(autouse=True)
+def settled() -> Iterator[None]:
+    """A known theme for every case. The typesetter takes its dialogue look
+    from the theme now, so without this the tests would read whatever
+    background the terminal running them reports."""
+    saved = list(_CURRENT)
+    use(Config(providers={}, dialogue_color=_SPEECH_SPEC))
+    yield
+    _CURRENT[:] = saved
 
 
 class TestPlainText:
@@ -61,7 +94,13 @@ class TestBlocks:
         assert plain("# Title\n") == "Title\n"
 
     def test_renders_a_bullet_for_a_list_item(self) -> None:
-        assert plain("- item\n") == "• item\n"
+        assert plain("* item\n") == "• item\n"
+        assert plain("+ item\n") == "• item\n"
+
+    def test_a_hyphen_is_not_a_list_marker(self) -> None:
+        # `- ` is the dash-dialogue convention, so the hyphen must survive
+        # as typed — a bullet would rewrite the spoken line's own mark.
+        assert plain("- word\n") == "- word\n"
 
     def test_keeps_ordered_list_numbering(self) -> None:
         assert plain("1. first\n") == "1. first\n"
@@ -138,10 +177,19 @@ class TestDialogue:
         assert spans == ["— Yes, ", "\u00abthe sign\u00bb"]
 
     def test_a_list_marker_is_not_a_dialogue_dash(self) -> None:
-        assert spoken("- an item\n") == []
+        assert spoken("* an item\n") == []
+
+    def test_a_hyphen_line_speaks_like_a_dash_line(self) -> None:
+        assert spoken("- Hello, - he said. - Come in.\n") == ["- Hello, ", "- Come in."]
+
+    def test_a_compound_word_is_not_a_handover(self) -> None:
+        # The hyphen inside "Semi-formal" follows a letter, so the voice
+        # holds; the dash after the comma is the attribution as usual.
+        assert spoken("- Semi-formal, - he said.\n") == ["- Semi-formal, "]
 
     def test_a_dash_outside_a_dash_line_is_narration(self) -> None:
         assert spoken("The hall — long and unlit — smelled of stone.\n") == []
+        assert spoken("A well-known road, 3-4 miles.\n") == []
 
     def test_code_is_never_spoken(self) -> None:
         assert spoken('Try `printf("hi")` now.\n') == []
@@ -157,22 +205,13 @@ class TestDialogue:
     def test_flush_closes_speech_left_open_at_stream_end(self) -> None:
         assert spoken("— unfinished") == ["— unfinished"]
 
-    def test_speech_is_not_bold_unless_asked(self) -> None:
+    def test_speech_takes_the_themes_dialogue_color(self) -> None:
+        assert theme().dialogue.fg + '"hi"' in typeset('"hi"\n')
+
+    def test_speech_is_not_bold_unless_the_theme_says_so(self) -> None:
         assert _SPEECH + _BOLD not in typeset('"hi"\n')
-        assert _SPEECH + _BOLD in typeset('"hi"\n', speech_bold=True)
-
-    def test_a_color_spec_is_resolved_and_used(self) -> None:
-        styled = typeset('"hi"\n', speech_color="magenta")
-        assert color("magenta") + '"hi"' in styled
-        assert _SPEECH not in styled
-        assert color("#9a6700") + '"hi"' in typeset('"hi"\n', speech_color="#9a6700")
-
-    def test_auto_is_the_dark_blue_slot(self) -> None:
-        assert "\x1b[34m" in typeset('"hi"\n', speech_color="auto")
-
-    def test_an_unreadable_spec_resolves_like_auto(self) -> None:
-        unreadable = typeset('"hi"\n', speech_color="chartreuse")
-        assert unreadable == typeset('"hi"\n', speech_color="auto")
+        use(Config(providers={}, dialogue_color=_SPEECH_SPEC, dialogue_bold=True))
+        assert _SPEECH + _BOLD in typeset('"hi"\n')
 
 
 class TestChunking:
@@ -191,7 +230,7 @@ class TestChunking:
 
     def test_a_marker_split_across_chunks_still_bolds(self) -> None:
         out = io.StringIO()
-        streamer = Typesetter(out)
+        streamer = Streamer(out)
         streamer.feed("**bo")
         streamer.feed("ld**\n")
         streamer.flush()
@@ -223,14 +262,75 @@ class TestRenderMarkdown:
         assert typeset("**unclosed").endswith(_RESET)
 
 
-def typeset(text: str, *, chunk: int = 0, **knobs: object) -> str:
+class TestHighlightCommands:
+    """The request side: the words the caller named, and only those."""
+
+    def test_picks_out_a_command_opening_the_line(self) -> None:
+        assert highlighted("/me Elara: I step in.", _COMMANDS) == ["/me"]
+
+    def test_picks_out_an_inliner_mid_line(self) -> None:
+        assert highlighted("I step in. /ooc who else is here?", _COMMANDS) == ["/ooc"]
+
+    def test_picks_out_one_command_per_line(self) -> None:
+        assert highlighted("/me I wait.\n/ooc still there?", _COMMANDS) == ["/me", "/ooc"]
+
+    def test_leaves_a_word_the_vocabulary_does_not_name(self) -> None:
+        assert highlighted("/nonesuch and /Me and /ME", _COMMANDS) == []
+
+    def test_leaves_a_slash_inside_a_word(self) -> None:
+        for text in ("and/or", "https://example.com/me", "TCP/IP"):
+            assert highlighted(text, _COMMANDS) == [], text
+
+    def test_leaves_a_command_that_only_opens_a_longer_word(self) -> None:
+        assert highlighted("/mention /setting /byes", _COMMANDS) == []
+
+    def test_prefers_the_longer_command(self) -> None:
+        assert highlighted("/merge A into B", _COMMANDS) == ["/merge"]
+
+    def test_colours_the_slash_word_alone(self) -> None:
+        # The name and the prose after it are the user's words, not syntax.
+        assert highlighted("/me Elara: I step in.", _COMMANDS) == ["/me"]
+
+    def test_keeps_the_visible_text_intact(self) -> None:
+        text = "/me Elara: I step in. /cue keep it short"
+        assert visible(text, _COMMANDS) == text
+
+    def test_an_empty_vocabulary_highlights_nothing(self) -> None:
+        text = "/me Elara: I step in."
+        assert highlight_commands(text, ()) == text
+
+    def test_empty_text_stays_empty(self) -> None:
+        assert highlight_commands("", _COMMANDS) == ""
+
+
+class TestHighlightToml:
+    """The card archive's view: keys and macros light up, key-agnostic;
+    value text stays prose, block bodies included."""
+
+    def test_colours_a_key_and_not_its_value(self) -> None:
+        assert toml_highlighted("name = 'Elara'") == ["name"]
+
+    def test_colours_a_macro_inside_a_value(self) -> None:
+        assert toml_highlighted("greeting = 'hi {{user}}'") == ["greeting", "{{user}}"]
+
+    def test_a_key_shape_inside_a_block_is_prose(self) -> None:
+        text = "description = '''\nmood = calm\n'''"
+        assert toml_highlighted(text) == ["description"]
+
+    def test_a_macro_inside_a_block_still_colours(self) -> None:
+        text = "description = '''\nsmiles at {{char}}\n'''"
+        assert toml_highlighted(text) == ["description", "{{char}}"]
+
+    def test_keeps_the_visible_text_intact(self) -> None:
+        text = "name = 'Elara'\n\ndescription = '''\nhi {{user}}\n'''\n"
+        assert _ANSI.sub("", highlight_toml(text)) == text
+
+
+def typeset(text: str, *, chunk: int = 0) -> str:
     """`text` through the typesetter, in one chunk or in `chunk`-sized
-    bites; `knobs` pass straight to the Typesetter (speech_color,
-    speech_bold), with the color pinned to "cyan" unless a test says
-    otherwise — "auto" would depend on the terminal running the tests."""
-    knobs.setdefault("speech_color", "cyan")
+    bites. The dialogue look comes from the theme the fixture settled."""
     out = io.StringIO()
-    streamer = Typesetter(out, **knobs)  # type: ignore[arg-type]
+    streamer = Streamer(out)
     if chunk:
         for i in range(0, len(text), chunk):
             streamer.feed(text[i : i + chunk])
@@ -238,6 +338,26 @@ def typeset(text: str, *, chunk: int = 0, **knobs: object) -> str:
         streamer.feed(text)
     streamer.flush()
     return out.getvalue()
+
+
+def highlighted(text: str, commands: tuple[str, ...]) -> list[str]:
+    """The words the highlighter picked out, in order — read off the
+    default-foreground escape that closes each one, so the test never
+    names a shade the background chose."""
+    rendered = highlight_commands(text, commands)
+    return re.findall(rf"\x1b\[[0-9;]*m(.*?){re.escape(_DEFAULT_FG)}", rendered, re.S)
+
+
+def visible(text: str, commands: tuple[str, ...]) -> str:
+    """The highlighted text with the styling stripped — what a reader sees."""
+    return _ANSI.sub("", highlight_commands(text, commands))
+
+
+def toml_highlighted(text: str) -> list[str]:
+    """The parts `highlight_toml` picked out, in order — read off the
+    default-foreground escape that closes each one."""
+    rendered = highlight_toml(text)
+    return re.findall(rf"\x1b\[[0-9;]*m(.*?){re.escape(_DEFAULT_FG)}", rendered, re.S)
 
 
 def plain(text: str, *, chunk: int = 0) -> str:

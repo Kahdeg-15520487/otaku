@@ -4,7 +4,11 @@ at git instead of touching."""
 
 from pathlib import Path
 
+import pytest
+
 from scenarios.support.harness import run_otaku
+
+pytestmark = pytest.mark.cli
 
 
 class TestUpdate:

@@ -37,6 +37,7 @@ CTRL_T = b"\x14"
 CTRL_U = b"\x15"
 ENTER = b"\r"
 ESC = b"\x1b"
+TAB = b"\t"
 
 
 class Terminal:

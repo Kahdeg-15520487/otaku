@@ -24,6 +24,7 @@ overwritten — fix the inputs and the outputs follow. The store writers
 carry the invalidation; the browser never calls a model.
 """
 
+import tomllib
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -46,21 +47,29 @@ from prompt_toolkit.styles import Style
 from otaku.formatting import flatten, truncate
 from otaku.store import Store
 from otaku.store.schema import Character, Scene
-from otaku.tui.screen import BASE_STYLE, ListScreen, wrap_text
+from otaku.terminal.theme import theme
+from otaku.terminal.typography import highlight_toml
+from otaku.tui.screen import ListScreen, ansi_fragments, base_style, page_step, wrap_text
 
-_STYLE = Style.from_dict(
-    {
-        **BASE_STYLE,
-        "row": "fg:#000000 bg:#ffffff",
-        "row.selected": "bold fg:#000000 bg:#e4e4e4",
-        "row.dim": "fg:#767676 bg:#ffffff",
-        "row.dim.selected": "fg:#767676 bg:#e4e4e4",
-        "preview.title": "bold fg:#303030 bg:#ffffff",
-        "preview.muted": "fg:#767676 bg:#ffffff",
-        "preview.body": "fg:#000000 bg:#ffffff",
-        "notice": "fg:#767676 bg:#ffffff",
-    }
-)
+
+def _style() -> Style:
+    """Shared chrome from `base_style` plus this browser's row and preview
+    overrides, in the shades the terminal background asked for."""
+    colors = theme()
+    panel = f"bg:{colors.panel.style}"
+    return Style.from_dict(
+        {
+            **base_style(),
+            "row": f"fg:{colors.text.style} {panel}",
+            "row.selected": f"bold fg:{colors.ink.style} bg:{colors.selection.style}",
+            "row.dim": f"dim fg:{colors.muted.style} {panel}",
+            "row.dim.selected": f"dim fg:{colors.ink.style} bg:{colors.selection.style}",
+            "preview.title": f"bold fg:{colors.title.style} {panel}",
+            "preview.muted": f"dim fg:{colors.muted.style} {panel}",
+            "preview.body": f"fg:{colors.text.style} {panel}",
+            "notice": f"dim fg:{colors.muted.style} {panel}",
+        }
+    )
 
 
 @dataclass
@@ -81,7 +90,7 @@ class Field:
     edit or a pivot on it targets."""
 
     label: str
-    kind: str  # scene-title | scene-summary | description | entry | state | history
+    kind: str  # scene-title | scene-summary | description | card | entry | state | history
     text: str
     target: int  # scene id / character id / journal id, per kind
     editable: bool
@@ -98,9 +107,9 @@ class LoreBrowser(ListScreen):
         self.scenes: list[Scene] = store.scenes.get_current(story_id, ids)
         self.ordinal: dict[int, int] = {mid: i + 1 for i, mid in enumerate(ids)}
         self.total_messages = len(ids)
-        self.cast: list[Character] = sorted(
-            store.characters.list(story_id), key=lambda c: c.name.casefold()
-        )
+        # In order of appearance (row order), not by name: the cast reads
+        # as the story introduced it.
+        self.cast: list[Character] = store.characters.list(story_id)
         current = {s.id for s in self.scenes}
         self.jrows: list[JournalRow] = [
             JournalRow(j.id, j.scene_id, j.character_id, j.state, j.history, j.entry)
@@ -208,6 +217,10 @@ class LoreBrowser(ListScreen):
 
     def _char_fields(self, char: Character) -> list[Field]:
         out = [Field("description", "description", char.description, char.id, True)]
+        if char.card is not None:
+            # Only an imported character carries a card; the archive is
+            # the author's to correct like any primitive.
+            out.append(Field("card", "card", char.card, char.id, True))
         for r in self.by_char.get(char.id, []):
             scene = self._scene_by_id(r.scene_id)
             no = self._scene_no(r.scene_id)
@@ -338,6 +351,15 @@ class LoreBrowser(ListScreen):
             if not self.fields:
                 return [("class:preview.muted", "nothing to preview")]
             f = self.fields[self.field_cursor]
+            if f.kind == "card" and f.text:
+                # The archive reads as TOML: keys and macros in the command
+                # color — highlighted after the wrap, so the widths stay
+                # honest (escapes take no columns the wrap could count).
+                wrapped = "\n".join(wrap_text(f.text, width))
+                for line in highlight_toml(wrapped).split("\n"):
+                    out.extend(ansi_fragments(line, "class:preview.body"))
+                    out.append(("class:preview.body", "\n"))
+                return out
             for line in wrap_text(f.text or "(empty)", width):
                 out.append(("class:preview.body", line + "\n"))
             return out
@@ -550,7 +572,9 @@ class LoreBrowser(ListScreen):
         f = self.fields[self.field_cursor]
         self.notice = ""
         self.editing = True
-        self.edit_buffer.document = Document(f.text, len(f.text))
+        # Cursor at the START: an edit begins by reading, and a long text
+        # opened at its end shows only its tail.
+        self.edit_buffer.document = Document(f.text, 0)
         self.app.layout.focus(self._edit_control)
 
     def _edit_width(self) -> int:
@@ -652,6 +676,18 @@ class LoreBrowser(ListScreen):
                 if c.id == f.target:
                     self.cast[i] = replace(c, description=new)
                     break
+        elif f.kind == "card":
+            try:
+                tomllib.loads(new)
+            except tomllib.TOMLDecodeError as e:
+                # The archive is data other features parse — a broken edit
+                # is refused the way an emptied summary is.
+                raise ValueError(f"(not valid TOML — not saved: {e})") from e
+            self.store.characters.set_card(f.target, new)
+            for i, c in enumerate(self.cast):
+                if c.id == f.target:
+                    self.cast[i] = replace(c, card=new)
+                    break
         elif f.kind == "entry":
             self.store.journals.set_entry(f.target, new)
             row = next(r for r in self.jrows if r.id == f.target)
@@ -691,6 +727,15 @@ class LoreBrowser(ListScreen):
         @edit_kb.add("escape", filter=editing, eager=True)
         def _cancel(event: Any) -> None:
             self._finish_edit(save=False)
+
+        # The buffer's own bindings know arrows, not pages.
+        @edit_kb.add("pageup", filter=editing)
+        def _edit_pgup(event: Any) -> None:
+            self.edit_buffer.cursor_up(page_step())
+
+        @edit_kb.add("pagedown", filter=editing)
+        def _edit_pgdn(event: Any) -> None:
+            self.edit_buffer.cursor_down(page_step())
 
         always_kb = KeyBindings()
 
@@ -734,7 +779,7 @@ class LoreBrowser(ListScreen):
         )
 
         root = VSplit([left_pane, self._preview_gap(), preview_pane])
-        return self._finish_app(root, bindings, _STYLE, floats=[])
+        return self._finish_app(root, bindings, _style(), floats=[])
 
 
 def browse(store: Store, story_id: int, lens: str = "scenes") -> None:

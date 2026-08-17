@@ -11,7 +11,15 @@ license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "enclavum", email = "293312193+enclavum@users.noreply.github.com" }]
 requires-python = ">=3.11"
-keywords = ["llm", "ollama", "mlx", "omlx", "koboldcpp", "terminal", "tui", "roleplay", "story", "lore", "local"]
+# The GitHub repository topics, kept in step with them — one discovery
+# vocabulary, whichever index a reader arrives from. `python` is dropped (every
+# package here is), `omlx`, `story`, and `lore` are otaku's own words for things.
+keywords = [
+    "llm", "local-llm", "cli", "terminal", "tui",
+    "ollama", "mlx", "omlx", "koboldcpp", "llamacpp", "lmstudio", "openrouter", "nanogpt",
+    "roleplay", "ai-roleplay", "storytelling", "story", "lore",
+    "interactive-fiction", "creative-writing", "sillytavern",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
@@ -29,7 +37,13 @@ classifiers = [
 # bounds mean something, and neither describes an install nobody performs.
 dependencies = [
     "click>=8.4,<9.0",
-    "cryptography>=49,<51",
+    # cryptography's macOS wheels went arm64-only at 49, and 48 is the last
+    # line with a universal2 build. Without the split, an Intel Mac finds no
+    # wheel it can use and falls back to the sdist, which wants a Rust
+    # toolchain — an install nobody performs, for the one platform that
+    # cannot get the newer line.
+    "cryptography>=49,<51; sys_platform != 'darwin' or platform_machine == 'arm64'",
+    "cryptography>=48,<49; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "httpx>=0.28,<1.0",
     "prompt_toolkit>=3.0.53,<4.0",
     "psutil>=7,<8",
@@ -72,9 +86,9 @@ select = ["B", "E", "F", "I", "N", "RUF", "SIM", "UP", "W"]
 # SQL statements are kept on two rows with their parameters on one, whatever
 # the width (see the store modules' `# fmt: off` blocks).
 "otaku/store/*" = ["E501"]
-# The command table: one help row / one dispatch entry per source line,
-# whatever the width (see the `# fmt: off` blocks).
-"otaku/chat/commands/__init__.py" = ["E501"]
+# The command surface: one help row per source line, whatever the width
+# (see the `# fmt: off` block).
+"otaku/chat/help.py" = ["E501"]
 # The rendered config: one setting per source line, whatever the width
 # (see the `# fmt: off` block in to_toml).
 "otaku/settings/config.py" = ["E501"]
@@ -90,5 +104,6 @@ python_version = "3.11"  # type-check against the floor, not the interpreter in 
 testpaths = ["tests"]
 markers = [
     "live: talks to a real provider (each smoke skips itself when its server or api key is absent)",
+    "cli: drives the real binary in a subprocess or a pty — the slow end of the suite",
 ]
 addopts = "-q"

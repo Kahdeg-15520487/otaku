@@ -1,13 +1,10 @@
-"""The playing commands: /me, /you, /ooc, /undo, /regen, /last, /clear.
+"""The playing commands: /undo, /regen, /last, /clear.
 
-The three roleplay commands do ONE thing each: write their template into
-the turn's `framing` verbatim, filling only `{name}` — the `((OOC: …))`
-enclosure lives in the template, and the assembler joins framing to body at
-wire time. No persona state, no rewriting: the wire role stays fixed by
-who produced the row.
+The roleplay directions /me, /you and /ooc are NOT commands — they are
+prompt syntax, read off the typed line by `chat.framing` and played by
+`repl.submit` like any other prompt.
 
-On screen they play like any turn: once the input validates, the typed
-line re-echoes as the grey played-turn block. /undo and /regen work the
+/undo and /regen work the
 screen through the ledger (chat/screen.py): the erased exchange or reply
 simply vanishes, and only when the ledger cannot prove the erase do they
 fall back to reporting — every fallback print invalidates the ledger,
@@ -15,10 +12,11 @@ because it lands below the exchange it describes, and draws the ledger's
 break rule over what it says.
 """
 
+from otaku.chat.commands.card import drop_unplayed_card
+from otaku.chat.framing import framing
 from otaku.chat.inference import run_inference
-from otaku.chat.session import NO_MODEL_HINT, Session
+from otaku.chat.session import NO_MODEL_HINT, Session, message
 from otaku.store import Store
-from otaku.store.schema import Message
 from otaku.terminal import DIM, RESET
 
 # Turns /last shows when called bare — a turn being an exchange, the
@@ -26,64 +24,12 @@ from otaku.terminal import DIM, RESET
 _LAST_TURNS_DEFAULT = 5
 
 
-def cmd_me(session: Session, store: Store, args: list[str]) -> None:
-    """`/me NAME: PROMPT` — send PROMPT as NAME's line; you keep writing as
-    NAME. NAME is free text: an existing cast member resolves (case/alias →
-    canonical name), anyone else is taken verbatim and joins the cast at the
-    next scene close. ONE row: the line is the body, the template rides its
-    framing."""
-    name_part, sep, prompt = session.raw_args.partition(":")
-    prompt = prompt.strip()
-    if not sep or not name_part.strip() or not prompt:
-        session.screen.invalidate()
-        print("Usage: /me NAME: PROMPT")
-        return
-    name = _resolve_character(session, store, name_part) or name_part.strip()
-    framing = session.prompts.me_framing.replace("{name}", name)
-    session.screen.echo_block(session.raw_line)
-    session.record_turn(store, Message(role="user", body=prompt, framing=framing))
-    run_inference(session, store)
-
-
-def cmd_you(session: Session, store: Store, args: list[str]) -> None:
-    """`/you NAME` — the model plays NAME from now on, and NAME responds to
-    the scene immediately. One body-less turn whose framing is the template;
-    the reply is a normal assistant turn."""
-    if not args:
-        session.screen.invalidate()
-        print("Usage: /you NAME")
-        return
-    raw = " ".join(args)
-    name = _resolve_character(session, store, raw) or raw.strip()
-    had_turn = bool(session.messages)
-    framing = session.prompts.you_framing.replace("{name}", name)
-    session.screen.echo_block(session.raw_line)
-    session.record_turn(store, Message(role="user", body="", kind="ooc", framing=framing))
-    if had_turn:
-        run_inference(session, store)
-
-
-def cmd_ooc(session: Session, store: Store, args: list[str]) -> None:
-    """`/ooc PROMPT` — talk to the model out of character; the reply is out
-    of character too and the story doesn't advance. ONE turn: PROMPT is
-    the body, the template rides its framing; `kind="ooc"` marks both
-    sides."""
-    if not args:
-        session.screen.invalidate()
-        print("Usage: /ooc PROMPT")
-        return
-    question = " ".join(args)
-    session.screen.echo_block(session.raw_line)
-    session.record_turn(
-        store, Message(role="user", body=question, kind="ooc", framing=session.prompts.ooc_framing)
-    )
-    run_inference(session, store, ooc=True)
-
-
 def cmd_undo(session: Session, store: Store, args: list[str]) -> None:
     """Discard the last exchange: the reply plus the prompt that caused it.
     Nothing is deleted — the head moves back and the undone turns stay in
-    the tree as siblings. When the exchange still sits directly above the
+    the tree as siblings. The one exception is a card import's character,
+    dropped with the exchange while unplayed (`card.drop_unplayed_card`).
+    When the exchange still sits directly above the
     prompt, it is erased from the screen as if never played; otherwise the
     new ending is reported. The re-echoed turns below the report are
     turns — the next /undo or /regen works them — and taking them takes
@@ -94,6 +40,7 @@ def cmd_undo(session: Session, store: Store, args: list[str]) -> None:
         session.screen.invalidate()
         print("Nothing to undo.")
         return
+    drop_unplayed_card(session, store, popped)
     refreshing = session.screen.top_is_report()
     if session.screen.erase_exchange():
         if refreshing:
@@ -150,16 +97,23 @@ def cmd_regen(session: Session, store: Store, args: list[str]) -> None:
         print()
         # The typed line stays above the marker — nothing of it to erase.
         session.screen.typed_rows = 0
-        session.screen.echo_block(prompt.body if prompt else "", above=marker)
-    # A regenerated reply follows the one it replaces. A resent prompt has
-    # none to follow, so the row itself decides: an ooc row is a /you
-    # switch when it is body-less — that one wants an in-character answer —
-    # and an /ooc question when it carries the body /ooc always writes.
-    if popped is not None:
-        ooc = popped.kind == "ooc"
+        echo = message(prompt.body, "user") if prompt else ""
+        session.screen.echo_block(echo, above=marker)
+    # The prompt decides what its answer is, exactly as when it first
+    # played — the kind AND the speaker — and it decides even for a
+    # replaced reply, so an edit in the picker is honoured. Only a
+    # promptless reply has nothing to ask, and then the reply it replaces
+    # says what it was — its kind, not its speaker: that was extraction's
+    # read of TEXT this take replaces, and the fresh text earns its own.
+    speaker = None
+    if prompt is not None:
+        frame = framing(prompt.body)
+        kind = frame.reply_kind
+        if frame.speaks == "reply" and session.story_id is not None:
+            speaker = store.characters.find(session.story_id, frame.name)
     else:
-        ooc = prompt is not None and prompt.kind == "ooc" and bool(prompt.body)
-    run_inference(session, store, ooc=ooc)
+        kind = popped.kind if popped is not None else "dialogue"
+    run_inference(session, store, reply_kind=kind, reply_speaker=speaker)
 
 
 def cmd_last(session: Session, store: Store, args: list[str]) -> None:
@@ -192,12 +146,3 @@ def cmd_clear(session: Session, store: Store, args: list[str]) -> None:
     """`/clear` — wipe the screen; the story is untouched and `/last`
     brings the scene back. The next prompt opens at the top."""
     session.screen.clear()
-
-
-def _resolve_character(session: Session, store: Store, raw: str) -> str | None:
-    """Canonical cast-member name for `raw` — the store's one name resolver
-    decides; None when there is no story or no such character."""
-    if session.story_id is None:
-        return None
-    hit = store.characters.find(session.story_id, raw)
-    return hit.name if hit else None

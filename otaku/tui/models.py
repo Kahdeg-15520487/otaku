@@ -78,28 +78,41 @@ from otaku.settings.config import ProviderConfig
 from otaku.settings.files import toml_scalar
 from otaku.terminal import clipboard, latin_key
 from otaku.terminal.spinner import FRAMES as SPINNER_FRAMES
-from otaku.tui.screen import BASE_STYLE, ListScreen, bordered_box, text_line
+from otaku.terminal.theme import theme
+from otaku.tui.screen import ListScreen, base_style, bordered_box, text_line
 
-_STYLE = Style.from_dict(
-    {
-        **BASE_STYLE,
-        "row.loaded": "bold fg:#000000 bg:#ffffff",
-        "row.notloaded": "fg:#767676 bg:#ffffff",
-        "row.plain": "fg:#000000 bg:#ffffff",
-        "row.selected.loaded": "bold fg:#000000 bg:#e4e4e4",
-        "row.selected.notloaded": "bold fg:#767676 bg:#e4e4e4",
-        "row.selected.plain": "fg:#000000 bg:#e4e4e4",
-        "header.detail": "nobold fg:#303030 bg:#ffffff",  # the light parts of the bold header
-        "row.selected": "bold fg:#000000 bg:#e4e4e4",
-        "dialog.error": "bold fg:#c0392b bg:#ffffff",
-        "preview.title": "bold fg:#303030 bg:#ffffff",
-        "preview.body": "fg:#000000 bg:#ffffff",
-        "preview.muted": "fg:#767676 bg:#ffffff",  # the unloaded models' look
-        "field.cursor": "fg:#ffffff bg:#303030",
-        "tick": "fg:#2f9e44 bg:#ffffff",
-        "notice": "fg:#767676 bg:#ffffff",
-    }
-)
+
+def _style() -> Style:
+    """Shared chrome from `base_style` plus the picker's row, preview and
+    panel overrides, in the shades the terminal background asked for."""
+    colors = theme()
+    panel = f"bg:{colors.panel.style}"
+    band = f"bg:{colors.selection.style}"
+    raised = f"bg:{colors.raised.style}"
+    return Style.from_dict(
+        {
+            **base_style(),
+            "row.loaded": f"bold fg:{colors.text.style} {panel}",
+            "row.notloaded": f"dim fg:{colors.muted.style} {panel}",
+            "row.plain": f"fg:{colors.text.style} {panel}",
+            "row.selected.loaded": f"bold fg:{colors.ink.style} {band}",
+            "row.selected.notloaded": f"dim fg:{colors.ink.style} {band}",
+            "row.selected.plain": f"fg:{colors.ink.style} {band}",
+            # the light parts of the bold header
+            "header.detail": f"nobold fg:{colors.title.style} {panel}",
+            "row.selected": f"bold fg:{colors.ink.style} {band}",
+            "dialog.error": f"bold fg:{colors.error.style} {raised}",
+            "preview.title": f"bold fg:{colors.title.style} {panel}",
+            "preview.body": f"fg:{colors.text.style} {panel}",
+            "preview.muted": f"dim fg:{colors.muted.style} {panel}",  # the unloaded models' look
+            # The text cursor, drawn as a block: whatever it sits on,
+            # inverted — the one styling that needs no color at all.
+            "field.cursor": "reverse",
+            "tick": f"fg:{colors.ok.style} {panel}",
+            "notice": f"dim fg:{colors.muted.style} {panel}",
+        }
+    )
+
 
 # A model row's shape: a 4-column prefix ("  > "), the model name, then
 # two right-aligned columns held at a FIXED width — the widest label
@@ -615,7 +628,7 @@ class ModelPicker(ListScreen):
         # The url edits in place; the api key always starts blank — its
         # current value is never displayed, not even to edit.
         prefill = self._provider_config(name).url if attr == "url" else ""
-        self.edit_buffer.document = Document(prefill, len(prefill))
+        self.edit_buffer.document = Document(prefill, 0)
 
     def _finish_field_edit(self, *, save: bool) -> None:
         self.editing = False
@@ -647,12 +660,16 @@ class ModelPicker(ListScreen):
         # A backend not in providers.toml yet gets its section written
         # first — this is how a cloud provider is added deliberately.
         block = f"[{name}]\nurl = {toml_scalar(provider_config.url)}\n" + 'api_key = ""'
-        migrations.update_providers(
+        written = migrations.update_providers(
             self.paths,
             [migrations.ensure_section(name, block), migrations.set_key(name, attr, line)],
         )
         self.providers.update_provider(updated)
         self._refresh_provider(name)
+        if not written:
+            # The registry took the value, the file did not — say so, or
+            # the next launch silently forgets what the panel confirmed.
+            self.notice = "saved for this session only — providers.toml could not be written"
 
     def _set_field(self, text: str) -> None:
         """A paste onto a CLOSED field sets it outright: the field opens,
@@ -679,9 +696,14 @@ class ModelPicker(ListScreen):
         provider_config = self._provider_config(name)
         if not provider_config.api_key:
             return  # nothing to clear — and no hint: the field is visibly bare
-        migrations.update_providers(
+        written = migrations.update_providers(
             self.paths, [migrations.set_key(name, "api_key", 'api_key = ""')]
         )
+        if not written:
+            # Forgetting that does not reach the file is not forgetting:
+            # the key stays — in the session too, so the mark stays honest.
+            self.notice = "not forgotten — providers.toml could not be written"
+            return
         self.providers.update_provider(replace(provider_config, api_key=""))
         self._refresh_provider(name)  # the vanished (set) mark reports it
 
@@ -862,14 +884,15 @@ class ModelPicker(ListScreen):
             wrap_lines=False,
             always_hide_cursor=True,
             # The window spans its whole half, so its style paints every
-            # cell the rows leave bare — a shrunk window would leave the
-            # leftover columns to the terminal's own (maybe dark)
-            # background.
+            # cell the rows leave bare. It must be a class that carries no
+            # ATTRIBUTE: a window's style is what its fragments build on,
+            # and each of them overrides only the colors it names — a `dim`
+            # here would grey out every row and caption in the pane.
             # Two lines of margin above the cursor: exactly the caption
             # and its blank, so a group's header scrolls into view when
             # the cursor stands on the group's first model.
             scroll_offsets=ScrollOffsets(top=2),
-            style="class:row.notloaded",
+            style="class:row.plain",
         )
 
         # Bottom row: the filter input when filtering, otherwise the help
@@ -946,7 +969,7 @@ class ModelPicker(ListScreen):
 
         dialog = HSplit([busy_dialog, confirm_dialog])
         root = VSplit([left_pane, self._preview_gap(), provider_panel])
-        return self._finish_app(root, bindings, _STYLE, floats=[dialog])
+        return self._finish_app(root, bindings, _style(), floats=[dialog])
 
 
 def pick(

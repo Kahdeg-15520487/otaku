@@ -8,7 +8,12 @@ current scene, minus the newest `settle` messages — must hold both
 packed into spans each meeting both minimums. Per span, one completion
 (the `extract_prompt`) closes a scene: a narrative summary, new characters
 joining the cast, one journal row per character present, and speaker
-labels filled onto unattributed in-character rows. The rollups then bring
+labels filled onto unattributed in-character rows. The journal row is a
+CONTRACT, not enrichment: one per character present in the scene, silent
+bystanders included, entries naming arrivals and departures — a journal
+row asserts presence, and a character's perspective on the summarized
+past derives from nothing else (their entry into the unsummarized tail
+is their first attributed row). The rollups then bring
 every history up to date — the story-so-far on the newest scene, each
 active character's history on their newest journal row; a single-source
 rollup is its source verbatim, no model pass. Both self-gate on
@@ -25,11 +30,13 @@ may carry names; `log` (the system log) stays content-free: ids and
 counts, never prose.
 
 Every row of the numbered scene goes to the analysis model with its stored
-framing composed, so `/me`, `/you`, and `/ooc` turns show their
-`((OOC: …))` enclosure as stored. The one row type with nothing stored to
-compose — the assistant's reply to an /ooc, kind `ooc` with no framing —
-gets the enclosure added, because the extract prompt reads "out of
-character" off that marker. Out-of-character rows are mined for decisions
+template composed, so `/me`, `/you`, and `/ooc` turns show their
+`((OOC: …))` enclosure as stored. A REPLY to an /ooc prompt is enclosed
+here instead: it is the one out-of-character row with nothing of its own to
+mark it — the prompt it answers carries the enclosure in its template,
+while a reply has no template at all — and the extract prompt reads "out of
+character" off that shape, so unmarked it would be read as something that
+happened in the scene. Out-of-character rows are mined for decisions
 but never speaker-attributed and never part of the scene's story.
 """
 
@@ -44,7 +51,7 @@ from typing import Self
 
 import httpx
 
-from otaku.formatting import combine_framing
+from otaku.chat.framing import OOC_FRAME, prompt_to_wire
 from otaku.providers.base import OpenAIClient, Stats, Text, WireMessage
 from otaku.settings import prompts as prompts_file
 from otaku.settings.prompts import Prompts
@@ -69,11 +76,6 @@ _BACKOFF_SECONDS = 1.0
 # Null-object cancel: callers pass a real Event or nothing; normalizing to
 # a never-set Event deletes the `is not None` guard at every check site.
 _NEVER_CANCELLED = threading.Event()
-
-# The extraction model must see an out-of-character turn AS out of
-# character; a stored framing already shows the enclosure, a bare ooc row
-# (an /ooc reply) gets it here. Analysis-side only — never on the wire.
-_OOC_MARK = "((OOC: {body}))"
 
 _NOT_A_NAME = frozenset({"null", "none", "narrator", "narration", "user", "assistant"})
 
@@ -202,6 +204,12 @@ class Extractor:
             return PassResult.NO_STORY, report
 
         ids = self._store.stories.get_messages_ids(self._story_id)
+        # Card rows never enter a pass: not the char gate (one import would
+        # clear `min_chars` alone), not the spans, not the numbered chat —
+        # a scene about a character sheet is not a scene. Their retention
+        # is the assembler's business.
+        cards = set(self._store.stories.get_card_message_ids(self._story_id))
+        ids = [i for i in ids if i not in cards]
         ends = self._store.scenes.get_current_ends(self._story_id, ids)
         last_end = max(ends, default=None)
         tail_ids = ids if last_end is None else [i for i in ids if i > last_end]
@@ -272,7 +280,8 @@ class Extractor:
         """Close the tail as one scene — or several, when it has run long.
         Only now is the story decrypted; the spans' journals feed each next
         extraction, so the story stays continuous across them."""
-        by_id = {m.id: m for m in self._store.stories.get_messages(self._story_id)}
+        chain = self._store.stories.get_messages(self._story_id)
+        by_id = {m.id: m for m in chain}
         if any(i not in by_id for i in tail_ids):
             # The story moved between the gate's snapshot and this read (an
             # undo on the REPL thread) — this pass is stale; the next one
@@ -283,9 +292,10 @@ class Extractor:
         sizes = [len(m.body) for m in tail]
         spans = [tail[a:b] for a, b in pack(sizes, min_chars=min_chars, min_messages=min_messages)]
         # Message NUMBER = 1-based position on the chain (what the resume
-        # line counts), so the progress line can name the span's range.
-        ids = self._store.stories.get_messages_ids(self._story_id)
-        number = {mid: i for i, mid in enumerate(ids, 1)}
+        # line counts), so the progress line can name the span's range —
+        # off the SAME read the staleness check guarded: a second read
+        # could see an undo that landed after it.
+        number = {m.id: i for i, m in enumerate(chain, 1)}
         cast = Cast.load(self._store, self._story_id)
         pass_started = time.monotonic()
         self._log(
@@ -645,28 +655,42 @@ def pack(sizes: list[int], *, min_chars: int, min_messages: int) -> list[tuple[i
 
 def numbered_chat(span: Sequence[Message]) -> str:
     """The numbered scene block for `extract_prompt` — the one owner of the
-    `[n] Speaker: …` format. An attributed line carries its speaker; an
-    out-of-character row shows its `((OOC: …))` enclosure (via its stored
-    framing, or `_OOC_MARK` when it has none)."""
+    `[n] Speaker: …` format.
+
+    A row is composed for the wire FIRST and decorated after, with the two
+    things the analysis model needs and the wire must never carry: the
+    speaker on an attributed line, and the `((OOC: …))` enclosure on a reply
+    to an /ooc prompt. The order matters — decorating first would hide the
+    body's own syntax from the composer, which reads it to strip a command
+    and fill its template."""
     lines: list[str] = []
     for n, item in enumerate(span, 1):
-        if item.kind == "ooc" and item.framing is None:
-            body = _OOC_MARK.replace("{body}", item.body)
+        # is_last=False always: a cue steers one reply, it is not something
+        # that happened in the scene.
+        text = prompt_to_wire(item.body, item.template, is_last=False)
+        if item.kind == "ooc" and item.role == "assistant":
+            text = OOC_FRAME.replace("{body}", text)
         elif item.speaker and item.body:
-            body = f"{item.speaker}: {item.body}"
-        else:
-            body = item.body
-        lines.append(f"[{n}] {combine_framing(body, item.framing)}")
+            text = f"{item.speaker}: {text}"
+        lines.append(f"[{n}] {text}")
     return "\n".join(lines)
 
 
 def _parse_json(text: str) -> dict[str, object]:
     """Parse the extraction reply: tolerate code fences and surrounding
-    prose by slicing from the first '{' to the last '}'."""
+    prose by slicing from the first '{' to the last '}' — and JSON whose
+    syntax was typed with typographic double quotes (a small model
+    mirrors the story's own punctuation into `“summary”: “…”`) by
+    retrying with them straightened. Only the retry touches them: a reply
+    that parses keeps every curly quote INSIDE its values verbatim."""
     start, end = text.find("{"), text.rfind("}")
     if start < 0 or end <= start:
         raise ValueError("no JSON object in reply")
-    obj = json.loads(text[start : end + 1])
+    sliced = text[start : end + 1]
+    try:
+        obj = json.loads(sliced)
+    except json.JSONDecodeError:
+        obj = json.loads(sliced.replace("“", '"').replace("”", '"'))
     if not isinstance(obj, dict):
         raise ValueError("extraction reply is not a JSON object")
     return obj

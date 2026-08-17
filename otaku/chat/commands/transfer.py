@@ -15,9 +15,10 @@ from pathlib import Path
 from otaku import __version__
 from otaku.chat.commands import lore
 from otaku.chat.session import RESUME_TURNS, Session
+from otaku.paths import existing_file
 from otaku.store import Store
-from otaku.terminal import YES_ANSWERS, latin_key
-from otaku.transfer import EXPORT_MARKER
+from otaku.terminal import YES_ANSWERS, error_line, latin_key
+from otaku.transfer import EXPORT_FORMAT_VERSION, EXPORT_MARKER
 from otaku.transfer import exports as story_exports
 from otaku.transfer import imports as story_imports
 from otaku.transfer.plaintext import parse_plaintext
@@ -58,7 +59,7 @@ def import_story(session: Session, store: Store, path_text: str) -> bool:
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError as e:
-        print(f"Could not read {path}: {e}")
+        print(error_line(f"Could not read {path}: {e}"))
         return False
 
     # The format is detected — never declared — and the file's NAME and
@@ -67,7 +68,14 @@ def import_story(session: Session, store: Store, path_text: str) -> bool:
     suffix = path.suffix.lower()
     native = False
     if suffix == ".md" and EXPORT_MARKER in text:
-        export = story_imports.parse_story(text)
+        try:
+            export = story_imports.parse_story(text)
+        except story_imports.NewerFormatError as e:
+            print(
+                f"This export was written by a newer otaku (format {e.declared}; this version "
+                f"reads up to {EXPORT_FORMAT_VERSION}) — run 'otaku update' first."
+            )
+            return False
         if export is None:
             print("This looks like an otaku export, but it does not parse.")
             return False
@@ -84,7 +92,7 @@ def import_story(session: Session, store: Store, path_text: str) -> bool:
             print("The file contains no text to import.")
             return False
     else:
-        print("Cannot detect file format.")
+        print(error_line("Cannot detect file format."))
         return False
     if not export.messages:
         print("The file contains no messages to import.")
@@ -108,7 +116,7 @@ def import_story(session: Session, store: Store, path_text: str) -> bool:
 def cmd_export(session: Session, store: Store, args: list[str]) -> None:
     """`/export [FILE]` — the current story as one Markdown document: the
     story-so-far, system, and cast, the scenes with their journals, then
-    every message verbatim (framing included) — importable back with
+    every message verbatim (template included) — importable back with
     `/import`, losslessly. No name writes `<story-title>.md` (or
     story.md) in the current directory; an existing file prompts before
     overwriting (default no). A leading `@` — the path-completion
@@ -125,7 +133,9 @@ def cmd_export(session: Session, store: Store, args: list[str]) -> None:
     )
     name = session.raw_args.strip().removeprefix("@")
     path = Path(name).expanduser() if name else Path(_default_filename(session, store))
-    if path.exists():
+    # A name the filesystem will not even look up (too long, say) is not an
+    # existing file: fall through, and let the write refuse it out loud.
+    if existing_file(str(path)) is not None:
         try:
             answer = latin_key(input(f"{path} already exists — overwrite? [y/N] ").strip())
         except (EOFError, KeyboardInterrupt):
@@ -137,7 +147,7 @@ def cmd_export(session: Session, store: Store, args: list[str]) -> None:
     try:
         path.write_text(doc, encoding="utf-8")
     except OSError as e:
-        print(f"Could not write {path}: {e}")
+        print(error_line(f"Could not write {path}: {e}"))
         return
     print(f"Exported to {path}.")
 

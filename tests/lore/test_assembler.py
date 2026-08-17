@@ -10,7 +10,7 @@ ones), and the recent tail verbatim starting right after the last
 summarized scene.
 """
 
-from otaku.lore.assembler import assemble, render_preview
+from otaku.lore.assembler import assemble
 from otaku.store.schema import Message, Scene
 
 
@@ -104,6 +104,7 @@ class TestShaping:
             tail_messages=10,
         )
         assert prompt.scenes_summarized == 1
+        assert prompt.scenes_rolled_up == 0  # nothing dropped, nothing rolled up
         sent = "\n".join(m.body for m in prompt.messages)
         assert "[So far:]" in sent
         assert "The heist unfolded." in sent
@@ -147,29 +148,111 @@ class TestShaping:
         ]
         prompt = assemble("", turns(40), 8192, scenes=scenes, head_messages=5, tail_messages=10)
         assert prompt.scenes_summarized == 1
+        assert prompt.scenes_rolled_up == 1  # the dropped scene, covered by the rollup
         sent = "\n".join(m.body for m in prompt.messages)
         assert "Newest arc." in sent  # the rollup stands in for dropped summaries
         assert "Recent scene summary." in sent
 
 
-class TestPreview:
-    def test_shows_every_message_that_will_be_sent(self) -> None:
-        preview = render_preview(assemble("Be terse.", [user("Hi."), assistant("Hello.")], 8192))
-        assert "Be terse." in preview
-        assert "Hi." in preview
-        assert "Hello." in preview
+class TestCards:
+    """The card promise: never summarized, never evicted, never composed.
+    A card in the replaced middle rides the recap verbatim in front of its
+    scene's summary; its tokens charge the whole budget, not the recap's
+    fraction; the trim passes over it; and its body is already wire text,
+    so an inliner spelling inside card prose is never read as syntax."""
 
-    def test_marks_each_role(self) -> None:
-        preview = render_preview(assemble("", [user("Hi.")], 8192))
-        assert "[user]" in preview
+    def test_a_card_body_is_never_read_as_syntax(self) -> None:
+        prompt = assemble("", [card(1, "Speech example: hi /cue whisper"), user("I wave.")], 8192)
+        assert prompt.messages[0].body.startswith("Speech example: hi /cue whisper")
 
-    def test_reports_the_window(self) -> None:
-        preview = render_preview(assemble("", [user("Hi.")], 8192))
-        assert "8,192" in preview
+    def test_a_card_in_the_recap_is_never_read_as_syntax(self) -> None:
+        # The recap path too: relocated into the recap, the body must ride
+        # as a row of its own — merged into one turn as a STRING, the old
+        # recap went through `prompt_to_wire`, which ate the "cue".
+        rows = turns(40)
+        rows[9] = card(10, "Example: breathe /cue whisper softly")
+        prompt = assemble(
+            "",
+            rows,
+            8192,
+            scenes=[scene(20, "The heist unfolded.")],
+            head_messages=5,
+            tail_messages=10,
+        )
+        sent = "\n".join(m.body for m in prompt.messages)
+        assert "breathe /cue whisper softly" in sent
+
+    def test_a_card_in_the_middle_survives_before_its_scenes_summary(self) -> None:
+        rows = turns(40)
+        rows[9] = card(10, "((OOC: Elara joins.))")  # inside the covered scene
+        prompt = assemble(
+            "",
+            rows,
+            8192,
+            scenes=[scene(20, "The heist unfolded.")],
+            head_messages=5,
+            tail_messages=10,
+        )
+        sent = "\n".join(m.body for m in prompt.messages)
+        assert "turn 12" not in sent  # its neighbours were summarized away
+        position = sent.index("((OOC: Elara joins.))")
+        assert position < sent.index("The heist unfolded.")
+
+    def test_a_card_lands_in_front_of_the_scene_it_sat_in(self) -> None:
+        rows = turns(60)
+        rows[24] = card(25, "((OOC: Elara joins.))")  # inside the SECOND scene
+        prompt = assemble(
+            "",
+            rows,
+            8192,
+            scenes=[scene(20, "First scene."), scene(40, "Second scene.")],
+            head_messages=5,
+            tail_messages=10,
+        )
+        sent = "\n".join(m.body for m in prompt.messages)
+        assert sent.index("First scene.") < sent.index("((OOC: Elara joins.))")
+        assert sent.index("((OOC: Elara joins.))") < sent.index("Second scene.")
+
+    def test_a_card_of_a_dropped_summary_floats_above_the_rollup(self) -> None:
+        big = "s " * 8000  # pushes the first summary out of the recap's share
+        rows = turns(40)
+        rows[9] = card(10, "((OOC: Elara joins.))")  # inside the DROPPED scene
+        scenes = [scene(15, big, history="Arc so far."), scene(20, "Recent.", history="Newest.")]
+        prompt = assemble("", rows, 8192, scenes=scenes, head_messages=5, tail_messages=10)
+        sent = "\n".join(m.body for m in prompt.messages)
+        assert "((OOC: Elara joins.))" in sent  # never evicted with its summary
+        assert sent.index("((OOC: Elara joins.))") < sent.index("Newest.")
+
+    def test_a_card_never_charges_the_recaps_fraction(self) -> None:
+        # A card bigger than the whole recap share; both summaries must
+        # still fit the cap, because the card is not counted against it.
+        rows = turns(60)
+        rows[24] = card(25, "c " * 8000)
+        prompt = assemble(
+            "",
+            rows,
+            32768,
+            scenes=[scene(20, "First scene."), scene(40, "Second scene.")],
+            head_messages=5,
+            tail_messages=10,
+        )
+        assert prompt.scenes_summarized == 2
+
+    def test_the_trim_passes_over_a_card_in_the_tail(self) -> None:
+        # A window so tight the tail's oldest must go — the card among
+        # them stays, its plain neighbours drop.
+        rows = [card(1, "((OOC: Elara joins.))" + "c " * 200)] + [
+            Message(role="user" if i % 2 else "assistant", body="x " * 300, id=i)
+            for i in range(2, 12)
+        ]
+        prompt = assemble("", rows, 1600, head_messages=0, tail_messages=150)
+        sent = "\n".join(m.body for m in prompt.messages)
+        assert "((OOC: Elara joins.))" in sent
+        assert prompt.transcript_kept < len(rows)
 
 
-def user(body: str, framing: str | None = None) -> Message:
-    return Message(role="user", body=body, framing=framing)
+def user(body: str, template: str | None = None) -> Message:
+    return Message(role="user", body=body, template=template)
 
 
 def assistant(body: str) -> Message:
@@ -183,6 +266,10 @@ def turns(n: int) -> list[Message]:
         role = "user" if i % 2 else "assistant"
         out.append(Message(role=role, body=f"turn {i}", id=i))
     return out
+
+
+def card(mid: int, body: str) -> Message:
+    return Message(role="user", body=body, kind="card", id=mid)
 
 
 def scene(end_id: int, summary: str = "", history: str = "") -> Scene:

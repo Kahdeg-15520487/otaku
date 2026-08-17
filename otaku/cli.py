@@ -39,7 +39,7 @@ def main(ctx: click.Context) -> None:
     try:
         application = app_mod.App()
     except config_mod.ConfigError as e:
-        click.echo(f"config error: {e}", err=True)
+        click.echo(f"Config error: {e}", err=True)
         ctx.exit(2)
     except (crypto.CryptoError, DatabaseError) as e:
         click.echo(str(e), err=True)
@@ -72,9 +72,12 @@ def update() -> None:
         click.echo("  git pull")
         return
     click.echo("Updating via: " + " ".join(command))
-    if updater.run(command) == 0:
+    code = updater.run(command)
+    if code == 0:
+        SystemLog(Paths.resolve()).record(f"app update finished ({' '.join(command)})")
         click.echo("Done — the new version runs at the next otaku.")
         return
+    SystemLog(Paths.resolve()).record(f"app update failed ({' '.join(command)}, exit {code})")
     click.echo("The update did not finish — run the one matching your install:", err=True)
     for manual in updater.MANUAL_COMMANDS:
         click.echo(f"  {manual}", err=True)
@@ -175,7 +178,7 @@ def _unlock(ctx: click.Context, paths: Paths) -> crypto.Cipher:
     try:
         return app_mod.unlock_cipher(app_mod.load_config(paths), paths)
     except config_mod.ConfigError as e:
-        click.echo(f"config error: {e}", err=True)
+        click.echo(f"Config error: {e}", err=True)
         ctx.exit(2)
     except crypto.CryptoError as e:
         click.echo(str(e), err=True)

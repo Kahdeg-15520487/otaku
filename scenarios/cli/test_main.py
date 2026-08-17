@@ -16,7 +16,9 @@ from otaku.terminal import PROMPT_CONTINUATION
 from scenarios.support import server as scripted
 from scenarios.support.harness import SPEC, run_otaku, set_config, set_config_provider
 from scenarios.support.server import ModelServer
-from scenarios.support.terminal import CTRL_R, ENTER, ESC, Terminal
+from scenarios.support.terminal import CTRL_R, ENTER, ESC, TAB, Terminal
+
+pytestmark = pytest.mark.cli
 
 
 class TestFirstRun:
@@ -121,12 +123,44 @@ class TestStreaming:
         terminal.settle()
         assert terminal.quit() == 0
 
-    def test_a_triple_quoted_block_sends_one_message(
+
+class TestErasing:
+    def test_a_typed_regen_erases_from_an_unmoved_cursor(
         self, server: ModelServer, tmp_path: Path
     ) -> None:
-        """The multiline convention: an opening triple quote collects lines
-        until the closing one, and everything between goes as ONE message,
-        newlines preserved, never dispatched as a command."""
+        """Issue #6: the cursor query guarding an erase must not read as
+        command output — the separating blank it once triggered dropped
+        the cursor a row right before the erase measured from it, and
+        every TYPED /undo and /regen came up one row short, the reply's
+        first line surviving (the shortcuts, which erase the typed line
+        first, never arm that blank). The pin is the byte shape: the
+        query runs straight into the three-row erase — typed line, gap,
+        one-row reply — with nothing printed in between."""
+        terminal = launch_remembered(server, tmp_path / "state")
+        play(terminal, "I walk the corridor.", "stirred")
+        server.script = lambda body: "It came up six."
+        terminal.send("/regen")
+        terminal.arm_cpr(20)
+        terminal.send(ENTER, 1.0)
+        terminal.expect("It came up six.")
+        erase = terminal.raw.index(b"\x1b[6n\x1b[3A\r\x1b[J")
+        assert not terminal.raw[:erase].endswith(b"\r\n")
+
+
+class TestBlocks:
+    """The `\"\"\"` convention: a way to press Enter without submitting, and
+    nothing more. What it collects is an ordinary prompt — read for its
+    framing syntax like any typed line and told apart from one by nothing
+    downstream. Only the real REPL assembles it (`App.play` takes a line
+    already assembled), so these are the only tests that reach the state
+    machine at all, and each asserts what came off it on the wire.
+    """
+
+    def test_a_block_sends_one_message(self, server: ModelServer, tmp_path: Path) -> None:
+        """An opening triple quote collects lines until the closing one, and
+        everything between goes as ONE message, newlines preserved. A
+        command written inside is text there: the message has begun, so
+        nothing on a later line can dispatch."""
         terminal = launch_remembered(server, tmp_path / "state")
         terminal.send('"""')
         terminal.send(ENTER, 0.3)
@@ -138,6 +172,53 @@ class TestStreaming:
         terminal.expect("stirred")
         sent = str(server.requests[-1]["messages"][-1]["content"])
         assert "/regen is part of my story\nand so is this line" in sent
+        assert terminal.quit() == 0
+
+    def test_a_block_plays_the_framing_its_first_line_opens(
+        self, server: ModelServer, tmp_path: Path
+    ) -> None:
+        """A command DOES open a block — the first position of the first
+        line is where one lives — so `/me NAME:` frames every line the block
+        collected, not just the one it was typed on."""
+        terminal = launch_remembered(server, tmp_path / "state")
+        terminal.send('"""/me Elara: I step into the hall.')
+        terminal.send(ENTER, 0.3)
+        terminal.expect(PROMPT_CONTINUATION)
+        terminal.send('The torches have burned down."""')
+        terminal.send(ENTER, 1.0)
+        terminal.expect("stirred")
+        sent = str(server.requests[-1]["messages"][-1]["content"])
+        # The name reached the template, and the prefix did not reach the wire.
+        assert "Elara" in sent
+        assert not sent.startswith("/me")
+        assert "I step into the hall.\nThe torches have burned down." in sent
+        assert terminal.quit() == 0
+
+    def test_an_inliner_completes_on_a_continuation_line(
+        self, server: ModelServer, tmp_path: Path
+    ) -> None:
+        """Inside a block the menu offers INLINERS, not commands: the
+        message has already begun, so only something that closes a line can
+        follow. `/c` completes to `/cue` — the command menu would have
+        offered /cast, /clear and /context and completed none of them — and
+        the cue reaches the wire in its enclosure, which is the only proof
+        of which menu was open that is not a matter of appearance."""
+        terminal = launch_remembered(server, tmp_path / "state")
+        terminal.send('"""')
+        terminal.send(ENTER, 0.3)
+        terminal.expect(PROMPT_CONTINUATION)
+        terminal.send("I step into the hall.")
+        terminal.send(ENTER, 0.3)
+        terminal.send("/c", 0.3)
+        # The row itself is the synchronisation point — Tab before the menu
+        # populates would type a literal tab and prove nothing.
+        terminal.expect("/cue")
+        terminal.send(TAB, 0.5)
+        terminal.send('keep it short"""')
+        terminal.send(ENTER, 1.0)
+        terminal.expect("stirred")
+        sent = str(server.requests[-1]["messages"][-1]["content"])
+        assert "I step into the hall. ((OOC: keep it short))" in sent
         assert terminal.quit() == 0
 
 

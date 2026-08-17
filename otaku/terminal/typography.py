@@ -7,8 +7,9 @@ blockquotes, horizontal rules, and fenced code blocks (rendered dim, the
 info string as a language label).
 
 Dialogue is colored, in both conventions writers use. Paired quotes —
-"…", "…", «…», „…" — open and close a spoken span. A line opening with an
-em or en dash is spoken until a dash that FOLLOWS sentence punctuation
+"…", "…", «…», „…" — open and close a spoken span. A line opening with a
+dash — em, en, or the ASCII hyphen typed for one — is spoken until a dash
+that FOLLOWS sentence punctuation
 hands over to the attribution ("— Yes, — he said. — Come in."), which
 hands back on the next such dash. A dash after an ordinary word is a
 parenthetical and changes nothing. Being forward-only, the typesetter must
@@ -23,28 +24,30 @@ the closing fence). State survives chunk boundaries; `flush()` closes any
 open span or unterminated fence so the terminal is never left styled.
 """
 
-import io
 import re
 import shutil
 import sys
 from typing import Any, TextIO
 
 from otaku.formatting import printable
-from otaku.terminal import BOLD, DIM, ITALIC, RESET, color
-from otaku.terminal.query import background_is_dark
+from otaku.terminal import BOLD, DIM, ITALIC, RESET
+from otaku.terminal.theme import theme
 
 _MORE: Any = object()  # verdict: keep buffering, block type not yet known
 
 _RE_HEADER = re.compile(r"^ {0,3}(#{1,6}) ")
-_RE_ULIST = re.compile(r"^(\s*)[-*+] ")
+_RE_ULIST = re.compile(r"^(\s*)[*+] ")
 _RE_OLIST = re.compile(r"^(\s*)(\d{1,9})[.)] ")
 _RE_QUOTE = re.compile(r"^(\s*)>")
 _RE_FENCE = re.compile(r"^\s*(`{3,}|~{3,})(.*)$")
 _RE_HR = re.compile(r"^ {0,3}([-*_])[ \t]*(?:\1[ \t]*){2,}$")
 
-# Dialogue. The ASCII hyphen is deliberately absent: `- ` opens a markdown
-# list, and a list marker must stay a list marker.
-_DASHES = "—–"  # noqa: RUF001 — en dash is deliberate
+# Dialogue. The ASCII hyphen counts as a dash, and so a `- ` line is
+# speech, not a markdown list: models type it for the dash convention
+# constantly, and a bullet would rewrite the spoken line's own mark —
+# the wrong render for a list only restyles, this one rewrote. Lists
+# keep `*` and `+`.
+_DASHES = "—–-"  # noqa: RUF001 — en dash is deliberate
 # Opening quote → the marks that may close it. `“` both opens (English) and
 # closes („…“), resolved by whether a span is already open; the straight
 # quote closes itself, so it toggles. `„` accepts either curly mark, because
@@ -59,29 +62,26 @@ _QUOTE_CLOSERS = {
 # punctuation — anywhere else it is a parenthetical inside the current voice.
 _HANDOVER_AFTER = ",.!?…:;"
 
-# What "auto" — the shipped default — resolves to: blue, the shade
-# picked by the detected background — the theme's dark-blue slot on a
-# light background, its bright-blue slot on a dark one. Both are palette
-# slots the theme itself shades, and an unanswered background reads as
-# light (the shipped look; a pipe has no colors to clash with).
-_AUTO_LIGHT = "blue"  # ANSI 34
-_AUTO_DARK = "bright blue"  # ANSI 94
+_DEFAULT_FG = "\x1b[39m"
+
+# The TOML archive's working parts (`highlight_toml`): a `key =` opening a
+# line, and a `{{macro}}` wherever it stands.
+_TOML_KEY = re.compile(r"^(\s*)([A-Za-z0-9_-]+)(\s*=)")
+_TOML_MACRO = re.compile(r"\{\{[^{}]+\}\}")
 
 
-class Typesetter:
+class Streamer:
     """Block-and-inline markdown state machine. Feed text via `feed()`; call
     `flush()` once the stream ends to close any open span or fence."""
 
-    def __init__(
-        self, out: TextIO | None = None, *, speech_color: str = "auto", speech_bold: bool = False
-    ) -> None:
+    def __init__(self, out: TextIO | None = None) -> None:
         self._out = out if out is not None else sys.stdout
-        # `speech_color` is the SPEC — "auto", a color name, or #rrggbb —
-        # resolved here so every caller can pass the setting through
-        # verbatim. An unreadable spec resolves like "auto" rather than
-        # printing itself at the reader.
-        self._speech_color = _speech_escape(speech_color)
-        self._speech_bold = speech_bold
+        # The dialogue look is the theme's, and the theme is the launch's:
+        # the user's [ui] settings reached it there, so nothing has to be
+        # handed down through every caller to get here.
+        colors = theme()
+        self._speech_color = colors.dialogue.fg
+        self._speech_bold = colors.dialogue_bold
         # inline span state
         self._bold = False
         self._italic = False
@@ -410,24 +410,55 @@ class Typesetter:
         self._pending = ""
 
 
-def typeset(text: str, *, speech_color: str = "auto", speech_bold: bool = False) -> str:
-    """`text` rendered in one pass, returned as a string: exactly what the
-    streamer would have printed — for echoing stored messages the way they
-    looked when they streamed."""
-    out = io.StringIO()
-    streamer = Typesetter(out, speech_color=speech_color, speech_bold=speech_bold)
-    streamer.feed(text)
-    streamer.flush()
-    return out.getvalue()
+def highlight_commands(text: str, commands: tuple[str, ...]) -> str:
+    """`text` with every command in `commands` picked out — what a REQUEST
+    looks like once it is sent, in the grey played block and in the picker.
+
+    The counterpart to the streamer, not a layer on it: a reply is typeset,
+    a request is highlighted, and no row gets both. Only the slash word is
+    coloured, never what follows it, so a name or an argument reads as the
+    prose it is.
+
+    `commands` is the whole vocabulary — the caller passes it, because what
+    counts as a command belongs to the chat layer, not to the terminal.
+    Nothing else lights up: prose keeps its slashes, and a line that only
+    looks like a command reads as the prose it is."""
+    if not commands:
+        return text
+    escape = theme().command.fg
+    # A command opens a line or follows whitespace and does not run on into
+    # a longer word — the same boundaries the parser reads one by, so
+    # `and/or`, `https://x.co` and `/mention` stay prose. Longest first, so
+    # `/me` cannot claim the opening of `/merge`.
+    alternatives = "|".join(
+        re.escape(command) for command in sorted(commands, key=len, reverse=True)
+    )
+    pattern = re.compile(rf"(?m)(?:^|(?<=\s))(?:{alternatives})(?!\w)")
+    # Default FOREGROUND, not a full reset: the grey played block paints a
+    # background band per line, and a reset would knock it out mid-line.
+    return pattern.sub(lambda m: f"{escape}{m.group(0)}{_DEFAULT_FG}", text)
 
 
-def _speech_escape(spec: str) -> str:
-    """The SGR escape for a dialogue-color setting. "auto" — and any spec
-    `color` cannot read — is blue: the dark slot on a light background,
-    the bright slot on a dark one; a color name or #rrggbb passes
-    through as itself."""
-    if spec.strip().lower() != "auto":
-        resolved = color(spec)
-        if resolved:
-            return resolved
-    return color(_AUTO_DARK if background_is_dark() else _AUTO_LIGHT)
+def highlight_toml(text: str) -> str:
+    """A TOML archive with its working parts picked out, key-agnostic:
+    whatever opens a line as `key =` colors as a key, and a `{{macro}}`
+    colors wherever it stands — both in the command color, the shade
+    syntax wears everywhere else. A line inside a `'''` block is value
+    text, so a `key =` shape there stays prose; the block state is read
+    off the lines themselves — exactly right for the archives `card_toml`
+    writes, and close enough for a hand edit."""
+    escape = theme().command.fg
+    out: list[str] = []
+    in_block = False
+    for line in text.split("\n"):
+        styled = line
+        if not in_block:
+            key = _TOML_KEY.match(line)
+            if key:
+                head = f"{key.group(1)}{escape}{key.group(2)}{_DEFAULT_FG}"
+                styled = head + line[key.end(2) :]
+        if line.count("'''") % 2 == 1:
+            in_block = not in_block
+        styled = _TOML_MACRO.sub(lambda hit: f"{escape}{hit.group(0)}{_DEFAULT_FG}", styled)
+        out.append(styled)
+    return "\n".join(out)

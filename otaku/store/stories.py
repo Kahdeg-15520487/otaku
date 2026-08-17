@@ -189,8 +189,8 @@ class StoryOps:
             head = self.get_head(story_id)
             # fmt: off
             cur = conn.execute(
-                "INSERT INTO messages (story_id, parent_id, role, kind, speaker_id, speaker, body, framing, provider, model, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (story_id, head, message.role, message.kind, message.speaker_id, self._db.seal_opt(message.speaker), self._db.seal(message.body), self._db.seal_opt(message.framing), message.provider, message.model, now, now),
+                "INSERT INTO messages (story_id, parent_id, role, kind, speaker_id, speaker, body, template, provider, model, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (story_id, head, message.role, message.kind, message.speaker_id, self._db.seal_opt(message.speaker), self._db.seal(message.body), self._db.seal_opt(message.template), message.provider, message.model, now, now),
             )
             message_id = int(cur.lastrowid or 0)
             conn.execute(
@@ -212,7 +212,7 @@ class StoryOps:
             "    SELECT id, parent_id, 0 FROM messages WHERE id = ?"
             "    UNION ALL"
             "    SELECT m.id, m.parent_id, chain.depth + 1 FROM messages m JOIN chain ON m.id = chain.parent_id) "
-            "SELECT m.id, m.role, m.kind, m.speaker_id, m.speaker, m.body, m.framing, m.provider, m.model "
+            "SELECT m.id, m.role, m.kind, m.speaker_id, m.speaker, m.body, m.template, m.provider, m.model "
             "FROM chain JOIN messages m ON m.id = chain.id ORDER BY chain.depth DESC",
             (head,),
         ).fetchall()
@@ -225,17 +225,28 @@ class StoryOps:
                 speaker_id=speaker_id,
                 speaker=self._db.unseal_opt(speaker),
                 body=self._db.unseal(body),
-                framing=self._db.unseal_opt(framing),
+                template=self._db.unseal_opt(template),
                 provider=provider,
                 model=model,
             )
-            for mid, role, kind, speaker_id, speaker, body, framing, provider, model in rows
+            for mid, role, kind, speaker_id, speaker, body, template, provider, model in rows
         ]
 
     def get_messages_ids(self, story_id: int) -> builtins.list[int]:
         """Ids of the story's messages, root → head. Id-only — nothing is
         decrypted, so callers that need boundaries pay nothing."""
         return self._get_chain_ids(self.get_head(story_id))
+
+    def get_card_message_ids(self, story_id: int) -> builtins.list[int]:
+        """Ids of the story's card rows (any branch; callers intersect with
+        the chain). Id-only — extraction subtracts these without decrypting
+        anything, exactly like the boundary queries above."""
+        # fmt: off
+        rows = self._db.conn.execute(
+            "SELECT id FROM messages WHERE story_id = ? AND kind = 'card' ORDER BY id", (story_id,)
+        ).fetchall()
+        # fmt: on
+        return [int(row[0]) for row in rows]
 
     def get_texts(self) -> dict[int, str]:
         """Each story's full current-chain text, lowercased — the browser's
@@ -294,27 +305,27 @@ class StoryOps:
 
             character_map: dict[int, int] = {}
             rows = conn.execute(
-                "SELECT id, name, aliases, description FROM characters WHERE story_id = ?",
+                "SELECT id, name, aliases, description, card FROM characters WHERE story_id = ?",
                 (story_id,),
             ).fetchall()
-            for cid, name, aliases, description in rows:
+            for cid, name, aliases, description, card in rows:
                 cur = conn.execute(
-                    "INSERT INTO characters (story_id, name, aliases, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                    (new_story, name, aliases, description, now, now),
+                    "INSERT INTO characters (story_id, name, aliases, description, card, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (new_story, name, aliases, description, card, now, now),
                 )
                 character_map[int(cid)] = int(cur.lastrowid or 0)
 
             message_map: dict[int, int] = {}
             for mid in chain:
                 row = conn.execute(
-                    "SELECT parent_id, role, kind, speaker_id, speaker, body, framing, provider, model, created_at FROM messages WHERE id = ?",
+                    "SELECT parent_id, role, kind, speaker_id, speaker, body, template, provider, model, created_at FROM messages WHERE id = ?",
                     (mid,),
                 ).fetchone()
                 parent, role, kind, speaker_id, speaker = row[:5]
-                body, framing, provider, model, created = row[5:]
+                body, template, provider, model, created = row[5:]
                 cur = conn.execute(
-                    "INSERT INTO messages (story_id, parent_id, role, kind, speaker_id, speaker, body, framing, provider, model, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (new_story, message_map.get(parent), role, kind, character_map.get(speaker_id), speaker, body, framing, provider, model, created, now),
+                    "INSERT INTO messages (story_id, parent_id, role, kind, speaker_id, speaker, body, template, provider, model, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (new_story, message_map.get(parent), role, kind, character_map.get(speaker_id), speaker, body, template, provider, model, created, now),
                 )
                 message_map[int(mid)] = int(cur.lastrowid or 0)
 

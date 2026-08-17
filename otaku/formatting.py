@@ -10,23 +10,6 @@ _CONTROL[0x7F] = None
 _CONTROL.update(dict.fromkeys(range(0x80, 0xA0)))
 
 
-def combine_framing(body: str, framing: str | None) -> str:
-    """The composed text of one turn: its body plus the framing a command
-    wrote, stored in separate columns and joined only on demand so the body
-    stays verbatim. No framing → the bare body. A `{body}` placeholder in
-    the framing → the body slotted there (via `str.replace`, never
-    `str.format`, so other braces stay literal). Otherwise framing, a blank
-    line, then the body — or the framing alone when there is no body (a
-    `/you` turn)."""
-    if not framing:
-        return body
-    if "{body}" in framing:
-        return framing.replace("{body}", body)
-    if not body:
-        return framing
-    return f"{framing}\n\n{body}"
-
-
 def pretty_path(path: Path) -> str:
     """A path with the home dir shortened to `~`."""
     try:

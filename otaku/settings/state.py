@@ -2,7 +2,7 @@
 
 The app-owned counterpart of config.toml: config.toml holds what you edit in
 a file, this holds what commands change — the model bare `otaku` resumes, the
-story it reattaches, /set verbose, /set think. Rewritten wholesale on every
+story it reattaches, /set verbose, /set autocorrect, /set think. Rewritten wholesale on every
 change; there are no user edits to preserve.
 """
 
@@ -19,6 +19,7 @@ class AppState:
     model: str = ""  # "provider/model" to resume; "" = open the picker
     story: int = 0  # story id to reattach; 0 = start detached
     verbose: bool = False  # show the stats line after each reply
+    autocorrect: bool = True  # settle a typed character name to the cast's spelling
     think: str = "none"  # thinking effort sent to the model
 
 
@@ -39,6 +40,7 @@ def load(paths: Paths) -> AppState:
         model=str(raw.get("model", "")),
         story=story if isinstance(story, int) and story > 0 else 0,
         verbose=bool(raw.get("verbose", False)),
+        autocorrect=bool(raw.get("autocorrect", True)),
         think=str(raw.get("think", "none")),
     )
 
@@ -50,6 +52,7 @@ def save(paths: Paths, state: AppState) -> None:
             row(f"model = {toml_scalar(state.model)}", "bare `otaku` resumes this model"),
             row(f"story = {state.story}", "and reattaches this story (0 = none)"),
             row(f"verbose = {str(state.verbose).lower()}", "/set verbose"),
+            row(f"autocorrect = {str(state.autocorrect).lower()}", "/set autocorrect"),
             row(f"think = {toml_scalar(state.think)}", "/set think"),
         ]
     )

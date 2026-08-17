@@ -1,6 +1,10 @@
 """`otaku logs`: the day-rotated request and system logs, printed."""
 
+import pytest
+
 from scenarios.support.harness import App, run_otaku
+
+pytestmark = pytest.mark.cli
 
 
 class TestRequests:

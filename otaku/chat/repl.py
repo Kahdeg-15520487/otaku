@@ -21,6 +21,7 @@ from typing import Any, TextIO, cast
 from otaku import __version__
 from otaku.chat.commands import dispatch
 from otaku.chat.commands.lore import build_job
+from otaku.chat.framing import framing
 from otaku.chat.inference import run_inference
 from otaku.chat.prompt import (
     PLACEHOLDER,
@@ -28,7 +29,7 @@ from otaku.chat.prompt import (
     LineAssembler,
     build_prompt,
 )
-from otaku.chat.session import RESUME_TURNS, Session
+from otaku.chat.session import RESUME_TURNS, Session, message
 from otaku.formatting import pretty_path
 from otaku.logs.errors import ErrorLog
 from otaku.store import Store
@@ -41,6 +42,7 @@ from otaku.terminal import (
     PROMPT_PREFIX,
     RESET,
     banner,
+    error_line,
 )
 from otaku.terminal.cursor import measure, terminal_width
 from otaku.terminal.statusline import StatusLine
@@ -95,7 +97,8 @@ def run(session: Session, store: Store) -> None:
         session.screen.invalidate()
 
     carry = Carry()
-    prompt_session = build_prompt(session, store, carry)
+    assembler = LineAssembler()
+    prompt_session = build_prompt(session, store, carry, assembler)
     worker = session.worker
     # One status callback, two surfaces: the prompt's toolbar while the
     # prompt is up, the pinned bottom row while a reply streams. Each is a
@@ -114,8 +117,6 @@ def run(session: Session, store: Store) -> None:
     # full idle window, so it starts on REAL idle, not mid-composition.
     prompt_session.default_buffer.on_text_changed += lambda _buf: worker.touch()
     worker.start()
-
-    assembler = LineAssembler()
 
     # Terminal rows the CURRENT submission's input occupies on screen —
     # accumulated across a """ block's prompts — so a played turn can be
@@ -155,7 +156,7 @@ def run(session: Session, store: Store) -> None:
             # the next prompt), so the submission occupies no screen rows;
             # an open block's collected lines above it are composition the
             # ledger cannot see past.
-            message, is_raw, shown = line, False, False
+            message, shown = line, False
             session.screen.typed_rows = 0
             if assembler.in_block:
                 session.screen.invalidate()
@@ -165,8 +166,7 @@ def run(session: Session, store: Store) -> None:
             result = assembler.feed(line)
             if result is None:
                 continue  # inside an open """ block — keep collecting lines
-            text, is_raw = result
-            message = text if is_raw else text.strip()
+            message = result
             if not message:
                 # A bare Enter leaves its prompt row on screen; its rows
                 # stay in input_rows so the next submission's erase takes
@@ -178,7 +178,7 @@ def run(session: Session, store: Store) -> None:
         tracker = _OutputTracker(sys.stdout)
         sys.stdout = cast(TextIO, tracker)
         try:
-            submit(message, session, store, raw=is_raw)
+            submit(message, session, store)
         except KeyboardInterrupt:
             # ^C during streaming or a picker: return to the prompt
             # cleanly. What it left mid-row is not the ledger's to count.
@@ -195,11 +195,10 @@ def run(session: Session, store: Store) -> None:
 # ---------- session chrome ----------
 
 
-def submit(line: str, session: Session, store: Store, *, raw: bool = False) -> None:
+def submit(line: str, session: Session, store: Store) -> None:
     """One submitted line, whatever surface it came from: the user is
     active again, so queued background work is dropped; a slash command
-    dispatches — never for a `raw` block, which is always a literal
-    prompt — and anything else echoes as the grey played-turn block, is
+    dispatches and anything else echoes as the grey played-turn block, is
     recorded as the user's turn, and the model answers. A new model turn
     arms the idle-debounced lore pass: it fires while the user reads and
     dies the moment they type.
@@ -211,10 +210,52 @@ def submit(line: str, session: Session, store: Store, *, raw: bool = False) -> N
     session.worker.defer()
     last_before = session.messages[-1] if session.messages else None
     try:
-        if raw or not dispatch(line, session, store):
-            session.screen.echo_block(line)
-            session.record_turn(store, Message(role="user", body=line))
-            run_inference(session, store)
+        if not dispatch(line, session, store):
+            # Checked before it plays: invalid syntax leaves the story
+            # untouched rather than half-playing a line nobody can read.
+            frame = framing(line)
+            error = frame.check()
+            if error is not None:
+                session.screen.invalidate()
+                print(error)
+            else:
+                # The named character, resolved once and used three ways:
+                # the autocorrect rewrite, the request's speaker (/me — the
+                # line IS their words), and the reply's (/you — it asks
+                # them to answer). Safe to act on because `characters.find`
+                # matches an exact name or alias only: it can settle a
+                # spelling or attribute a line, never pick someone else.
+                # The name guard is the hot path's: a prose line names
+                # nobody and must not query the cast for it.
+                known = (
+                    store.characters.find(session.story_id, frame.name)
+                    if frame.name and session.story_id is not None
+                    else None
+                )
+                if known is not None and session.autocorrect:
+                    # Settled BEFORE anything sees it, so the echo, the
+                    # store, the picker and the wire all read one text —
+                    # and a played line never moves afterwards.
+                    line = frame.update_name(known.name)
+                request_speaker = known if frame.speaks == "request" else None
+                session.screen.echo_block(message(line, "user"))
+                session.record_turn(
+                    store,
+                    Message(
+                        role="user",
+                        body=line,
+                        kind=frame.request_kind,
+                        template=frame.template(session.prompts),
+                        speaker=request_speaker.name if request_speaker else None,
+                        speaker_id=request_speaker.id if request_speaker else None,
+                    ),
+                )
+                run_inference(
+                    session,
+                    store,
+                    reply_kind=frame.reply_kind,
+                    reply_speaker=known if frame.speaks == "reply" else None,
+                )
         _maybe_schedule(session, last_before)
     except KeyboardInterrupt:
         raise  # ^C is the user speaking, not a crash — the loop handles it
@@ -223,7 +264,7 @@ def submit(line: str, session: Session, store: Store, *, raw: bool = False) -> N
             print()  # the crash report is the command's first output
         session.screen.invalidate()
         path = ErrorLog(session.paths).record(f"command {line.split(' ', 1)[0]!r}", e)
-        print(f"command failed ({type(e).__name__}) — recorded in {pretty_path(path)}")
+        print(error_line(f"Command failed ({type(e).__name__}) — recorded in {pretty_path(path)}"))
 
 
 def _maybe_schedule(session: Session, last_before: Message | None) -> None:

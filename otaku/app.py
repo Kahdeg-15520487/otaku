@@ -16,7 +16,7 @@ from pathlib import Path
 from otaku import crypto
 from otaku.chat import repl
 from otaku.chat.commands.transfer import import_story
-from otaku.chat.session import TUI, Session
+from otaku.chat.session import TUI, Session, message
 from otaku.formatting import pretty_path
 from otaku.logs.errors import ErrorLog
 from otaku.logs.requests import RequestLog
@@ -30,6 +30,7 @@ from otaku.settings import prompts as prompts_file
 from otaku.settings import state as state_mod
 from otaku.settings.files import write_atomic
 from otaku.store import Store, is_encrypted
+from otaku.terminal.theme import use as use_theme
 from otaku.tui import lore as lore_browser
 from otaku.tui import models as model_picker
 from otaku.tui import stories as story_picker
@@ -58,6 +59,10 @@ class App:
         piece refuses."""
         self.paths = Paths.resolve(root)
         cfg = load_config(self.paths)
+        # Every shade the session prints, settled before anything draws —
+        # the terminal's background asked once here, where the ask cannot
+        # land inside a render and eat a keystroke (see terminal.theme).
+        use_theme(cfg)
         prompts_file.write_stub(self.paths)
         cipher = unlock_cipher(cfg, self.paths)
         state = state_mod.load(self.paths)
@@ -105,11 +110,7 @@ class App:
                     registry, initial_spec=current, paths=self.paths
                 ),
                 pick_story=lambda store, rows, current: story_picker.pick(
-                    store,
-                    rows,
-                    current,
-                    dialogue_color=cfg.dialogue_color,
-                    dialogue_bold=cfg.dialogue_bold,
+                    store, rows, current, render=message
                 ),
                 browse_lore=lore_browser.browse,
             )

@@ -7,15 +7,15 @@ the split changes.
 
   View 1 (story list) — list and preview share the width 50/50:
         Stories (N)                    │ ┌────────────────┐
-        <blank>                        │ │  model name    │  bold #303030
-          > 05-02 16:55 · 6 msg · t…   │ │  Sat … · 2h ago│  #767676
+        <blank>                        │ │  model name    │  bold, title
+          > 05-02 16:55 · 6 msg · t…   │ │  Sat … · 2h ago│  muted
           ...                          │ │  arc text…     │
-        <blank>                        │ │  first prompt: │  #767676
+        <blank>                        │ │  first prompt: │  muted
         type to filter · ↑/↓ · …       │ │  prompt text…  │
                                        │ └────────────────┘
 
   View 2 (message list) — list gets 2/3, preview 1/3:
-        Story: The Long Road · 12 messages           bold #303030
+        Story: The Long Road · 12 messages           bold, title
         <blank>
           >  1. [user] I push the d…   │ ┌────────────┐
           ...                          │ │  1. user   │  the selected
@@ -33,6 +33,7 @@ the result for the caller to execute. `e` edits a message in place; Del
 deletes a story after a confirm.
 """
 
+from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
 
@@ -41,7 +42,7 @@ from prompt_toolkit.application.current import get_app
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.document import Document
 from prompt_toolkit.filters import Condition
-from prompt_toolkit.formatted_text import ANSI, StyleAndTextTuples, to_formatted_text
+from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import (
     ConditionalKeyBindings,
     KeyBindings,
@@ -53,27 +54,39 @@ from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.dimension import D
 from prompt_toolkit.styles import Style
 
-from otaku.formatting import combine_framing, flatten, human_age, truncate
+from otaku.formatting import flatten, human_age, truncate
 from otaku.store import Store
 from otaku.store.schema import Message
 from otaku.store.stories import StoryListing
 from otaku.terminal import latin_key
-from otaku.terminal.typography import typeset
-from otaku.tui.screen import BASE_STYLE, ListScreen, bordered_box, wrap_text
-
-# Light palette — shared chrome from BASE_STYLE plus the row + preview
-# overrides this browser needs.
-_STYLE = Style.from_dict(
-    {
-        **BASE_STYLE,
-        "row": "fg:#000000 bg:#ffffff",
-        "row.selected": "bold fg:#000000 bg:#e4e4e4",
-        "preview.title": "bold fg:#303030 bg:#ffffff",
-        "preview.muted": "fg:#767676 bg:#ffffff",
-        "preview.body": "fg:#000000 bg:#ffffff",
-        "notice": "fg:#767676 bg:#ffffff",
-    }
+from otaku.terminal.theme import theme
+from otaku.tui.screen import (
+    ListScreen,
+    ansi_fragments,
+    base_style,
+    bordered_box,
+    page_step,
+    wrap_text,
 )
+
+
+def _style() -> Style:
+    """Shared chrome from `base_style` plus the row and preview overrides
+    this browser needs, in the shades the terminal background asked for."""
+    colors = theme()
+    panel = f"bg:{colors.panel.style}"
+    return Style.from_dict(
+        {
+            **base_style(),
+            "row": f"fg:{colors.text.style} {panel}",
+            "row.selected": f"bold fg:{colors.ink.style} bg:{colors.selection.style}",
+            "preview.title": f"bold fg:{colors.title.style} {panel}",
+            "preview.muted": f"dim fg:{colors.muted.style} {panel}",
+            "preview.body": f"fg:{colors.text.style} {panel}",
+            "notice": f"dim fg:{colors.muted.style} {panel}",
+        }
+    )
+
 
 # List-to-preview split, list:preview. The story list gets an even split so
 # the preview has room for the arc; the message view gives the list twice the
@@ -96,6 +109,11 @@ def _label(row: StoryListing) -> str:
     return row.title or row.story_so_far or row.first_user
 
 
+def _unstyled(text: str, role: str) -> str:
+    """The fallback `render`: a body shown as it is stored."""
+    return text
+
+
 class StoryPicker(ListScreen):
     def __init__(
         self,
@@ -103,15 +121,16 @@ class StoryPicker(ListScreen):
         rows: list[StoryListing],
         initial_story: int | None = None,
         *,
-        dialogue_color: str = "",
-        dialogue_bold: bool = False,
+        render: Callable[[str, str], str] = _unstyled,
     ) -> None:
         super().__init__()
         self.store = store
-        # The configured dialogue look for the message preview — the raw
-        # specs; the typesetter resolves them.
-        self._dialogue_color = dialogue_color
-        self._dialogue_bold = dialogue_bold
+        # (body, role) -> the body styled for display. Passed in because
+        # the policy is chat's — a reply typeset the way it streamed, a
+        # request with its commands picked out — and this package may not
+        # read chat. The browser only knows a message can look like
+        # something.
+        self._render = render
         self.all: list[StoryListing] = list(rows)
         self.filtered: list[StoryListing] = list(rows)
         # Full message text per story, built lazily on the first search
@@ -206,12 +225,15 @@ class StoryPicker(ListScreen):
             avail = max(10, self._max_row_content_width() - fixed)
             for row_i, orig in enumerate(self.turn_filtered):
                 m = self.loaded_msgs[orig]
-                # The list shows the COMPOSED line — framing joined to body by
-                # combine_framing, the turn as the model sees it. Bound the
-                # body slice first: this renders per keystroke, and avail
-                # chars never need more than a slice of a huge message.
-                composed = combine_framing(m.body[: 4 * avail], m.framing)
-                head = truncate(flatten(composed), avail) or "(empty)"
+                # The list shows the line AS TYPED — the body is exactly
+                # that, syntax included, so nothing is composed here. Slice
+                # first: this renders per keystroke, and avail chars never
+                # need more than a slice of a huge message.
+                head = truncate(flatten(m.body[: 4 * avail]), avail) or "(empty)"
+                # Styled AFTER the cut, so no escape can be sliced in half —
+                # and on every row, selected or not: what a line says it is
+                # does not depend on where the cursor happens to be.
+                head = self._render(head, m.role)
                 # The original message number, so a filtered row still reads
                 # as its true position in the story.
                 row = f"{orig + 1:>4} · {m.role:<{role_w}} · {head}"
@@ -251,24 +273,22 @@ class StoryPicker(ListScreen):
             m = self.loaded_msgs[orig]
             out: StyleAndTextTuples = []
             if m.body:
-                # The body typeset the way it streamed — dialogue color,
-                # emphasis, blocks — parsed into fragments so the window's
-                # own wrapping carries styles across wrapped rows. Editing
-                # swaps this window out, so the buffer stays raw text.
-                body = typeset(
-                    m.body, speech_color=self._dialogue_color, speech_bold=self._dialogue_bold
-                )
+                # Whatever `render` makes of it, parsed into fragments so
+                # the window's own wrapping carries styles across wrapped
+                # rows. Editing swaps this window out, so the buffer stays
+                # raw text.
+                body = self._render(m.body, m.role)
                 if not body.endswith("\n"):
                     body += "\n"
-                out.extend(to_formatted_text(ANSI(body), style="class:preview.body"))
-            # The framing (a /me or /you direction, the /ooc note) shown DIM
-            # after a blank line — the raw template layer (its `{body}`
-            # placeholder and all) that combine_framing joins to the body to
-            # make the composed line on the left / the wire.
-            if m.framing:
+                out.extend(ansi_fragments(body, "class:preview.body"))
+            # The template snapshot shown DIM after a blank line — the
+            # template layer (its `{body}` placeholder and all) that the turn
+            # was played with, which the body alone does not show. It is not
+            # what the model reads; `/context` shows that.
+            if m.template:
                 if m.body:
                     out.append(("class:preview.body", "\n"))
-                for line in wrap_text(m.framing, width):
+                for line in wrap_text(m.template, width):
                     out.append(("class:preview.muted", line + "\n"))
             # The model that generated THIS turn, dimmed and right-aligned —
             # user turns have none (messages.model is NULL there) and show
@@ -481,7 +501,9 @@ class StoryPicker(ListScreen):
         text = self.loaded_msgs[orig].body
         self.notice = ""
         self.editing = True
-        self.edit_buffer.document = Document(text, len(text))
+        # Cursor at the START: an edit begins by reading, and a long text
+        # opened at its end shows only its tail.
+        self.edit_buffer.document = Document(text, 0)
         self.app.layout.focus(self._edit_control)
 
     def _finish_edit(self, *, save: bool) -> None:
@@ -547,10 +569,18 @@ class StoryPicker(ListScreen):
         def _resume_enter(event: Any) -> None:
             self._do_resume()
 
-        self._standard_keys(kb, when=~confirming & ~resuming)
+        idle = ~confirming & ~resuming
+        self._standard_keys(kb, when=idle)
 
         @kb.add("delete")
         def _delete_key(event: Any) -> None:
+            self._request_delete()
+
+        # The key macOS captions "delete" arrives as backspace. Honor the
+        # caption wherever no filter is open for backspace to edit — added
+        # after the standard keys, so it outranks their no-op exactly there.
+        @kb.add("backspace", filter=idle & Condition(lambda: not self.in_filter))
+        def _delete_backspace(event: Any) -> None:
             self._request_delete()
 
         # While the buffer owns the panel, every binding above is suspended —
@@ -565,6 +595,15 @@ class StoryPicker(ListScreen):
         @edit_kb.add("escape", filter=editing, eager=True)
         def _cancel(event: Any) -> None:
             self._finish_edit(save=False)
+
+        # The buffer's own bindings know arrows, not pages.
+        @edit_kb.add("pageup", filter=editing)
+        def _edit_pgup(event: Any) -> None:
+            self.edit_buffer.cursor_up(page_step())
+
+        @edit_kb.add("pagedown", filter=editing)
+        def _edit_pgdn(event: Any) -> None:
+            self.edit_buffer.cursor_down(page_step())
 
         always_kb = KeyBindings()
 
@@ -619,7 +658,7 @@ class StoryPicker(ListScreen):
         )
 
         root = VSplit([left_pane, self._preview_gap(), preview_pane])
-        return self._finish_app(root, bindings, _STYLE, floats=[confirm_dialog, resume_dialog])
+        return self._finish_app(root, bindings, _style(), floats=[confirm_dialog, resume_dialog])
 
 
 def pick(
@@ -627,19 +666,13 @@ def pick(
     rows: list[StoryListing],
     initial_story: int | None = None,
     *,
-    dialogue_color: str = "",
-    dialogue_bold: bool = False,
+    render: Callable[[str, str], str] = _unstyled,
 ) -> tuple[int, list[Message], str] | None:
     """Show the story browser over `rows`. `initial_story` pre-selects the
-    matching row when set (the story already loaded in the REPL); the
-    dialogue knobs style the message preview the way the chat streams it.
+    matching row when set (the story already loaded in the REPL), and
+    `render` styles a message body for display — (body, role) -> the text
+    to show, in the rows and the preview alike.
     Returns (story_id, its messages up to the picked turn, the settled
     action — "resume", "fork", or "truncate") on a confirmed selection, or
     None when the user cancels (Esc/Ctrl+C)."""
-    return StoryPicker(
-        store,
-        rows,
-        initial_story=initial_story,
-        dialogue_color=dialogue_color,
-        dialogue_bold=dialogue_bold,
-    ).run()
+    return StoryPicker(store, rows, initial_story=initial_story, render=render).run()

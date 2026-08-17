@@ -12,6 +12,7 @@ import re
 from otaku.store import Store
 from otaku.store.schema import Message
 from otaku.transfer import (
+    EXPORT_FORMAT_VERSION,
     EXPORT_MARKER,
     ExportedCharacter,
     ExportedJournal,
@@ -20,10 +21,10 @@ from otaku.transfer import (
     StoryExport,
 )
 
-# A message header: `### 3 · user (ooc) · Speaker · "framing"` — the
-# speaker and the JSON-quoted framing optional, in that order.
+# A message header: `### 3 · user (ooc) · Speaker · "template"` — the
+# speaker and the JSON-quoted template optional, in that order.
 _MSG_HEADER = re.compile(
-    r"^(\d+)\s*·\s*(user|assistant)(?:\s*\((ooc|narration)\))?(?:\s*·\s*(.+))?$"
+    r"^(\d+)\s*·\s*(user|assistant)(?:\s*\((ooc|narration|card)\))?(?:\s*·\s*(.+))?$"
 )
 # `### 2 · The Crossing` / `### 2` — a scene header in `## Scenes`.
 _SCENE_HEADER = re.compile(r"^(\d+)(?:\s*·\s*(.+))?$")
@@ -34,14 +35,34 @@ _FIELD = re.compile(r"^\*\*([A-Za-z ]+):\*\*\s?(.*)$")  # **State:** / **History
 # any level the format uses, or an already-escaped such line. The
 # renderer's `_escape` adds one backslash; `_unescape` strips one back.
 STRUCTURE_LINE = re.compile(r"^(\\*)(#{1,4} )")
+# `format-version: N` inside the metadata block — the one line the
+# reader dispatches on (see `NewerFormatError`).
+_FORMAT_VERSION = re.compile(r"^format-version:\s*(\d+)$")
+
+
+class NewerFormatError(Exception):
+    """The document declares a format version above this reader's — a
+    newer otaku wrote it. Refused the way a newer database is: parsed by
+    guesswork, unknown structure imports silently wrong (a message kind
+    the reader does not know reads as body text)."""
+
+    def __init__(self, declared: int) -> None:
+        super().__init__(f"format {declared}, reads up to {EXPORT_FORMAT_VERSION}")
+        self.declared = declared
 
 
 def parse_story(text: str) -> StoryExport | None:
     """The document back into its parts, or None when `text` isn't one
-    (no export marker)."""
+    (no export marker). Any older format parses — the current parser
+    reads every version ever written — and a newer declared format
+    raises `NewerFormatError` instead of guessing; a block carrying no
+    version line (a hand-built file) is read best-effort."""
     if EXPORT_MARKER not in text:
         return None
     lines = text.splitlines()
+    declared = _declared_format(lines)
+    if declared is not None and declared > EXPORT_FORMAT_VERSION:
+        raise NewerFormatError(declared)
     preamble, top = _split_by_header(lines, "## ")
     blocks = dict(top)
 
@@ -61,11 +82,19 @@ def parse_story(text: str) -> StoryExport | None:
         elif header == "System":
             system = _unescape(_strip_edges(body))
         elif header == "Cast":
-            for line in body:
+            # The roster's bullets, then one `#### Name` archive block per
+            # imported card — split first, so an archive's own bullet- or
+            # heading-shaped lines can never read as roster rows.
+            roster, card_secs = _split_by_header(body, "#### ")
+            cards = {name.strip(): _unescape(_strip_edges(cbody)) for name, cbody in card_secs}
+            for line in roster:
                 if (m := _CAST_BULLET.match(line.strip())) is not None:
                     aliases = tuple(a.strip() for a in (m.group(2) or "").split(",") if a.strip())
+                    name = m.group(1).strip()
                     cast.append(
-                        ExportedCharacter(m.group(1).strip(), aliases, (m.group(3) or "").strip())
+                        ExportedCharacter(
+                            name, aliases, (m.group(3) or "").strip(), cards.get(name, "")
+                        )
                     )
 
     scenes: list[ExportedScene] = []
@@ -101,14 +130,14 @@ def parse_story(text: str) -> StoryExport | None:
         m = _MSG_HEADER.match(header)
         if m is None:
             continue
-        speaker, framing = _speaker_and_framing(m.group(4) or "")
+        speaker, template = _speaker_and_template(m.group(4) or "")
         messages.append(
             ExportedMessage(
                 role=m.group(2),
                 body=_unescape(_strip_edges(mbody)),
                 kind=m.group(3) or "dialogue",
                 speaker=speaker,
-                framing=framing,
+                template=template,
             )
         )
 
@@ -133,15 +162,24 @@ def write_story(store: Store, export: StoryExport) -> int:
     if export.system:
         store.stories.set_system(story_id, export.system)
 
-    def character(name: str, aliases: tuple[str, ...] = (), description: str | None = None) -> int:
+    def character(
+        name: str,
+        aliases: tuple[str, ...] = (),
+        description: str | None = None,
+        card: str | None = None,
+    ) -> int:
         # Resolve-or-create by name; an existing row is enriched, never
         # overwritten (the store's own additive rule).
         found = store.characters.find(story_id, name)
         if found is not None:
-            if aliases or description:
-                store.characters.update(found.id, aliases=aliases, description=description)
+            if aliases or description or card:
+                store.characters.update(
+                    found.id, aliases=aliases, description=description, card=card
+                )
             return found.id
-        return store.characters.add(story_id, name, aliases=aliases, description=description)
+        return store.characters.add(
+            story_id, name, aliases=aliases, description=description, card=card
+        )
 
     ids: list[int] = []
     for message in export.messages:
@@ -151,7 +189,7 @@ def write_story(store: Store, export: StoryExport) -> int:
                 role=message.role,
                 body=message.body,
                 kind=message.kind,
-                framing=message.framing,
+                template=message.template,
             ),
         )
         if message.speaker:
@@ -159,7 +197,12 @@ def write_story(store: Store, export: StoryExport) -> int:
         ids.append(message_id)
 
     for member in export.cast:
-        character(member.name, aliases=member.aliases, description=member.description or None)
+        character(
+            member.name,
+            aliases=member.aliases,
+            description=member.description or None,
+            card=member.card or None,
+        )
 
     newest_with_history = len(export.scenes) - 1 if export.story_so_far else None
     for i, scene in enumerate(export.scenes):
@@ -190,6 +233,21 @@ def write_story(store: Store, export: StoryExport) -> int:
 # ---------- format internals ----------
 
 
+def _declared_format(lines: list[str]) -> int | None:
+    """The format-version the metadata block declares, read between the
+    marker and its closing `-->` — None when it carries none."""
+    inside = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped == EXPORT_MARKER:
+            inside = True
+        elif inside and stripped == "-->":
+            return None
+        elif inside and (m := _FORMAT_VERSION.match(stripped)) is not None:
+            return int(m.group(1))
+    return None
+
+
 def _split_by_header(
     lines: list[str], marker: str
 ) -> tuple[list[str], list[tuple[str, list[str]]]]:
@@ -214,9 +272,9 @@ def _split_by_header(
     return preamble, sections
 
 
-def _speaker_and_framing(extra: str) -> tuple[str | None, str | None]:
+def _speaker_and_template(extra: str) -> tuple[str | None, str | None]:
     """The header's trailing fields: an optional bare speaker, then an
-    optional JSON-quoted framing — the quote is what tells them apart. (A
+    optional JSON-quoted template — the quote is what tells them apart. (A
     speaker name containing ` · ` is the one thing this cannot carry.)"""
     extra = extra.strip()
     if not extra:

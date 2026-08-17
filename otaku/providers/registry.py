@@ -11,7 +11,8 @@ and all.
 The `Registry` is session-owned: the configured providers, the request
 log, the smoothing flag, and the per-provider client cache — constructed
 once by the CLI and passed explicitly. Nothing here ever blocks or exits
-the app: an unreachable provider is skipped in fan-outs, and
+the app: an unreachable provider is skipped in fan-outs, and a dead one
+costs its own timeout — overlapped with the others, never the launch.
 """
 
 import builtins

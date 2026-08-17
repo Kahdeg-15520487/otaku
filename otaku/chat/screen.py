@@ -72,8 +72,9 @@ _ERASE_UP = "\x1b[{}A\r\x1b[J"
 class ScreenLedger:
     """Built once per session; the run loop, `submit`, and the playing
     commands talk to it. Everything inline happens on the REPL thread —
-    the spinner and the pinned status row write straight to stdout and are
-    cursor-neutral, so they stay outside the count by construction."""
+    the spinner and the pinned status row write straight to the terminal
+    (past any sys.stdout wrapper) and are cursor-neutral, so they stay
+    outside the count by construction."""
 
     def __init__(self) -> None:
         # Rows the current submission's typed input still occupies on
@@ -93,7 +94,11 @@ class ScreenLedger:
     def echo_block(self, text: str, above: str = "") -> None:
         """Show `text` as the played-turn block: erase the typed input
         (`typed_rows`), print the block and the blank line under it, and
-        open a new exchange. Until a reply writes, that blank doubles as
+        open a new exchange. `text` arrives rendered, the way
+        `restore_exchange` takes its strings — how a message looks is the
+        caller's to decide, and rows and erasure are all this owns.
+
+        Until a reply writes, that blank doubles as
         the pre-prompt gap — a /you that answers nothing suppresses the
         loop's own. `above` is a marker line just printed (with its blank)
         over this echo — a fallback /regen's — riding the exchange the way

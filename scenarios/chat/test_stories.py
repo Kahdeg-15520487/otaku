@@ -14,7 +14,7 @@ from otaku.store.stories import StoryListing
 from otaku.tui import stories
 from scenarios.support import server as scripted
 from scenarios.support.harness import App, launch
-from scenarios.support.screens import CTRL_S, DELETE, ENTER, ESC, run_screen
+from scenarios.support.screens import BACKSPACE, CTRL_S, DELETE, ENTER, ESC, run_screen
 
 Picker = Callable[[Store, list[StoryListing], int | None], PickedStory | None]
 
@@ -97,13 +97,27 @@ class TestStoryBrowser:
         _first, second = two_stories(app)
         assert self.pick(app, ENTER + "e" + "!" + CTRL_S + ESC + ESC) is None
         chain = app.store.stories.get_messages(second)
-        assert chain[-1].body == scripted.CHAT_REPLY + "!"
+        assert chain[-1].body == "!" + scripted.CHAT_REPLY
 
     def test_delete_removes_a_story_after_a_confirm(self, app: App) -> None:
         first, _second = two_stories(app)
         assert self.pick(app, DELETE + "y" + ESC) is None
         remaining = [row.id for row in app.store.stories.list()]
         assert remaining == [first]  # the newest row was deleted
+
+    def test_the_mac_delete_key_deletes_too(self, app: App) -> None:
+        # macOS captions its backspace key "delete" — with no filter open
+        # it must mean what it says.
+        first, _second = two_stories(app)
+        assert self.pick(app, BACKSPACE + "y" + ESC) is None
+        assert [row.id for row in app.store.stories.list()] == [first]
+
+    def test_backspace_inside_the_filter_never_deletes(self, app: App) -> None:
+        # While a filter is open backspace edits it, so the `y` lands in
+        # the query — no confirm ever came up, and no story goes anywhere.
+        first, second = two_stories(app)
+        assert self.pick(app, "/x" + BACKSPACE + "y" + ESC + ESC) is None
+        assert [row.id for row in app.store.stories.list()] == [second, first]
 
 
 class TestFork:
@@ -180,6 +194,25 @@ class TestSystem:
         app.play("/system Answer briefly.")
         assert "System prompt set (15 chars)." in capsys.readouterr().out
         assert app.store.stories.get_system(app.session.story_id) == "Answer briefly."
+
+    def test_a_long_premise_is_text_not_a_filename(self, app: App, capsys) -> None:
+        # An argument is TEXT until proven a path, and the proof is a
+        # question the filesystem can refuse: over 255 bytes in one
+        # component it raises ENAMETOOLONG rather than answering, which
+        # used to crash the command on any premise worth writing.
+        premise = "You are the narrator of a careful story. " * 12  # ~480 chars, no slashes
+        app.play(f"/system {premise}")
+        app.play("I enter the hall.")
+        assert app.store.stories.get_system(app.session.story_id) == premise.strip()
+        assert "Traceback" not in capsys.readouterr().out
+
+    def test_a_multiline_premise_survives_whole(self, app: App) -> None:
+        # What a `/system """…"""` block collects: newlines and all, and
+        # no stray delimiters in the stored text.
+        premise = "## Premise\n\nA quiet story.\n- one rule\n- another"
+        app.play(f"/system {premise}")
+        app.play("I enter the hall.")
+        assert app.store.stories.get_system(app.session.story_id) == premise
 
     def test_a_file_argument_supplies_the_prompt(self, app: App, tmp_path) -> None:
         premise = tmp_path / "premise.md"

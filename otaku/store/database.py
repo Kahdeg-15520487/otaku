@@ -23,6 +23,7 @@ from typing import Self
 from cryptography.exceptions import InvalidTag
 
 from otaku.crypto import Cipher, PlainCipher
+from otaku.logs.system import SystemLog
 from otaku.paths import Paths
 from otaku.store.schema import SCHEMA_DDL, SCHEMA_VERSION
 
@@ -87,6 +88,31 @@ class Database:
             # fmt: on
             conn.commit()
         else:
+            # Late import: the ladder raises this module's DatabaseError.
+            from otaku.store import migrations
+
+            # Schema surgery runs unenforced — a rebuild step's DROP must
+            # not fire cascades into the tables that reference it (SQLite's
+            # own rebuild procedure opens the same way); the steps check
+            # their own consistency, and enforcement returns with the
+            # reopen below, or explicitly on the no-op path.
+            conn.execute("PRAGMA foreign_keys = OFF")
+            migrated = migrations.migrate(conn, paths)
+            if migrated is not None:
+                # The stored DDL changed under `writable_schema`: a fresh
+                # connection reloads the schema before anything prepares a
+                # statement against the old text.
+                conn.close()
+                conn = cls.connect(path)
+                if conn.execute("PRAGMA quick_check").fetchone()[0] != "ok":
+                    conn.close()
+                    raise DatabaseError(
+                        f"{path} failed its integrity check after migrating; restore the "
+                        f"pre-migration backup from {paths.backups_dir}"
+                    )
+                print(migrated)
+            else:
+                conn.execute("PRAGMA foreign_keys = ON")
             cls._guard(conn, path, cipher)
         if backups > 0:
             cls._daily_backup(conn, paths, keep=backups)
@@ -192,8 +218,11 @@ class Database:
             conn.execute("VACUUM INTO ?", (str(dest),))
             pattern = re.compile(rf"^{re.escape(stem)}-\d{{8}}{re.escape(suffix)}$")
             dated = sorted(p for p in paths.backups_dir.iterdir() if pattern.match(p.name))
-            for old in dated[:-keep]:
+            pruned = dated[:-keep]
+            for old in pruned:
                 old.unlink()
+            extra = f", {len(pruned)} old pruned" if pruned else ""
+            SystemLog(paths).record(f"daily database backup written at {dest.name}{extra}")
         except (sqlite3.Error, OSError) as e:
             print(f"otaku: daily backup failed: {e}", file=sys.stderr)
 

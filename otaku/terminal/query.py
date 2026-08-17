@@ -10,9 +10,10 @@ preserving it would cost a screen model.
 
 `cursor_row` (DSR 6 → CPR) is the ground truth the screen-erasing paths
 need: how many rows sit above the cursor, with scroll regions and menu
-scrolling already accounted for. `background_is_dark` (COLORFGBG, then
-OSC 11) is what adaptive colors need — asked once and cached, because a
-background does not change mid-session.
+scrolling already accounted for. `background_is_dark` (OSC 11, then
+COLORFGBG for a terminal that will not answer) is what adaptive colors
+need — asked once and cached, because a background does not change
+mid-session.
 """
 
 import contextlib
@@ -58,14 +59,18 @@ def background_is_dark() -> bool | None:
 
 
 def _probe_background() -> bool | None:
-    dark = _dark_from_colorfgbg(os.environ.get("COLORFGBG", ""))
-    if dark is not None:
-        return dark
+    """The terminal is ASKED first and believed. `COLORFGBG` is only the
+    fallback for one that will not answer: it is a static environment
+    variable, so it goes stale when a profile changes, survives ssh and
+    tmux into terminals it was never about, and some emulators export the
+    default profile's rather than the live one's — iTerm2 reports `0;15`,
+    a white background, from a dark window. OSC 11 cannot be stale; it is
+    the terminal saying what it is painting right now."""
     match = _ask("\x1b]11;?\x07", _OSC11)
-    if match is None:
-        return None
-    r, g, b = (_channel(part) for part in match.groups())
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.5
+    if match is not None:
+        r, g, b = (_channel(part) for part in match.groups())
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.5
+    return _dark_from_colorfgbg(os.environ.get("COLORFGBG", ""))
 
 
 def _dark_from_colorfgbg(value: str) -> bool | None:
@@ -98,8 +103,11 @@ def _ask(query: str, response: re.Pattern[bytes]) -> re.Match[bytes] | None:
     except termios.error:
         return None
     try:
-        sys.stdout.write(query)
-        sys.stdout.flush()
+        # Straight to the fd, past every sys.stdout wrapper: a query is
+        # terminal I/O, not output — decorated (a dispatch window's lead
+        # blank) or counted (an output tracker), it would move the very
+        # cursor the caller is about to measure from.
+        os.write(sys.stdout.fileno(), query.encode())
         return _read(fd, response)
     except OSError:
         return None

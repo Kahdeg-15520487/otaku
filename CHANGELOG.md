@@ -5,6 +5,98 @@ All notable changes to otaku are documented in this file. The format is based on
 [Semantic Versioning](https://semver.org/) — while pre-1.0, minor releases may include breaking
 changes.
 
+## [0.3.0] - 2026-08-17
+
+**TL;DR**
+
+- New feature: character card import with the `/card` command.
+- Commands `/me` and `/you` suggest and autocorrect cast names.
+- New commands available mid-prompt only: `/ooc` and `/cue`, both hinting the LLM — `/ooc`
+  introduces a standing note, `/cue` a one-time steer that the LLM won't see later.
+- The browsers (`/stories`, `/lore`, `/model`) follow the terminal theme.
+- Commands get highlighted.
+
+**Full version:**
+
+### Added
+- `/card FILE [NAME]` — import a character card (SillyTavern formats, PNG or JSON) into the
+  current story. The card becomes a prompt: its fields compose through the `card_framing`
+  template into one out-of-character block that rides every request verbatim — never summarized,
+  never evicted — and the character speaks the card's own greeting. The cast row archives the
+  card's fields as TOML, editable in `/lore`, and the wire follows the archive: the block
+  composes from it at request time, so a correction reaches every later request. The archive
+  rides `/export` too, so a re-imported story keeps the living card. `{{char}}` and
+  `{{user}}` are recorded at import (the import asks who you play, and the story remembers the
+  answer) and bind at wire time; a card's lorebook is not supported and is dropped with a note.
+- The database migrates itself between schema versions: a backup is taken first, each step is
+  transactional (a failure leaves the database unharmed at its version, the backup untouched),
+  and a database written by a newer otaku is refused with directions instead of being guessed at.
+- `/set autocorrect on|off` — whether a typed character name in `/me` and `/you` commands is
+  settled to the cast's spelling.
+- Two inline commands, typed inside a line rather than opening one: `/ooc` for an aside out of
+  character, and `/cue` to steer just the next reply — a cue goes out with the turn it rode in on
+  and is not kept in context afterwards.
+- `/you NAME: HINT` — an optional hint after the name, a standing direction for how to play them,
+  sent as its own `((OOC: …))` aside beside the play-as instruction whenever the turn goes out;
+  `/cue` stays the one-shot form. A `you_framing` template carrying a `{body}` slot takes the hint
+  into its own wording instead.
+- The menu offers the story's cast where a command takes a character — each row with the
+  character's description: `/me` completes `Name:` and waits for the prompt, `/you` completes the
+  bare name, and `/merge` completes both sides of `A into B`.
+- Commands are colored wherever they appear: while you type one, in the played block once it is
+  sent, and in the story browser's rows and preview. Only real commands light up, so a slash in
+  ordinary prose (`and/or`, a URL) stays prose. The completion menu marks the selected row in the
+  same color, so a row reads as what it will become once inserted.
+
+### Changed
+- The extraction writes a journal for every character present in a scene — speaking, acting, or
+  silently there — and entries name arrivals and departures as they happen: a journal row is now
+  the story's record of presence. The refreshed template reaches existing installs too: a
+  `prompts.toml` template still holding a previous release's exact text follows the new built-in,
+  while an edited one is never touched.
+- The lore browser's cast lists in order of appearance — the story's own order — instead of
+  alphabetically.
+- The system log records the app's administrative moments — the schema migration, the daily
+  database backup, `otaku update` runs — besides the lore worker's actions.
+- The browsers (`/stories`, `/lore`, `/model`) follow the terminal instead of painting over it:
+  the pane, its text and its headings are your own colors, secondary text is dimmed rather than
+  greyed, and only what has to be painted is — the selected row and a dialog floating over the
+  list. They also come in a dark set now, where before every browser was light whatever the
+  terminal looked like.
+- Failures print in red: a provider that refused, a file that would not open, a command that
+  raised. What the app merely declines to do ("Unknown command", "Nothing to regenerate") stays
+  plain — an ordinary typo should not read as a fault.
+- An export document declaring a newer format version than this app reads is refused with
+  directions — the way a database written by a newer otaku is — instead of being parsed by
+  guesswork; every older format still imports.
+
+### Fixed
+- A long `/system` premise no longer fails: deciding whether the argument named a file asked the
+  filesystem a question it refuses over 255 characters, so any premise worth writing crashed the
+  command instead of being stored. `/card` and `/export` asked the same question the same way.
+- A command can open a multiline block — `/system """` and the lines that follow, closed with
+  `"""` — where before the delimiters were stored as part of the text.
+- Rewinding past a closed scene's end — a deep undo, or resuming a story from an earlier
+  message — no longer kills every later extraction with a constraint failure: the abandoned
+  scene stays in the tree, and the new branch closes its own scene starting at the same message.
+  When a pass does crash, the failure line now names the real cause instead of blaming the
+  model's reply.
+- A provider edit that could not be written to `providers.toml` — a hand-broken file, a
+  disk error — now says so in the panel instead of confirming a change the next launch would
+  silently forget; a key that could not be forgotten on disk stays in the session too, so the
+  mark never lies.
+- Typed `/undo` and `/regen` erase the whole exchange again: the cursor-position query was
+  triggering the blank line that separates a command's output from its typed line, quietly moving
+  the cursor one row down right before the erase measured from it — so the first line of what
+  should vanish stayed on screen. The shortcuts, which erase the typed line first, never armed
+  that blank, which is why they were immune (#6).
+- The story browser's delete now answers the key macOS captions "delete" (backspace) as well as
+  the PC Del / forward-delete key it always listened for. While a filter is open, backspace still
+  edits the filter.
+- A line opening with `- ` reads as dash-convention dialogue — colored, the hyphen kept — where it
+  used to become a `•` list bullet, which rewrote the spoken line's own mark and left it uncolored.
+  Lists keep `*` and `+`.
+
 ## [0.2.2] - 2026-08-08
 
 **TL;DR**

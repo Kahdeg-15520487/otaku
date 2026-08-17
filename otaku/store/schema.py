@@ -16,7 +16,9 @@ Semantics:
   own edit through the UI is the one deliberate exception.
 - Scenes only exist closed: one INSERT writes start, end, title, summary.
   On fork, a scene cut mid-span is not copied — its messages count as
-  unextracted tail in the new story.
+  unextracted tail in the new story. A rewind leaves the abandoned scene
+  standing, and the new branch may close a scene starting at the same
+  message — scene starts are deliberately NOT unique.
 - Two-level rollup pattern, identical in scenes and journals:
   `scenes.summary` / `journals.entry` hold this scene only and are
   append-only; `scenes.history` (the story so far THROUGH this scene) and
@@ -39,7 +41,7 @@ Semantics:
 
 from dataclasses import dataclass
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "3"
 
 SCHEMA_DDL = """
 -- ---------- source: what was actually said ----------
@@ -63,11 +65,11 @@ CREATE TABLE messages (
     parent_id   INTEGER,
     role        TEXT NOT NULL CHECK (role IN ('user','assistant')),
     kind        TEXT NOT NULL DEFAULT 'dialogue'
-                  CHECK (kind IN ('dialogue','narration','ooc')),
+                  CHECK (kind IN ('dialogue','narration','ooc','card')),
     speaker_id  INTEGER REFERENCES characters(id) ON DELETE SET NULL,  -- extracted automatically
     speaker     BLOB,                    -- extracted automatically; name-at-the-time snapshot
     body        BLOB NOT NULL,           -- exactly what was typed/generated
-    framing     BLOB,                    -- /me /you /ooc injection, joined to body at wire time
+    template    BLOB,                    -- the template the turn was played with, filled at wire time
     provider    TEXT,                    -- who generated an assistant turn
     model       TEXT,
     created_at  TEXT NOT NULL,
@@ -90,7 +92,6 @@ CREATE TABLE scenes (
     created_at       TEXT NOT NULL,
     updated_at       TEXT NOT NULL,
     UNIQUE (story_id, id),               -- composite-FK target: same-story references only
-    UNIQUE (story_id, start_message_id),
     FOREIGN KEY (story_id, start_message_id) REFERENCES messages(story_id, id),
     FOREIGN KEY (story_id, end_message_id)   REFERENCES messages(story_id, id)
 );
@@ -102,21 +103,24 @@ CREATE TABLE characters (
     aliases     BLOB,                    -- JSON array, sealed
     description BLOB,
     created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
+    updated_at  TEXT NOT NULL,
+    card        BLOB,                    -- an imported card as TOML
+    UNIQUE (story_id, id)                -- composite-FK target: same-story references only
 );
 
 CREATE TABLE journals (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     story_id     INTEGER NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
     scene_id     INTEGER NOT NULL,
-    character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    character_id INTEGER NOT NULL,
     entry        BLOB NOT NULL,          -- their record of this scene only
     state        BLOB NOT NULL,          -- snapshot right now; latest row wins
     history      BLOB,                   -- cumulative rollup from their entries
     created_at   TEXT NOT NULL,
     updated_at   TEXT NOT NULL,
     UNIQUE (scene_id, character_id),
-    FOREIGN KEY (story_id, scene_id) REFERENCES scenes(story_id, id) ON DELETE CASCADE
+    FOREIGN KEY (story_id, scene_id) REFERENCES scenes(story_id, id) ON DELETE CASCADE,
+    FOREIGN KEY (story_id, character_id) REFERENCES characters(story_id, id) ON DELETE CASCADE
 );
 
 -- ---------- bookkeeping ----------
@@ -168,11 +172,11 @@ class Message:
 
     role: str  # 'user' | 'assistant'
     body: str
-    kind: str = "dialogue"  # 'dialogue' | 'narration' | 'ooc'
-    framing: str | None = None  # joined to body at wire time, never mixed into it
+    kind: str = "dialogue"  # 'dialogue' | 'narration' | 'ooc' | 'card' — plus wire-only 'recap', synthesized by the assembler and never stored (the CHECK refuses it)
+    template: str | None = None  # filled at wire time, never mixed into the body
     speaker: str | None = None
     speaker_id: int | None = None
-    provider: str | None = None  # set on assistant turns
+    provider: str | None = None  # set on assistant turns ('card' + file name on a card greeting)
     model: str | None = None
     id: int = 0
 
@@ -193,6 +197,7 @@ class Character:
     name: str
     aliases: tuple[str, ...] = ()
     description: str = ""
+    card: str | None = None  # the import archive; None for extracted characters
 
 
 @dataclass(frozen=True)

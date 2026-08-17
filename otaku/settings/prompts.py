@@ -2,11 +2,12 @@
 
 Every string otaku puts in front of a model is a template here, loaded once
 into a `Prompts` value, in two groups. The `/me`, `/you`, and `/ooc`
-commands write their template into a turn's `framing` verbatim, filling
-only `{name}`; the `((OOC: …))` enclosure lives IN the template — the code
-wraps nothing, so what you edit is exactly what the model sees. `{body}`,
-where a template has it, marks where the turn's own text is slotted at wire
-time. The lore templates build the memory — one scene (`extract_prompt`),
+commands write their template into a turn's `template` verbatim — nothing
+is filled at write time, so the turn keeps the wording this file had when
+it played; the `((OOC: …))` enclosure lives IN the template, so the code
+wraps nothing and what you edit is exactly what the model sees. `{name}`
+and `{body}`, where a template has them, mark where the turn's own name and
+text are slotted at wire time. The lore templates build the memory — one scene (`extract_prompt`),
 a character's rolled-up history, the story-so-far — and `recap_header` is
 the line that carries the finished scene summaries back into the request.
 
@@ -68,15 +69,21 @@ Rules:
 - "speakers": for EVERY numbered message, the single character who speaks or acts
   in it (their exact name); null when it is narration, several characters, or out
   of character.
-- "characters": only NEW characters first appearing in this scene.
-- "journals": one for EVERY character who appears or acts in this scene.
+- "characters": only NEW characters first appearing in this scene. A character
+  worth listing was present: write their "journals" row too.
+- "journals": one for EVERY character present in this scene — speaking, acting,
+  or silently there; anyone named in "speakers" or "characters" was present and
+  gets one. The journal row is the story's record of their presence, so
+  a character with nothing to say still gets one.
   "entry" is that character's own record of THIS SCENE ONLY — what they did, saw,
-  heard, and felt, in the order they experienced it. Up to ~250 words, in
-  proportion to how much of the scene is theirs: a bystander gets a few lines,
-  the character the scene turns on gets the full length. Write only what they
-  witnessed or were told — a character does not know what happened while they
-  were absent, and a secret kept from them is not in their entry. This entry is
-  permanent and is never rewritten, so put everything of theirs into it now.
+  heard, and felt, in the order they experienced it; when they arrive or leave
+  partway through, the entry says so at the point it happens. Up to ~250 words,
+  in proportion to how much of the scene is theirs: a silent bystander gets a
+  line or two, the character the scene turns on gets the full length. Write only
+  what they witnessed or were told — a character does not know what happened
+  while they were absent, and a secret kept from them is not in their entry. This
+  entry is permanent and is never rewritten, so put everything of theirs into it
+  now.
   "state" is a snapshot, not a history: 1-3 sentences — where they are, what they
   wear and carry, how they feel, what they want, right now.
 - Lines marked ((OOC: …)) are the players talking out of character: never part of
@@ -127,6 +134,14 @@ _DEFAULTS = {
         "((OOC: {body}\n\nAnswer briefly out of character, as a co-author planning "
         "the story — do not continue the scene or write any prose.))"
     ),
+    "card_framing": (
+        "((OOC: {name} joins the story. Their card, to play them by:\n"
+        "Description: {description}\n"
+        "Personality: {personality}\n"
+        "Scenario: {scenario}\n"
+        "Example dialogue (voice reference only, never story events): {examples}\n"
+        "Standing note: {depth_note}))"
+    ),
     "extract_prompt": EXTRACT_DEFAULT,
     "history_prompt": HISTORY_DEFAULT,
     "story_so_far_prompt": STORY_SO_FAR_DEFAULT,
@@ -141,6 +156,10 @@ _REQUIRED = {
     "me_framing": ("name", "body"),
     "you_framing": ("name",),
     "ooc_framing": ("body",),
+    # Only {name}: a card template line whose OTHER placeholders are absent
+    # is a choice — omitting {examples} is how a user keeps examples off
+    # the wire — and compose drops the lines of fields a card lacks.
+    "card_framing": ("name",),
     "extract_prompt": ("cast", "journals", "chunk"),
     "history_prompt": ("name", "entries"),
     "story_so_far_prompt": ("summaries",),
@@ -159,6 +178,7 @@ class Prompts:
     me_framing: str = _DEFAULTS["me_framing"]
     you_framing: str = _DEFAULTS["you_framing"]
     ooc_framing: str = _DEFAULTS["ooc_framing"]
+    card_framing: str = _DEFAULTS["card_framing"]
     extract_prompt: str = _DEFAULTS["extract_prompt"]
     history_prompt: str = _DEFAULTS["history_prompt"]
     story_so_far_prompt: str = _DEFAULTS["story_so_far_prompt"]
@@ -219,13 +239,13 @@ def write_stub(paths: Paths) -> bool:
         return False
     lines = [*_HEADER, ""]
     for key, value in _DEFAULTS.items():
-        lines.append(f"{key} = {_toml_string(value)}")
+        lines.append(f"{key} = {toml_string(value)}")
         lines.append("")
     write_atomic(path, "\n".join(lines))
     return True
 
 
-def _toml_string(value: str) -> str:
+def toml_string(value: str) -> str:
     """A TOML string literal that parses back byte-for-byte. A clean single
     line is a single-quoted literal; anything with a newline or an
     apostrophe uses a triple-single literal, whose newline right after the

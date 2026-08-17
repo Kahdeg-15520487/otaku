@@ -15,7 +15,7 @@ class TestCrashContainment:
         monkeypatch.setitem(commands.COMMANDS, "/help", (boom, None))
         app.play("/help")
         out = capsys.readouterr().out
-        assert "command failed (RuntimeError)" in out
+        assert "Command failed (RuntimeError)" in out
         assert "error-" in out  # the notice names the log
         errors = [f for f in (app.paths.root / "logs").rglob("error-*") if f.is_file()]
         assert errors and "Traceback" in errors[0].read_text()
