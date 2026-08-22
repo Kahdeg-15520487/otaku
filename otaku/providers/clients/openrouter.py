@@ -5,10 +5,30 @@ already harvests each model's `context_length` from the catalog."""
 from otaku.providers.base import CloudClient
 from otaku.settings.providers import ProviderConfig
 
+# OpenRouter attributes a request to the app that sent it, by three
+# headers it reads and nobody else does — the referer is the app's
+# identity (without it there is no app at all), the title is how it is
+# named, and the categories are which shelves it is browsed from. They
+# say WHICH APP, never which user, and go to OpenRouter alone: the
+# `_headers` hook is per client.
+#
+# The categories must come from OpenRouter's own vocabulary or they are
+# dropped in silence, and two is the documented maximum per request —
+# these are those two.
+_ATTRIBUTION = {
+    "HTTP-Referer": "https://otaku.sh",
+    "X-OpenRouter-Title": "otaku",
+    "X-OpenRouter-Categories": "roleplay,creative-writing",
+}
+
 
 class OpenRouterClient(CloudClient):
     kind = "openrouter"
     label = "OpenRouter"
+
+    @property
+    def _headers(self) -> dict[str, str]:
+        return {**super()._headers, **_ATTRIBUTION}
 
     @classmethod
     def autoconfigure(cls) -> ProviderConfig:

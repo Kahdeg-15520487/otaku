@@ -30,7 +30,7 @@ class OmlxClient(ManagedClient):
     def load_model(self, model: str) -> None:
         response = httpx.post(
             f"{self.config.base_url}/v1/models/{quote(model, safe='')}/load",
-            headers=self.config.headers,
+            headers=self._headers,
             timeout=None,
         )
         response.raise_for_status()
@@ -38,7 +38,7 @@ class OmlxClient(ManagedClient):
     def unload_model(self, model: str) -> None:
         response = httpx.post(
             f"{self.config.base_url}/v1/models/{quote(model, safe='')}/unload",
-            headers=self.config.headers,
+            headers=self._headers,
             timeout=None,
         )
         response.raise_for_status()

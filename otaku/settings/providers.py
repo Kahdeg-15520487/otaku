@@ -25,11 +25,6 @@ class ProviderConfig:
         endpoints live."""
         return self.url[: -len("/v1")] if self.url.endswith("/v1") else self.url
 
-    @property
-    def headers(self) -> dict[str, str]:
-        """Auth headers for every request to this provider."""
-        return {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
-
 
 def load(path: Path) -> dict[str, ProviderConfig]:
     """The [NAME] sections, validated (a section must carry a url).

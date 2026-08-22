@@ -11,7 +11,6 @@ changes.
 
 - otaku is restructured around a frontend-agnostic core: same app, same commands, same data — but
   the story machinery no longer belongs to the terminal.
-- Long story titles get more room: 50 characters instead of 40, wherever a title is shown.
 
 **Full version:**
 
@@ -28,6 +27,12 @@ changes.
   picker opens, instead of opening it without a word.
 - The api key's sealing key tightens `configs/` to owner-only when it is created, as the database's
   key already did.
+- One dependency fewer to install: the model picker's RAM gauge reads the machine's own numbers —
+  sysconf, `/proc/meminfo` on Linux, `vm_stat` on macOS — where it used to read psutil. On macOS it
+  now agrees with Activity Monitor instead of reading gigabytes rosier: app memory that has gone
+  cold still counts as used, because reclaiming it means compressing or swapping it first. The
+  Linux figure is unchanged — the kernel's `MemAvailable` already drew the line there.
+- Requests to OpenRouter now name otaku as the app that sent them.
 
 ### Fixed
 - A sealing key that cannot be read no longer ends the launch with a traceback: the provider it

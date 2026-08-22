@@ -41,7 +41,6 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-import psutil
 from prompt_toolkit.application import Application
 from prompt_toolkit.application.current import get_app
 from prompt_toolkit.buffer import Buffer
@@ -71,6 +70,7 @@ from otaku.backend.api import providers as api_providers
 from otaku.backend.api.providers import Engine
 from otaku.backend.session import Refused, Session
 from otaku.formatting import format_context, format_size, truncate
+from otaku.terminal.screens import _meminfo
 from otaku.terminal.screens.base import ListScreen, base_style, bordered_box, text_line
 from otaku.terminal.tty import clipboard, latin_key
 from otaku.terminal.tty.spinner import FRAMES as SPINNER_FRAMES
@@ -294,17 +294,14 @@ class ModelPicker(ListScreen):
         left = f" Models ({n} of {total})" if n != total else f" Models ({n})"
         # What is still loading is said in the provider panel, on the row
         # of the provider it is about (see `_providers_text`).
-        try:
-            vm = psutil.virtual_memory()
-            used_gb = vm.used / (1024**3)
-            total_gb = vm.total / (1024**3)
-            ram = f"RAM: {used_gb:.1f} / {total_gb:.1f} GB ({vm.percent:.0f}%)"
-        except Exception:
-            ram = ""
-
         head: StyleAndTextTuples = [("class:header", left)]
-        if not ram:
-            return head
+        memory = _meminfo.virtual_memory()
+        if memory is None:
+            return head  # a machine that will not say: no gauge at all
+        used_bytes, total_bytes = memory
+        used_gb = used_bytes / (1024**3)
+        total_gb = total_bytes / (1024**3)
+        ram = f"RAM: {used_gb:.1f} / {total_gb:.1f} GB ({100 * used_bytes / total_bytes:.0f}%)"
 
         # Right-align RAM to the rows' right edge.
         gap = " " * max(2, self._row_width() - len(left) - len(ram))

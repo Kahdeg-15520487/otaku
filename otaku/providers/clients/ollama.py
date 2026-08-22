@@ -33,7 +33,7 @@ class OllamaClient(ManagedClient):
         response = httpx.post(
             f"{self.config.base_url}/api/generate",
             json=body,
-            headers=self.config.headers,
+            headers=self._headers,
             timeout=None,
         )
         response.raise_for_status()
@@ -43,7 +43,7 @@ class OllamaClient(ManagedClient):
         response = httpx.post(
             f"{self.config.base_url}/api/generate",
             json=body,
-            headers=self.config.headers,
+            headers=self._headers,
             timeout=None,
         )
         response.raise_for_status()

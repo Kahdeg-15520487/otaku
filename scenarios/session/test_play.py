@@ -7,7 +7,7 @@ from pathlib import Path
 from otaku.backend.formats import EXPORT_MARKER
 from otaku.backend.paths import Paths
 from scenarios.support import server as scripted
-from scenarios.support.harness import App, launch, set_config
+from scenarios.support.harness import App, launch, set_config, set_config_provider
 
 
 class TestTurns:
@@ -107,6 +107,31 @@ class TestTurns:
         app.play("I enter the hall.")
         assert "\n\n\n" not in capsys.readouterr().out
         assert app.session.messages[-1].body == "The hall glows."
+
+
+class TestAttribution:
+    def test_a_turn_to_openrouter_names_the_app(self, server, tmp_path) -> None:
+        root = tmp_path / "state"
+        set_config_provider(root, server, name="openrouter")
+        app = launch(root, server, spec="openrouter/test-model")
+        try:
+            app.play("I open the door.")
+            headers = sent_headers(app)
+        finally:
+            app.close()
+        assert headers["http-referer"] == "https://otaku.sh"
+        assert headers["x-openrouter-title"] == "otaku"
+        assert headers["x-openrouter-categories"] == "roleplay,creative-writing"
+        # Added to the auth, never in place of it.
+        assert headers["authorization"] == "Bearer scenario-key"
+
+    def test_no_other_provider_is_told_anything(self, app: App) -> None:
+        # The hook is per client: a generic OpenAI endpoint — and every
+        # local engine — sends what it always sent.
+        app.play("I open the door.")
+        headers = sent_headers(app)
+        assert [name for name in headers if name.startswith("x-openrouter")] == []
+        assert "http-referer" not in headers
 
 
 class TestMe:
@@ -425,3 +450,9 @@ class TestRegenerate:
 def sent(app: App) -> str:
     """The content of the last message the server was actually given."""
     return str(app.server.requests[-1]["messages"][-1]["content"])
+
+
+def sent_headers(app: App) -> dict[str, str]:
+    """The last request's headers, keyed lowercase — a header name is
+    case-insensitive on the wire, and the assertion should not care."""
+    return {name.lower(): value for name, value in app.server.request_headers[-1].items()}

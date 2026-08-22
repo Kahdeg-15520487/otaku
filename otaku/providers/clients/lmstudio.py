@@ -31,7 +31,7 @@ class LmStudioClient(ManagedClient):
         response = httpx.post(
             f"{self.config.base_url}/api/v1/models/load",
             json={"model": model},
-            headers=self.config.headers,
+            headers=self._headers,
             timeout=None,
         )
         response.raise_for_status()
@@ -49,7 +49,7 @@ class LmStudioClient(ManagedClient):
                 response = httpx.post(
                     f"{self.config.base_url}/api/v1/models/unload",
                     json={"instance_id": instance_id},
-                    headers=self.config.headers,
+                    headers=self._headers,
                     timeout=None,
                 )
                 response.raise_for_status()

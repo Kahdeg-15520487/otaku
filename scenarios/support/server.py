@@ -9,7 +9,8 @@ reasoning delta before the content. `default_script` recognizes the lore
 prompts by their fixed openings and answers with canned extraction JSON
 and rollups, so even the whole extraction pipeline plays end to end
 offline. Every request body is kept in `requests` for assertions — the
-wire promise is checked against it.
+wire promise is checked against it — and its headers in
+`request_headers`, row for row.
 """
 
 import contextlib
@@ -56,6 +57,7 @@ class ModelServer:
         self.chunk_size: int | None = None  # stream in pieces this long; None → thirds
         self.fail_after: int | None = None  # abort the stream after N content chunks
         self.requests: list[dict[str, Any]] = []
+        self.request_headers: list[dict[str, str]] = []  # one row per POST, same order
         self.script: Callable[[dict[str, Any]], str | tuple[str, str]] = default_script
         outer = self
 
@@ -144,6 +146,7 @@ class ModelServer:
                 length = int(self.headers.get("Content-Length", "0"))
                 body = json.loads(self.rfile.read(length) or b"{}")
                 outer.requests.append(body)
+                outer.request_headers.append(dict(self.headers))
                 if outer.balances and self.path.rstrip("/").endswith("/check-balance"):
                     if not self._authorized():
                         return
@@ -211,6 +214,7 @@ class ModelServer:
     def reset(self) -> None:
         self.script = default_script
         self.requests.clear()
+        self.request_headers.clear()
 
     def close(self) -> None:
         self._httpd.shutdown()

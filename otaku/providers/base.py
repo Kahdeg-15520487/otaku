@@ -137,6 +137,17 @@ class OpenAIClient:
         self._smooth = smooth
         self._context_cache: dict[str, int] = {}
 
+    @property
+    def _headers(self) -> dict[str, str]:
+        """What every request to this provider carries: the protocol's
+        bearer auth over the configured key, and whatever the engine's
+        own service asks for on top (see `OpenRouterClient`). The scheme
+        belongs here and not to the section — a provider is configured
+        with a key, never with the way a key is presented on the wire.
+        A SUBCLASS HOOK: the one door, so a header a subclass adds
+        cannot miss a call site, and cannot reach another provider."""
+        return {"Authorization": f"Bearer {self.config.api_key}"} if self.config.api_key else {}
+
     # ---------- the OpenAI protocol ----------
 
     def models(self, timeout: float = 10.0) -> list[ModelInfo]:
@@ -165,7 +176,7 @@ class OpenAIClient:
         """The bare /models listing, sorted — raises when unreachable."""
         response = httpx.get(
             f"{self.config.url}/models",
-            headers=self.config.headers,
+            headers=self._headers,
             timeout=_timeout(timeout, connect=2.0),
         )
         response.raise_for_status()
@@ -212,7 +223,7 @@ class OpenAIClient:
             "POST",
             f"{self.config.url}/chat/completions",
             json=body,
-            headers=self.config.headers,
+            headers=self._headers,
             timeout=_timeout(timeout, connect=5.0),
         ) as response:
             if response.status_code >= 400:
@@ -294,7 +305,7 @@ class OpenAIClient:
         try:
             response = httpx.get(
                 f"{self.config.base_url}{path}",
-                headers=self.config.headers,
+                headers=self._headers,
                 timeout=_timeout(timeout, connect=1.0),
             )
             if response.status_code == 200:
@@ -311,7 +322,7 @@ class OpenAIClient:
             response = httpx.post(
                 f"{self.config.base_url}{path}",
                 json=body,
-                headers=self.config.headers,
+                headers=self._headers,
                 timeout=_timeout(timeout, connect=1.0),
             )
             if response.status_code == 200:
@@ -391,7 +402,7 @@ class CloudClient(OpenAIClient):
             raise PermissionError(f"{self.config.name} rejected the api key")
         response = httpx.get(
             f"{self.config.url}/models{self._MODELS_QUERY}",
-            headers=self.config.headers,
+            headers=self._headers,
             timeout=_timeout(timeout, connect=2.0),
         )
         response.raise_for_status()
