@@ -7,18 +7,15 @@ returns the confirmation to show and raises Refused for what it
 declines.
 """
 
-from otaku.backend.session import (
-    KNOWN_PARAMS,
-    NO_MODEL_HINT,
-    THINK_ALIASES,
-    THINK_LEVELS,
-    Refused,
-    Session,
-)
+from otaku.backend.session import KNOWN_PARAMS, NO_MODEL_HINT, Refused, Session
 from otaku.settings import models as models_file
+from otaku.settings.state import THINK_DEFAULT, THINK_LEVELS
 
 _ON = ("on", "true", "yes")
 _OFF = ("off", "false", "no")
+# The typed sugar over the stored levels — a command-surface convenience,
+# where THINK_LEVELS is what state.toml may hold.
+THINK_ALIASES = {"on": "medium", "off": "none"}
 
 
 def set_think(session: Session, raw: str) -> str:
@@ -28,9 +25,8 @@ def set_think(session: Session, raw: str) -> str:
     if not raw.strip():
         return f"Think: {session.think if session.think else 'default'}."
     value = THINK_ALIASES.get(raw.strip().lower(), raw.strip().lower())
-    if value == "default":
-        session._think = None
-        session._save_state()
+    if value == THINK_DEFAULT:
+        session._update_state(think=THINK_DEFAULT)
         return "Think: default (nothing sent — the model decides)."
     if value not in THINK_LEVELS:
         raise Refused("Usage: /set think on|off|none|low|medium|high|max|default")
@@ -39,8 +35,7 @@ def set_think(session: Session, raw: str) -> str:
         raise Refused(NO_MODEL_HINT)
     if value != "none" and not client.supports_thinking:
         raise Refused(f"Thinking is not supported by provider {session.provider!r}.")
-    session._think = value
-    session._save_state()
+    session._update_state(think=value)
     return f"Think: {value}."
 
 
@@ -50,12 +45,11 @@ def set_verbose(session: Session, raw: str) -> str:
     value = raw.strip().lower()
     if value:
         if value in _ON:
-            session._verbose = True
+            session._update_state(verbose=True)
         elif value in _OFF:
-            session._verbose = False
+            session._update_state(verbose=False)
         else:
             raise Refused("Usage: /set verbose on|off")
-        session._save_state()
     return f"Verbose: {'on' if session.verbose else 'off'}."
 
 
@@ -65,13 +59,27 @@ def set_autocorrect(session: Session, raw: str) -> str:
     value = raw.strip().lower()
     if value:
         if value in _ON:
-            session._autocorrect = True
+            session._update_state(autocorrect=True)
         elif value in _OFF:
-            session._autocorrect = False
+            session._update_state(autocorrect=False)
         else:
             raise Refused("Usage: /set autocorrect on|off")
-        session._save_state()
     return f"Autocorrect: {'on' if session.autocorrect else 'off'}."
+
+
+def set_notification(session: Session, raw: str) -> str:
+    """Session-wide and persisted, like verbose. On means a reply landing
+    calls you back to the screen — with what, and whether the terminal
+    can, is the frontend's business."""
+    value = raw.strip().lower()
+    if value:
+        if value in _ON:
+            session._update_state(notification=True)
+        elif value in _OFF:
+            session._update_state(notification=False)
+        else:
+            raise Refused("Usage: /set notification on|off")
+    return f"Notification: {'on' if session.notification else 'off'}."
 
 
 def set_parameter(session: Session, raw: str) -> str:

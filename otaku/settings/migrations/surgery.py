@@ -54,6 +54,28 @@ def ensure_section(name: str, block: str, after: str = "") -> Migration:
     return apply
 
 
+def ensure_key(section: str, key: str, line: str) -> Migration:
+    """A migration adding `line` — a freshly rendered `key = value` row —
+    at the end of `[section]`, for a file that has the section but not
+    the key: a setting that arrived after this config was written, so the
+    whole surface stays discoverable in the file. `ensure_section`'s
+    posture one level down — what EXISTS is never touched, whatever its
+    value, which is what separates a new default from `set_key`'s
+    imposed one."""
+
+    def apply(text: str) -> str:
+        parsed = parse(text)
+        if parsed is None or not isinstance(_table(parsed, section), dict):
+            return text
+        lines = text.splitlines()
+        span = _section_span(lines, section)
+        if span is None or _key_index(lines, span, key) is not None:
+            return text
+        return joined(_inserted_at_span_end(lines, span, [line]))
+
+    return apply
+
+
 def set_key(section: str, key: str, line: str) -> Migration:
     """A migration replacing the `key = …` line of `[section]` (a literal
     top-level name wins — providers.toml sections carry user-chosen

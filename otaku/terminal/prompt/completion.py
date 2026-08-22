@@ -271,7 +271,7 @@ def _subcommand_leaf(name: str) -> "CompletionTree | None":
         return {level: None for level in _THINK_MENU}
     if name == "parameter":
         return {p: {"reset": None} for p in KNOWN_PARAMS}
-    if name in ("verbose", "autocorrect"):
+    if name in ("verbose", "autocorrect", "notification"):
         return {"on": None, "off": None}
     return None
 

@@ -233,7 +233,7 @@ def _listening(port: int) -> bool:
 def remember(root: Path) -> None:
     """state.toml pointing at the scripted model, so launch lands in the
     REPL instead of the picker."""
-    state_mod.save(Paths.resolve(root).state_file, state_mod.StateConfig(model=SPEC))
+    state_mod.save(Paths.resolve(root).state_file, state_mod.State(model=SPEC))
 
 
 def launch_remembered(server: ModelServer, root: Path) -> Terminal:

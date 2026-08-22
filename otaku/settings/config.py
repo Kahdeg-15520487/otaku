@@ -25,6 +25,10 @@ class UiSettings:
     dialogue_color: str
     dialogue_bold: bool
     show_banner: bool
+    # Defaulted where the others are not: "default" is a real value —
+    # the platform's own sound — so a caller that has no opinion about
+    # sound (the theme's, every time) needs none.
+    notification_sound: str = "default"
 
 
 @dataclass(frozen=True)
@@ -42,6 +46,7 @@ class Config:
     # [settings]
     show_banner: bool = True
     smooth_streaming: bool = True
+    notification_sound: str = "default"  # "default" = the platform's own; else a path
     # [ui]
     dialogue_color: str = "auto"
     dialogue_bold: bool = False
@@ -69,6 +74,7 @@ class Config:
             "[settings]",
             row(f"show_banner = {toml_scalar(self.show_banner)}", "the session header shown when a chat opens"),
             row(f"smooth_streaming = {toml_scalar(self.smooth_streaming)}", "re-time bursty model output into an even stream"),
+            row(f"notification_sound = {toml_scalar(self.notification_sound)}", 'what /set notification plays: "default" is the platform\'s own, else a path'),
             "",
             "[ui]",
             row(f"dialogue_color = {toml_scalar(self.dialogue_color)}", 'spoken lines: "auto" fits the background; a color name ("cyan") or #rrggbb'),
@@ -113,6 +119,7 @@ class Config:
             dialogue_color=self.dialogue_color,
             dialogue_bold=self.dialogue_bold,
             show_banner=self.show_banner,
+            notification_sound=self.notification_sound,
         )
 
 
@@ -143,6 +150,7 @@ def load(path: Path) -> Config:
             encryption=encryption,
             show_banner=bool(settings.get("show_banner", True)),
             smooth_streaming=bool(settings.get("smooth_streaming", True)),
+            notification_sound=str(settings.get("notification_sound", "default")),
             dialogue_color=str(ui.get("dialogue_color", "auto")),
             dialogue_bold=bool(ui.get("dialogue_bold", False)),
             head_messages=max(0, _int(context, "head_messages", 20)),

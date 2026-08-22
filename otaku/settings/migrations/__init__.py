@@ -29,6 +29,7 @@ from otaku.settings.migrations.surgery import (
     Migration,
     apply_migrations,
     drop_key_everywhere,
+    ensure_key,
     ensure_section,
     set_key,
     update_config,
@@ -40,6 +41,7 @@ from otaku.settings.providers import ProviderConfig
 __all__ = [
     "Migration",
     "apply_migrations",
+    "ensure_key",
     "ensure_section",
     "migrate",
     "set_key",
@@ -62,6 +64,15 @@ _CONFIG_MIGRATIONS: list[Migration] = [
         + "\n"
         + row("dialogue_bold = false", "also bold the spoken lines"),
         after="settings",
+    ),
+    # 0.4.0 — /set notification arrives, and names the sound it plays.
+    ensure_key(
+        "settings",
+        "notification_sound",
+        row(
+            'notification_sound = "default"',
+            'what /set notification plays: "default" is the platform\'s own, else a path',
+        ),
     ),
 ]
 

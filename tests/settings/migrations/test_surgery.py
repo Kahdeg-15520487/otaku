@@ -13,6 +13,7 @@ result no longer parses as TOML.
 from otaku.settings.migrations.surgery import (
     apply_migrations,
     drop_key_everywhere,
+    ensure_key,
     ensure_section,
     set_key,
 )
@@ -56,6 +57,32 @@ class TestEnsureSection:
     def test_a_missing_anchor_falls_back_to_the_end(self) -> None:
         migrated = ensure_section("display", "[display]", after="vanished")(BASE)
         assert migrated == BASE + "\n[display]\n"
+
+
+class TestEnsureKey:
+    """A setting that arrived after the file was written: added so the
+    surface stays discoverable, never imposed over what is there."""
+
+    def test_an_absent_key_is_added_at_the_sections_end(self) -> None:
+        text = "[settings]\nshow_banner = true\n\n[context]\nhead_messages = 20\n"
+        migrated = ensure_key("settings", "sound", 'sound = "default"')(text)
+        assert migrated == (
+            '[settings]\nshow_banner = true\nsound = "default"\n\n[context]\nhead_messages = 20\n'
+        )
+
+    def test_the_users_own_value_is_left_alone(self) -> None:
+        # The difference from set_key: a value already chosen is the
+        # user's, and every launch reruns this.
+        text = '[settings]\nsound = "/my/bell.aiff"\n'
+        assert ensure_key("settings", "sound", 'sound = "default"')(text) is text
+
+    def test_a_commented_out_key_counts_as_absent(self) -> None:
+        text = '[settings]\n# sound = "off"\nshow_banner = true\n'
+        migrated = ensure_key("settings", "sound", 'sound = "default"')(text)
+        assert migrated.endswith('show_banner = true\nsound = "default"\n')
+
+    def test_no_such_section_is_untouched(self) -> None:
+        assert ensure_key("nowhere", "sound", 'sound = "default"')(BASE) is BASE
 
 
 class TestSetKey:

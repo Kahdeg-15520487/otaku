@@ -21,7 +21,7 @@ touch only the run's own event. Frontends inherit this rule from here.
 import contextlib
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
-from typing import Self
+from typing import Any, Self
 
 from otaku.backend.paths import Paths
 from otaku.context import assembler
@@ -33,7 +33,7 @@ from otaku.settings import models as models_file
 from otaku.settings import state as state_file
 from otaku.settings.config import Config, UiSettings
 from otaku.settings.prompts import Prompts
-from otaku.settings.state import StateConfig
+from otaku.settings.state import THINK_DEFAULT, State
 from otaku.store import Store
 from otaku.store.schema import Message
 from otaku.worker import Worker
@@ -49,11 +49,6 @@ KNOWN_PARAMS: dict[str, type] = {
     "seed": int,
     "stop": str,
 }
-
-# Thinking effort, as `/set think` and state.toml spell it. "default" is
-# not a level: it means send nothing and let the model decide (None).
-THINK_LEVELS = {"none", "low", "medium", "high", "max"}
-THINK_ALIASES = {"on": "medium", "off": "none"}
 
 # What every model-facing door says while no model is selected.
 NO_MODEL_HINT = "No model selected — pick one with /model."
@@ -85,23 +80,24 @@ class Session:
     # a sink (`set_on_notice`) and later notices go straight out, the way
     # they were printed on the spot before the backend existed.
     _notify: Callable[[str], None] | None
-    # Product state (read through the properties below).
-    _provider: str
-    _model: str
+    # Product state (read through the properties below). The model is
+    # `_state`'s — it is what state.toml remembers, and the halves the
+    # app works in are its own to split.
     _story_id: int | None
     _system: str
     _messages: list[Message]
     _params: dict[str, object]
-    _think: str | None
-    _verbose: bool
-    _autocorrect: bool
     # The stories content index behind `api.stories.search` — built on
     # the first search, invalidated by the write primitives below.
     _search_index: dict[int, str] | None
-    # The implementation handles (package-internal): the loaded machinery,
-    # not session state.
+    # The loaded settings files and the machinery (package-internal).
+    # `_state` is the one that also carries product state: the model and
+    # the /set toggles read through it, since state.toml is where they
+    # persist. Only the story id stays a live field above, projected in
+    # whenever `_update_state` writes.
     _config: Config
     _prompts: Prompts
+    _state: State
     _paths: Paths
     _store: Store
     _providers_registry: Registry
@@ -118,35 +114,32 @@ class Session:
         store: Store,
         registry: Registry,
         worker: Worker,
-        model_spec: str,
-        state: StateConfig,
+        state: State,
     ) -> Self:
-        """The session for a launch on `model_spec` ("provider/model", or
-        "" for none) — `state.model` after the launch validated it
-        against the registry, passed separately so the validation has
-        one home. Saved parameters, persisted toggles, and the
-        remembered story applied; a stale remembered value lands in
-        `notices` and is skipped — never a failed launch."""
+        """The session over `state` — what the last one remembered, with
+        the launch's own corrections already in it (a model whose
+        provider is gone comes in blank: validating it is the launch's
+        job, and has one home there). Saved parameters, persisted
+        toggles, and the remembered story applied; a stale remembered
+        value lands in `notices` and is skipped — never a failed
+        launch."""
         session = cls.__new__(cls)
         session.notices = []
         session.notice = ""
         session._notify = None
-        session._config = config
-        session._prompts = prompts
-        session._paths = paths
-        session._store = store
-        session._providers_registry = registry
-        session._worker = worker
-        session._closed = False
-        session._provider, _, session._model = model_spec.partition("/")
         session._story_id = None
         session._system = ""
         session._messages = []
         session._params = {}
         session._search_index = None
-        session._verbose = state.verbose
-        session._autocorrect = state.autocorrect
-        session._think = _read_think(state.think)
+        session._config = config
+        session._prompts = prompts
+        session._state = state.settled()
+        session._paths = paths
+        session._store = store
+        session._providers_registry = registry
+        session._worker = worker
+        session._closed = False
         session._reload_params()
         # Reattach the story the previous session was on, so bare `otaku`
         # reopens it mid-scene; one deleted since simply starts fresh.
@@ -168,12 +161,12 @@ class Session:
     @property
     def provider(self) -> str:
         """The active provider's name; "" while no model is selected."""
-        return self._provider
+        return self._state.provider
 
     @property
     def model(self) -> str:
         """The bare model name, as the server expects it."""
-        return self._model
+        return self._state.bare_model
 
     @property
     def story_id(self) -> int | None:
@@ -196,22 +189,28 @@ class Session:
 
     @property
     def think(self) -> str | None:
-        """A THINK_LEVELS value; None = defer to the model."""
-        return self._think
+        """A `state.THINK_LEVELS` value; None = defer to the model."""
+        return None if self._state.think == THINK_DEFAULT else self._state.think
 
     @property
     def verbose(self) -> bool:
-        return self._verbose
+        return self._state.verbose
 
     @property
     def autocorrect(self) -> bool:
-        return self._autocorrect
+        return self._state.autocorrect
+
+    @property
+    def notification(self) -> bool:
+        """Whether a landed reply should call the user back to the
+        screen; HOW is the frontend's own business."""
+        return self._state.notification
 
     @property
     def full_model_name(self) -> str:
-        """ "provider/model" for display; "" without a model — derived, so
-        a switch can never leave it stale."""
-        return f"{self._provider}/{self._model}" if self._model else ""
+        """ "provider/model" as remembered, for display; "" without a
+        model, a half-written spec included."""
+        return self._state.model if self._state.bare_model else ""
 
     @property
     def ui(self) -> UiSettings:
@@ -290,18 +289,18 @@ class Session:
     def _provider_config(self) -> ProviderConfig | None:
         """The active provider's CURRENT configuration, resolved through
         the registry by name — never a snapshot."""
-        if not self._provider:
+        if not self.provider:
             return None
         try:
-            return self._providers_registry.get_client(self._provider).config
+            return self._providers_registry.get_client(self.provider).config
         except ValueError:
             return None
 
     def _client(self) -> OpenAIClient | None:
-        if not self._model:
+        if not self.model:
             return None
         try:
-            return self._providers_registry.get_client(self._provider)
+            return self._providers_registry.get_client(self.provider)
         except ValueError:
             return None
 
@@ -338,7 +337,7 @@ class Session:
         self._messages = (
             self._store.stories.get_messages(story_id) if messages is None else messages
         )
-        self._save_state()
+        self._update_state()
 
     def _ensure_story(self) -> int:
         """The story id, creating the story on the first real turn — so a
@@ -354,7 +353,7 @@ class Session:
             self._story_id = self._store.stories.add()
             if self._system:
                 self._store.stories.set_system(self._story_id, self._system)
-            self._save_state()
+            self._update_state()
         return self._story_id
 
     def _record_turn(self, message: Message) -> None:
@@ -409,31 +408,33 @@ class Session:
         A saved value the vocabulary no longer makes sense of lands in
         `notices` and is skipped."""
         self._params = {}
-        saved = models_file.load(self._paths.models_file).get(self._model, {})
+        saved = models_file.load(self._paths.models_file).get(self.model, {})
         for name, value in saved.items():
             coerce = KNOWN_PARAMS.get(name)
             if coerce is None:
-                self._note(f"Ignoring unknown parameter {name!r} saved for {self._model}.")
+                self._note(f"Ignoring unknown parameter {name!r} saved for {self.model}.")
                 continue
             try:
                 self._params[name] = coerce(value)
             except (TypeError, ValueError):
-                self._note(f"Ignoring invalid {name} value {value!r} saved for {self._model}.")
+                self._note(f"Ignoring invalid {name} value {value!r} saved for {self.model}.")
 
-    def _save_state(self) -> None:
-        """Persist what bare `otaku` resumes: the model, the story, and
-        the /set toggles. Best-effort — remembered state is never worth
-        failing a turn."""
+    def _update_state(self, **fields: Any) -> None:
+        """Change what state.toml remembers — `fields` are `State`'s own —
+        and write it; called bare, it just writes what the live session
+        made true. The ONE door either way, so no setter can change a
+        toggle and forget to persist it.
+
+        What is written is the remembered state with the story id — the
+        one thing it is not the home of, `None` being a better absent
+        than 0 — projected in from the live session.
+        Best-effort — remembered state is never worth failing a turn."""
+        if fields:
+            self._state = replace(self._state, **fields)
         with contextlib.suppress(OSError):
             state_file.save(
                 self._paths.state_file,
-                StateConfig(
-                    model=self.full_model_name,
-                    story=self._story_id or 0,
-                    verbose=self._verbose,
-                    autocorrect=self._autocorrect,
-                    think=self._think if self._think is not None else "default",
-                ),
+                replace(self._state, story=self._story_id or 0),
             )
 
     def _move_head(self) -> None:
@@ -442,11 +443,3 @@ class Session:
             return
         head = self._messages[-1].id if self._messages else None
         self._store.stories.set_head(self._story_id, head)
-
-
-def _read_think(think: str) -> str | None:
-    """state.toml's remembered value onto the session's vocabulary — an
-    unrecognized one falls to "none" (never a failed launch)."""
-    if think == "default":
-        return None
-    return think if think in THINK_LEVELS else "none"

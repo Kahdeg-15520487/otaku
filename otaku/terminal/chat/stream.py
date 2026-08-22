@@ -24,6 +24,7 @@ from otaku.formatting import printable
 from otaku.terminal.chat.chat import Chat
 from otaku.terminal.tty import DIM, RESET, error_line
 from otaku.terminal.tty.render import message
+from otaku.terminal.tty.sound import ring
 from otaku.terminal.tty.spinner import Spinner
 from otaku.terminal.tty.typography import Streamer
 
@@ -145,6 +146,10 @@ def show(chat: Chat, events: Iterator[PlayEvent]) -> bool:
             chat.ledger.rule()
             out.write(f"{DIM}[ regenerating ]{RESET}\n\n")
         return True
+    if session.notification and not interrupted:
+        # The turn is over and the screen wants its reader back. Not
+        # after a Ctrl+C: whoever pressed it is already here.
+        ring(session.ui.notification_sound)
     return False
 
 

@@ -11,12 +11,11 @@ simply pastes nothing.
 import subprocess
 import sys
 
-# Tried in order, per platform; the first that runs wins. X11 has two
-# common tools and Wayland its own, none of them guaranteed present.
-_READERS: dict[str, tuple[list[str], ...]] = {
-    "darwin": (["pbpaste"],),
-    "win32": (["powershell", "-NoProfile", "-Command", "Get-Clipboard"],),
-}
+# Tried in order, per platform; the first that runs wins. macOS and
+# Windows each answer with one tool, while X11 has two common ones and
+# Wayland its own, none of them guaranteed present.
+_MACOS_READERS = (["pbpaste"],)
+_WINDOWS_READERS = (["powershell", "-NoProfile", "-Command", "Get-Clipboard"],)
 _UNIX_READERS = (
     ["wl-paste", "--no-newline"],
     ["xclip", "-selection", "clipboard", "-o"],
@@ -28,7 +27,7 @@ def paste() -> str:
     """The clipboard's text as one line — a url or an api key is one, and
     a pasted newline is noise. "" when nothing on this machine can read
     it, so the caller pastes nothing rather than failing."""
-    for command in _READERS.get(sys.platform, _UNIX_READERS):
+    for command in _readers():
         try:
             result = subprocess.run(command, capture_output=True, text=True, timeout=2, check=False)
         except (OSError, subprocess.SubprocessError):
@@ -43,3 +42,12 @@ def one_line(text: str) -> str:
     edges trimmed. Shared with the bracketed-paste path, so a clipboard
     read and a terminal paste land identically."""
     return text.replace("\r", "").replace("\n", "").strip()
+
+
+def _readers() -> tuple[list[str], ...]:
+    """This machine's clipboard tools, in the order to try them."""
+    if sys.platform == "darwin":
+        return _MACOS_READERS
+    if sys.platform == "win32":
+        return _WINDOWS_READERS
+    return _UNIX_READERS

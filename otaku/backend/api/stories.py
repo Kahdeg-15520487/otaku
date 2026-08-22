@@ -145,7 +145,7 @@ def delete(session: Session, story_id: int) -> None:
         session._story_id = None
         session._system = ""
         session._messages = []
-        session._save_state()
+        session._update_state()
 
 
 def edit_message(session: Session, message_id: int, body: str) -> None:

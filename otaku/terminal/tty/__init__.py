@@ -5,10 +5,10 @@ fixed ones, `str.format` templates for those parameterized by a row
 number) and the input-side helpers — `latin_key`, the confirm answers,
 and `ask`, the raw-tty question posture the real-terminal reads share;
 the siblings own the theme, the typesetter, row math (and the cursor's
-one real ask), the pinned row, the spinner, the banner, and the
-clipboard. `render` is the one member that knows the story's types (how
-a turn looks), placed here so prompt and screens can reach it from
-below chat.
+one real ask), the pinned row, the spinner, the banner, the clipboard,
+and the notification sound. `render` is the one member that knows the
+story's types (how a turn looks), placed here so prompt and screens can
+reach it from below chat.
 """
 
 import contextlib
@@ -33,6 +33,11 @@ DIM = "\x1b[2m"
 ITALIC = "\x1b[3m"
 RESET = "\x1b[0m"
 DEFAULT_BG = "\x1b[49m"  # back to the terminal's own background
+
+# Not a sequence but the one other byte otaku prints for its own sake:
+# the bell, whose meaning — a beep, a flash, a desktop notification —
+# belongs to the terminal and to whoever configured it.
+BELL = "\a"
 
 # Erasing and cursor motion
 CLEAR_SCREEN = "\x1b[H\x1b[2J"  # wipe the visible screen, cursor home; scrollback stays

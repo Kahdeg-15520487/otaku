@@ -80,14 +80,12 @@ def open_session(root: str | Path | None = None, *, ask_secret: AskSecret | None
     # A remembered model whose provider is still configured resumes; a
     # stale one is reported and skipped — the session opens modelless
     # and every model-facing door says so until a pick.
-    model_spec = state.model
-    provider, _, model = model_spec.partition("/")
-    if model_spec and (provider not in providers or not model):
+    if state.model and (state.provider not in providers or not state.bare_model):
         notices += [
-            f"The remembered model ({model_spec}) names no configured provider.",
+            f"The remembered model ({state.model}) names no configured provider.",
             NO_MODEL_HINT,
         ]
-        model_spec = ""
+        state = replace(state, model="")
 
     fresh = not paths.database_file.exists()
     store = Store.open(
@@ -121,7 +119,6 @@ def open_session(root: str | Path | None = None, *, ask_secret: AskSecret | None
             store=store,
             registry=registry,
             worker=worker,
-            model_spec=model_spec,
             state=state,
         )
     except BaseException:
@@ -274,6 +271,6 @@ def _seed_sample(session: Session) -> None:
                 # launch is the worst possible place for a traceback.
                 session.notices.append(f"The sample story could not be imported ({e}).")
                 return
-            session._save_state()
+            session._update_state()
             session.notice = _SAMPLE_NOTICE
             return

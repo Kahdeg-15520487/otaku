@@ -115,6 +115,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("/set parameter", "<name> <val>", "Set an inference parameter for the model; no <val> shows it, <val> = reset returns the default", "settings", CommandKind.OPERATION),
     CommandSpec("/set verbose", "on|off", "Show the stats line after each reply", "settings", CommandKind.OPERATION),
     CommandSpec("/set autocorrect", "on|off", "Settle a character name you type in /you and /me commands to the cast's own spelling", "settings", CommandKind.OPERATION),
+    CommandSpec("/set notification", "on|off", "Play a sound when a reply lands (the sound is configs/config.toml's notification_sound)", "settings", CommandKind.OPERATION),
     # Meta
     CommandSpec("/help", "", "Show this help", "meta", CommandKind.INTERACTIVE),
     CommandSpec("/bye", "", "Exit", "meta", CommandKind.INTERACTIVE),

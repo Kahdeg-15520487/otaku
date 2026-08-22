@@ -14,6 +14,13 @@ changes.
 
 **Full version:**
 
+### Added
+- `/set notification on|off` — off by default — plays a sound when a reply lands, for when you look
+  away mid-generation. Which sound is `configs/config.toml`'s `notification_sound`: `"default"` is
+  the platform's own (macOS's Glass, the freedesktop theme's on Linux), or name a file of your own.
+  A machine with no player, or a path that isn't there, rings the terminal bell instead — and what
+  a bell means is your terminal's business, which is where a notification belongs.
+
 ### Changed
 - The codebase is restructured around a frontend-agnostic core. Everything that is not the
   terminal — the session, the story and lore operations, the import and export formats, the

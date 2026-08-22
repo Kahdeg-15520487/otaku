@@ -30,10 +30,8 @@ def switch_model(session: Session, provider: str, model: str) -> str:
         raise Refused(f"Unknown provider {provider!r}.")
     if f"{provider}/{model}" == session.full_model_name:
         raise Refused(f"Already using {session.full_model_name}.")
-    session._provider = provider
-    session._model = model
+    session._update_state(model=f"{provider}/{model}")
     session._reload_params()
-    session._save_state()
     return f"Switched to {session.full_model_name}."
 
 

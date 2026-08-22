@@ -1,9 +1,11 @@
 """The model and the knobs: /model, /set think, /set verbose,
-/set parameter — and what each remembers across a relaunch.
+/set parameter, /set notification — and what each remembers across a
+relaunch.
 
-The design: `/set think` and `/set verbose` are session-wide and persist
-in the app's own state; `/set parameter` follows the MODEL it was set on;
-a model switch keeps the story context and is remembered as last used.
+The design: `/set think`, `/set verbose` and `/set notification` are
+session-wide and persist in the app's own state; `/set parameter`
+follows the MODEL it was set on; a model switch keeps the story context
+and is remembered as last used.
 """
 
 import contextlib
@@ -12,6 +14,7 @@ import tomllib
 
 from otaku.backend.api import providers as api_providers
 from otaku.encryption import unseal
+from otaku.terminal.chat import stream
 from otaku.terminal.screens import models as screen_models
 from otaku.terminal.tty import clipboard
 from scenarios.support import server as scripted
@@ -214,6 +217,40 @@ class TestVerbose:
         relaunched = launch(app.paths.root, app.server)
         assert relaunched.session.verbose is True
         relaunched.close()
+
+
+class TestNotification:
+    """Off by default, so nobody is rung by an upgrade; on, a landed
+    reply calls the reader back. WHAT it plays is the platform's — only
+    that it rang is the app's promise."""
+
+    def test_the_toggle_is_remembered(self, app: App) -> None:
+        app.play("/set notification on")
+        relaunched = launch(app.paths.root, app.server)
+        assert relaunched.session.notification is True
+        relaunched.close()
+
+    def test_a_landed_reply_rings_once(self, app: App, monkeypatch) -> None:
+        rung = _record_rings(monkeypatch)
+        app.play("/set notification on")
+        app.play("I enter the hall.")
+        assert len(rung) == 1
+
+    def test_nothing_rings_while_it_is_off(self, app: App, monkeypatch) -> None:
+        rung = _record_rings(monkeypatch)
+        app.play("I enter the hall.")  # off is the default
+        app.play("/set notification off")
+        app.play("I look around.")
+        assert rung == []
+
+    def test_the_configured_sound_is_what_goes_to_the_player(self, app: App, monkeypatch) -> None:
+        # config.toml names it; the terminal only passes it along, so a
+        # path the platform cannot play is the player's business, not the
+        # session's.
+        rung = _record_rings(monkeypatch)
+        app.play("/set notification on")
+        app.play("I enter the hall.")
+        assert rung == ["default"]
 
 
 class TestManagedPicker:
@@ -478,3 +515,11 @@ def _unsealed(app: App, value: str) -> str:
     """A sealed providers.toml value opened over the state dir's file
     key — the way the launch opens it."""
     return unseal(value, key_file=app.paths.config_key_file, service="scenario:none")
+
+
+def _record_rings(monkeypatch) -> list[str]:
+    """Every sound the terminal asked for — patched where the stream
+    reads it, so a test never actually makes a noise."""
+    rung: list[str] = []
+    monkeypatch.setattr(stream, "ring", rung.append)
+    return rung
