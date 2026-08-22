@@ -301,10 +301,11 @@ def _make_bindings(
         # muscle memory can never quit the session over a draft.
         kb.add(key, filter=_EMPTY_LINE if key == "c-d" else True)(_submit_shortcut(command, carry))
 
-    # Tab always FILLS a pre-selected row. Enter fills it too when the row
-    # leaves the line incomplete — sending would run half a line — and
-    # otherwise sends, because a command that stands alone is complete the
-    # moment it is chosen. The default bindings can't do
+    # Tab always FILLS a pre-selected row. Enter fills it too when
+    # anything can follow the row — a parameter, required or optional, or
+    # a subcommand — and otherwise sends, because a command that takes
+    # nothing is complete the moment it is chosen. The default bindings
+    # can't do
     # either: they treat the highlight as already-inserted text, but
     # _preselect_first only sets the index, so the buffer still holds
     # exactly what was typed.
@@ -406,17 +407,17 @@ def _accept_selection(buff: Buffer) -> bool:
     selection is already inserted). Guards the index against an empty list
     so a stray state can never raise.
 
-    True when the row leaves the line incomplete: it took a space with it,
-    so the rest can be typed straight on and a subcommand's own menu opens,
-    and there is more to write before it can be sent. False when the row
-    completes the line — an optional parameter counts as complete — so
-    Enter may send."""
+    True when the row can take something after it: it took a space with
+    it, so the rest can be typed straight on and a subcommand's own menu
+    opens. Optional parameters count — the row was chosen over the bare
+    line, and Enter on the line as it stands still sends. False only when
+    nothing can follow, and then Enter may send at once."""
     state = buff.complete_state
     if state is None or state.complete_index is None or not state.completions:
         return False
     completion = state.completions[state.complete_index]
     buff.apply_completion(completion)
-    if not getattr(completion, "argument_required", False):
+    if not getattr(completion, "takes_argument", False):
         return False
     buff.insert_text(" ")
     return True

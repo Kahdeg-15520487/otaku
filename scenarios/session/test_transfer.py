@@ -306,6 +306,29 @@ class TestExport:
         assert "Seraphina joins the story" in wire
         assert "/card" not in wire
 
+    def test_a_name_without_an_extension_gets_md(self, app: App, tmp_path: Path) -> None:
+        app.play("I enter the hall.")
+        app.play(f"/export {tmp_path / 'glade'}")
+        assert (tmp_path / "glade.md").read_text().startswith(EXPORT_MARKER)
+        assert not (tmp_path / "glade").exists()
+
+    def test_a_name_with_one_keeps_it(self, app: App, tmp_path: Path) -> None:
+        app.play("I enter the hall.")
+        app.play(f"/export {tmp_path / 'glade.txt'}")
+        assert (tmp_path / "glade.txt").read_text().startswith(EXPORT_MARKER)
+        assert not (tmp_path / "glade.txt.md").exists()
+
+    def test_an_existing_directory_is_left_to_fail(self, app: App, tmp_path: Path, capsys) -> None:
+        # `.md` here would write a file BESIDE the directory the user
+        # named; the write refusing out loud is the honest answer.
+        target = tmp_path / "somewhere"
+        target.mkdir()
+        app.play("I enter the hall.")
+        capsys.readouterr()
+        app.play(f"/export {target}")
+        assert "Could not write" in capsys.readouterr().out
+        assert not (tmp_path / "somewhere.md").exists()
+
     def test_overwriting_an_existing_file_needs_a_yes(
         self, app: App, tmp_path: Path, monkeypatch
     ) -> None:

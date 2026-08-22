@@ -98,14 +98,16 @@ def fork(session: Session, raw: str = "") -> str:
     return f"Forked to: {label}." if label else "Forked."
 
 
-def new(session: Session) -> str:
-    """Detach into a brand-new story (created on the first real turn, so
-    an immediate exit leaves no empty row); returns the notice."""
-    session._story_id = None
-    session._system = ""
-    session._messages = []
-    session._save_state()  # a relaunch starts fresh, like this session
-    return "Started a new story."
+def new(session: Session, raw: str = "") -> str:
+    """Start a brand-new story, created AT ONCE — it is in the browser
+    and carries its title before its first turn, not after. `raw` is the
+    optional TITLE. Returns the notice."""
+    title = raw.strip()
+    session._switch_to(session._store.stories.add(title=title or None))
+    session._search_index = None
+    if not title:
+        return "Started a new story."
+    return f'Started a new story: "{truncate_label(title, LABEL_WIDTH)}".'
 
 
 def set_title(session: Session, raw: str) -> str:

@@ -52,14 +52,15 @@ _THINK_MENU = ("on", "off", "none", "low", "medium", "high", "max", "default")
 
 
 class MenuRow(Completion):
-    """A menu row that also says whether the token it inserts leaves the
-    line incomplete. The prompt adds a space when accepting one, so the
-    rest can be typed straight on — and leaves a command that stands
-    alone ready to send, optional parameters included."""
+    """A menu row that also says whether anything can follow the token it
+    inserts. The prompt adds a space when accepting one, so the rest can
+    be typed straight on — required or optional alike, since a row that
+    takes a parameter is chosen to be given one. Only a command that
+    takes nothing at all is ready to send the moment it is chosen."""
 
-    def __init__(self, *args: Any, argument_required: bool, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, takes_argument: bool, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self.argument_required = argument_required
+        self.takes_argument = takes_argument
 
 
 class _Surface(Completer):
@@ -312,15 +313,16 @@ def _arguments(path: tuple[str, ...]) -> str:
     return " ".join(words[len(path) :])
 
 
-def _needs_argument(path: tuple[str, ...]) -> bool:
-    """Whether the row at `path` leaves the line incomplete — something
-    required follows (a parameter, a subcommand). A bracketed follower is
-    optional and the bare command sends."""
+def _takes_argument(path: tuple[str, ...]) -> bool:
+    """Whether anything can follow the row at `path` — a parameter or a
+    subcommand, REQUIRED OR OPTIONAL. A bracketed follower counts: the
+    row that takes it was chosen over the bare line, so the space is
+    what the user is after, and Enter on the emptied line still sends."""
     spec = _spec_for(path)
     if spec is None:
         return False
     words = f"{spec.token} {spec.args}".split()
-    return len(words) > len(path) and not words[len(path)].startswith("[")
+    return len(words) > len(path)
 
 
 def _cast_rows(command: str, segment: str, cast: Cast) -> Iterator[Completion]:
@@ -359,7 +361,7 @@ def _name_rows(cast: Cast, typed: str, *, suffix: str, required: bool) -> Iterat
                 start_position=-len(typed),
                 display=name.ljust(width),
                 display_meta=about or None,
-                argument_required=required,
+                takes_argument=required,
             )
 
 
@@ -389,7 +391,7 @@ def _rows(
                     ("dim", f"  {keys[key].ljust(shortcut_width)}" if shortcut_width else ""),
                 ],
                 display_meta=meta.ljust(meta_width) if meta_width else None,
-                argument_required=_needs_argument((*path, key)),
+                takes_argument=_takes_argument((*path, key)),
             )
 
 

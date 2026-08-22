@@ -284,23 +284,37 @@ class TestTitle:
 
 
 class TestNew:
-    def test_new_detaches_and_the_next_turn_starts_fresh(self, app: App, capsys) -> None:
+    def test_new_starts_the_story_at_once(self, app: App, capsys) -> None:
         app.play("I enter the hall.")
         original = app.session.story_id
         app.play("/new")
-        out = capsys.readouterr().out
-        assert "Started a new story." in out
-        assert app.session.story_id is None
+        assert "Started a new story." in capsys.readouterr().out
+        started = app.session.story_id
+        assert started is not None and started != original
+        # Browsable before its first turn — the reason it is created here
+        # and not at the turn.
+        assert started in {row.id for row in app.store.stories.list()}
         assert app.session.messages == []
-        # A relaunch starts fresh too, not back in the left story.
-        relaunched = launch(app.paths.root, app.server)
-        assert relaunched.session.story_id is None
-        relaunched.close()
 
         app.play("A different beginning.")
-        assert app.session.story_id != original
+        assert app.session.story_id == started  # the turn lands in it, not in another
         # The left story is intact, ready to be resumed from the browser.
         assert len(app.store.stories.get_messages(original)) == 2
+
+    def test_the_started_story_is_where_a_relaunch_lands(self, app: App) -> None:
+        app.play("I enter the hall.")
+        app.play("/new")
+        relaunched = launch(app.paths.root, app.server)
+        assert relaunched.session.story_id == app.session.story_id
+        relaunched.close()
+
+    def test_new_names_the_story_it_starts(self, app: App, capsys) -> None:
+        app.play("/new The Second Tale")
+        assert "The Second Tale" in capsys.readouterr().out
+        assert app.store.stories.get(app.session.story_id).title == "The Second Tale"
+        # The name is on the row, so /title and the browser read it from
+        # the one place a title lives.
+        assert app.store.stories.list()[0].label == "The Second Tale"
 
 
 def picks(story_id: int, upto: int | None = None, action: str = "resume") -> Picker:

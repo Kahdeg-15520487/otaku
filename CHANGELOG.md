@@ -33,6 +33,20 @@ changes.
   cold still counts as used, because reclaiming it means compressing or swapping it first. The
   Linux figure is unchanged — the kernel's `MemAvailable` already drew the line there.
 - Requests to OpenRouter now name otaku as the app that sent them.
+- `/new` takes an optional TITLE — `/new The Long Road` names the story as it starts — and creates
+  the story at once, so it is in `/stories` with its name before its first turn, where before it
+  appeared only once you had played one.
+- `/help` fits the screen: two columns on a wide terminal, one on a narrow one, and a description
+  that wraps in its own column instead of running off the edge. The command column is spelled
+  shorter here than the reference is — `/set verbose` rather than `/set verbose on|off`, `/model
+  [SPEC]` with PROVIDER/MODEL moved into the description — and what a command takes is still shown
+  in full by the menu as you type it.
+- `/export NAME` adds `.md` when the name carries no extension of its own, since the document is
+  Markdown — `/export glade` writes `glade.md`. A name with an extension keeps it.
+- Enter on a menu row that takes a parameter completes the command and waits, whether the
+  parameter is required or optional — before, a command whose parameter was optional ran on the
+  spot, and there was no way to pick `/fork` from the menu and then name the fork. Enter sends it
+  bare from there, so a command that takes nothing still runs in one press.
 
 ### Fixed
 - A sealing key that cannot be read no longer ends the launch with a traceback: the provider it

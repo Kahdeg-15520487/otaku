@@ -58,14 +58,6 @@ class CommandSpec:
     group: str
     kind: CommandKind
 
-    @property
-    def needs_argument(self) -> bool:
-        """Whether the command is incomplete as it stands (its shape
-        names a required follower). A bracketed follower is optional
-        (`/usage [all]`) — the bare command is both valid and the usual
-        thing meant."""
-        return bool(self.args) and not self.args.startswith("[")
-
 
 def _direction(token: str, description: str) -> CommandSpec:
     """A direction's row: token and argument shape read off the Line
@@ -102,7 +94,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("/fork", "[TITLE]", "Continue in a copy of this story; the original stays", "stories", CommandKind.OPERATION),
     CommandSpec("/system", "<text | FILE>", "Set the system prompt for this story — either directly or from a file", "stories", CommandKind.INTERACTIVE),
     CommandSpec("/title", "NEW", "Set the story title", "stories", CommandKind.OPERATION),
-    CommandSpec("/new", "", "Clear context and start a new story", "stories", CommandKind.OPERATION),
+    CommandSpec("/new", "[TITLE]", "Clear context and start a new story", "stories", CommandKind.OPERATION),
     # Lore
     CommandSpec("/lore", "", "Browse and edit the memory: scenes, cast, journals", "lore", CommandKind.INTERACTIVE),
     CommandSpec("/cast", "", "The same browser, opened directly on the cast", "lore", CommandKind.INTERACTIVE),

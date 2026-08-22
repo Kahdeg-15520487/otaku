@@ -11,7 +11,9 @@ rides on it). The shortcut table carries both spellings of each key —
 the binding form and the caption — so no seam translates by hand.
 """
 
+import shutil
 import sys
+import textwrap
 from collections.abc import Callable
 from pathlib import Path
 from typing import NamedTuple
@@ -117,37 +119,147 @@ def dispatch(chat: Chat, line: str) -> bool:
     return True
 
 
-def help_text() -> str:
-    """The shared table's help plus the terminal's own keys section and
-    shortcut column — rebuilt from `COMMANDS` (the shared `help_text`
-    has no key column to widen)."""
-    labels = {spec.token: f"{spec.token} {spec.args}".strip() for spec in commands.COMMANDS}
-    width = max(
-        max(len(label) for label in labels.values()),
-        max(len(key) for key, _ in _KEY_ROWS),
-        len("PROMPT"),
-    )
-    key_width = max(len(s.caption) for s in SHORTCUTS.values())
-    lines: list[str] = []
+def help_text(width: int | None = None) -> str:
+    """The shared table's help, spelled for a terminal: the shortcut
+    column the shared `help_text` has no room for, the argument shapes a
+    narrow command column cannot afford (`_HELP_SPELLINGS`), and a
+    layout that fits the screen — TWO columns when both hold a readable
+    description, one otherwise. A description wraps inside its own
+    column, its continuation under it, so no row is ever cut. `width`
+    stands in for the measured terminal."""
+    columns = shutil.get_terminal_size().columns if width is None else width
+    blocks = _help_blocks()
+    stacked = _help_stacked(_help_render(blocks, columns))
+    half = (columns - _HELP_GAP) // 2
+    if half - _help_widths(blocks)[2] < _HELP_MIN_DESCRIPTION:
+        return "\n".join(stacked)
+    cut = _help_cut(_help_render(blocks, half))
+    left = _help_stacked(_help_render(blocks[:cut], half))
+    right = _help_stacked(_help_render(blocks[cut:], half))
+    beside = _help_beside(left, right)
+    # Two columns only where they actually save height: halving the
+    # description width costs wrapped lines, and just above the floor
+    # that costs back everything the split saves.
+    if len(beside.splitlines()) > len(stacked) * (1 - _HELP_TWO_COLUMN_SAVING):
+        return "\n".join(stacked)
+    return beside
+
+
+# The terminal spells a few rows shorter than the shared table does: its
+# command column is narrow where a web page's is not, so an argument
+# shape that costs more than it explains is dropped here — and where
+# dropping it would lose something, the description picks it up. The
+# TABLE is untouched: this is one frontend's spelling, not the command.
+_HELP_SPELLINGS: dict[str, tuple[str, str]] = {
+    "/model": ("[SPEC]", "Switch model — SPEC is PROVIDER/MODEL; bare opens the picker"),
+    "/set parameter": ("", ""),
+    "/set verbose": ("", ""),
+    "/set autocorrect": ("", ""),
+}
+
+_HELP_GAP = 5  # columns between the two help columns
+_HELP_INDENT = 2
+_HELP_KEY_GAP = 2  # between the command column and the shortcut column
+# A description column narrower than this reads worse than a tall
+# single column, so the second column is not worth taking.
+_HELP_MIN_DESCRIPTION = 26
+# Nor is it worth taking for a sliver: the split must save at least this
+# share of the height to be worth the wrapping it forces.
+_HELP_TWO_COLUMN_SAVING = 0.1
+
+# One help block: its heading ("" for a group that names itself) and its
+# rows, each a (label, shortcut caption, description).
+_HelpBlock = tuple[str, list[tuple[str, str, str]]]
+
+
+def _help_blocks() -> list[_HelpBlock]:
+    """The help's groups in the table's order, the terminal's own
+    spellings applied, with the keys section last."""
+    blocks: list[_HelpBlock] = []
     group = None
     for spec in commands.COMMANDS:
         if spec.group != group:
             group = spec.group
-            if lines:
-                lines.append("")
-            heading = _GROUP_HEADINGS[group]
-            if heading:
-                lines.append(heading)
+            blocks.append((_GROUP_HEADINGS[group], []))
             if group == "playing":
-                pad = " " * (width + key_width - len("PROMPT"))
-                lines.append(f"  PROMPT{pad}  {commands.PROSE_DESCRIPTION}")
+                blocks[-1][1].append(("PROMPT", "", commands.PROSE_DESCRIPTION))
+        args, description = spec.args, spec.description
+        if spec.token in _HELP_SPELLINGS:
+            args, replacement = _HELP_SPELLINGS[spec.token]
+            description = replacement or description
         caption = SHORTCUTS[spec.token].caption if spec.token in SHORTCUTS else ""
-        row = f"  {labels[spec.token]:<{width}} {caption:<{key_width}}  {spec.description}"
-        lines.append(row.rstrip())
-    lines += ["", "Keys at the prompt:"]
-    for key, description in _KEY_ROWS:
-        lines.append(f"  {key:<{width}} {'':<{key_width}}  {description}")
-    return "\n".join(lines)
+        blocks[-1][1].append((f"{spec.token} {args}".strip(), caption, description))
+    blocks.append(("Keys at the prompt:", [(key, "", text) for key, text in _KEY_ROWS]))
+    return blocks
+
+
+def _help_widths(blocks: list[_HelpBlock]) -> tuple[int, int, int]:
+    """The command column, the shortcut column, and the two plus their
+    padding — where a row's description begins."""
+    rows = [row for _, block_rows in blocks for row in block_rows]
+    label = max((len(label) for label, _, _ in rows), default=0)
+    key = max((len(caption) for _, caption, _ in rows), default=0)
+    return label, key, _HELP_INDENT + label + _HELP_KEY_GAP + key + 2
+
+
+def _help_render(blocks: list[_HelpBlock], width: int) -> list[list[str]]:
+    """Each block's lines at `width` columns — its own columns measured
+    over these blocks alone, so a column packs to what it actually
+    holds."""
+    label_width, key_width, head = _help_widths(blocks)
+    description_width = max(_HELP_MIN_DESCRIPTION, width - head)
+    rendered = []
+    for heading, rows in blocks:
+        lines = [heading] if heading else []
+        for label, caption, description in rows:
+            lead = (
+                f"{'':<{_HELP_INDENT}}{label:<{label_width}}"
+                f"{'':<{_HELP_KEY_GAP}}{caption:<{key_width}}  "
+            )
+            # Never at a hyphen: "mid-stream" and "in-flight" are words,
+            # and a column is no reason to break one. A token too long
+            # for the column still breaks — the layout's width is a
+            # promise, and a value list is the only thing that long.
+            wrapped = textwrap.wrap(description, description_width, break_on_hyphens=False) or [""]
+            lines.append((lead + wrapped[0]).rstrip())
+            lines.extend((" " * len(lead) + more).rstrip() for more in wrapped[1:])
+        rendered.append(lines)
+    return rendered
+
+
+def _help_stacked(rendered: list[list[str]]) -> list[str]:
+    """The blocks down one column, a blank line between them."""
+    lines: list[str] = []
+    for block in rendered:
+        if lines:
+            lines.append("")
+        lines += block
+    return lines
+
+
+def _help_cut(rendered: list[list[str]]) -> int:
+    """The block the second column starts at — the split that leaves the
+    two nearest to equal height. A group is never broken across them,
+    and the first block always stays left."""
+    heights = [len(block) + 1 for block in rendered]
+    half = (sum(heights) + 1) // 2
+    taken = 0
+    for i, height in enumerate(heights):
+        if i and taken + height > half:
+            return i
+        taken += height
+    return len(rendered)
+
+
+def _help_beside(left: list[str], right: list[str]) -> str:
+    """Two columns side by side, the shorter one running out first."""
+    width = max((len(line) for line in left), default=0)
+    rows = []
+    for i in range(max(len(left), len(right))):
+        start = left[i] if i < len(left) else ""
+        end = right[i] if i < len(right) else ""
+        rows.append(f"{start:<{width}}{' ' * _HELP_GAP}{end}".rstrip())
+    return "\n".join(rows)
 
 
 # The /help group headings, matching the shared table's groups; "" for a
@@ -304,7 +416,7 @@ def _new(chat: Chat, raw: str) -> None:
     """The one OPERATION with a handler (see `OPERATIONS`): the story
     swaps under the screen, so the break rule draws over the notice."""
     chat.ledger.rule()
-    chat.say(api_stories.new(chat.session))
+    chat.say(api_stories.new(chat.session, raw))
 
 
 def _lore(chat: Chat, raw: str) -> None:
@@ -446,12 +558,17 @@ def _import(chat: Chat, raw: str) -> None:
 def _export(chat: Chat, raw: str) -> None:
     """Render the document, confirm an overwrite, write the file. No
     name writes `<story-title>.md` (or story.md) in the current
-    directory; an existing file prompts before overwriting (default
-    no). A leading `@` — the path-completion trigger — is not part of
-    the name."""
+    directory; a name carrying no extension of its own gets `.md`, since
+    the document is one; an existing file prompts before overwriting
+    (default no). A leading `@` — the path-completion trigger — is not
+    part of the name."""
     document = api_transfer.export(chat.session)
     name = raw.strip().removeprefix("@")
     path = Path(name).expanduser() if name else Path(api_transfer.export_name(chat.session))
+    # An existing DIRECTORY keeps its name: `.md` would write a file
+    # beside it, where the write refusing out loud is the honest answer.
+    if not path.suffix and not path.is_dir():
+        path = path.with_suffix(api_transfer.EXPORT_SUFFIX)
     # A name the filesystem will not even look up (too long, say) is not
     # an existing file: fall through, and let the write refuse out loud.
     if _existing_file(str(path)) is not None:

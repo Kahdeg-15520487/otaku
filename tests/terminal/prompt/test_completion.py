@@ -153,7 +153,7 @@ class TestRowShape:
         assert len(starts) == 1
 
     def test_a_command_without_one_shows_none(self) -> None:
-        assert _shown("/new") == "/new"
+        assert _shown("/clear") == "/clear"
         assert _shown("/card") == "/card FILE [NAME]"
 
     def test_only_the_command_is_undimmed(self) -> None:
@@ -168,6 +168,32 @@ class TestRowShape:
         assert len(widths) == 1
 
 
+class TestTakesArgument:
+    """The flag the prompt accepts a row by: True takes a space and waits,
+    False sends. Anything that can follow counts — a bracketed parameter
+    is offered because it was chosen, and the bare line is one Enter away
+    either way."""
+
+    def test_a_required_parameter_takes_one(self) -> None:
+        for command in ("/title", "/import", "/me", "/system", "/merge"):
+            assert _takes(command) is True, command
+
+    def test_an_optional_parameter_takes_one_too(self) -> None:
+        for command in ("/new", "/fork", "/usage", "/last", "/export", "/model"):
+            assert _takes(command) is True, command
+
+    def test_a_command_that_takes_nothing_does_not(self) -> None:
+        for command in ("/undo", "/regen", "/clear", "/info", "/help", "/bye"):
+            assert _takes(command) is False, command
+
+    def test_a_subcommand_counts_as_a_follower(self) -> None:
+        # /set is incomplete without one of its family, and each of those
+        # takes its own value.
+        assert _takes("/set") is True
+        row = next(r for r in _rows_for("/set ") if r.text == "think")
+        assert row.takes_argument is True
+
+
 class TestCastSuggestions:
     """The commands whose argument is a character offer the cast, shaped
     per command: /me inserts `Name:` and the prompt follows, /you inserts
@@ -180,11 +206,11 @@ class TestCastSuggestions:
     def test_me_offers_names_with_the_colon(self) -> None:
         rows = self._rows("/me ")
         assert [r.text for r in rows] == ["Elara:", "The Keeper:"]
-        assert all(r.argument_required for r in rows)
+        assert all(r.takes_argument for r in rows)
 
     def test_you_offers_bare_names(self) -> None:
         rows = self._rows("/you el")
-        assert [(r.text, r.start_position, r.argument_required) for r in rows] == [
+        assert [(r.text, r.start_position, r.takes_argument) for r in rows] == [
             ("Elara", -2, False)
         ]
 
@@ -195,9 +221,9 @@ class TestCastSuggestions:
     def test_merge_completes_both_sides(self) -> None:
         first = self._rows("/merge ")
         assert [r.text for r in first] == ["Elara into", "The Keeper into"]
-        assert all(r.argument_required for r in first)
+        assert all(r.takes_argument for r in first)
         second = self._rows("/merge The Keeper into el")
-        assert [(r.text, r.start_position, r.argument_required) for r in second] == [
+        assert [(r.text, r.start_position, r.takes_argument) for r in second] == [
             ("Elara", -2, False)
         ]
 
@@ -226,6 +252,12 @@ def _shown(command: str) -> str:
     """A row's visible label, padding dropped."""
     row = next(r for r in _rows_for(command) if r.text == command)
     return "".join(text for _, text in row.display).rstrip()
+
+
+def _takes(command: str) -> bool:
+    """Whether accepting `command`'s own row leaves the line open."""
+    row = next(r for r in _rows_for(command) if r.text == command)
+    return bool(row.takes_argument)
 
 
 # The captions arrive as DATA (`chat.bindings.SHORTCUTS` in the app);

@@ -21,6 +21,11 @@ from otaku.backend.formats.plaintext import parse_plaintext
 from otaku.backend.formats.sillytavern import parse_sillytavern
 from otaku.backend.session import Refused, Session
 
+# What an export is: one Markdown document. A frontend that lets the user
+# name the file supplies this where the name carries no extension of its
+# own, so the suffix is spelled once for both of them.
+EXPORT_SUFFIX = ".md"
+
 
 @dataclass(frozen=True)
 class ImportedStory:
@@ -113,4 +118,4 @@ def export_name(session: Session) -> str:
     story = session._store.stories.get(session.story_id) if session.story_id is not None else None
     stem = re.sub(r"[^\w\s-]", "", (story.title if story else "").lower())
     slug = re.sub(r"[\s_-]+", "-", stem).strip("-")
-    return f"{slug or 'story'}.md"
+    return f"{slug or 'story'}{EXPORT_SUFFIX}"
