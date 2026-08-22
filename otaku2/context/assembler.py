@@ -1,0 +1,387 @@
+"""The prompt assembler — composes what the model sees each turn.
+
+HEAD + RECAP + TAIL: the opening verbatim (it carries the story's
+voice), the closed scenes between head and tail as their summaries in
+one recap interlude, the tail verbatim and scene-aligned. Card rows are
+never summarized and never evicted; the recap is capped at a fraction of
+the budget, the oldest summaries giving way to the story-so-far rollup;
+over budget the tail trims oldest-first on a block boundary (prompt-cache
+friendly), the head giving way only when nothing else can. The wire
+promise: the code adds NOTHING but the recap — bodies go out exactly as
+stored, composed per turn by `syntax.to_wire`.
+
+The shape is deliberately story-like, because injected structure breaks
+a roleplay model's prose: the system message is the user's own text,
+untouched; the recap is prose and nothing else — journals stay in the
+store, never in the prompt. Inside the assembler every part is a row:
+the header, the rollup, and each summary are synthesized user rows
+(`kind="recap"` — wire-only, such a row is never stored), so the recap
+is joined by the one merge in `_wire_turns` and nothing is hand-glued.
+The wire unit is the exchange: consecutive same-role rows (a `/me`
+direction beside its line, the recap beside the tail) merge into one
+turn, blank-line separated, so the wire alternates the way a chat API
+expects; roles are fixed as stored — nothing relabels them.
+"""
+
+from bisect import bisect_left
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
+
+from otaku2.context import syntax
+from otaku2.context.cards import card_to_wire
+from otaku2.store import Store
+from otaku2.store.schema import Message, Scene
+
+_DEFAULT_CONTEXT = 8_192  # when the engine doesn't expose the loaded window
+_RESPONSE_RESERVE = 1_024  # tokens left for the model's reply
+_MIN_KEEP = 2  # never trim the transcript below this many messages
+_TRIM_SLACK = 0.1  # over-budget trims aim this far below budget (headroom)
+# The trim's cut is snapped to a multiple of this, so the tail starts at
+# the same message for this many turns instead of sliding every turn.
+_TRIM_BLOCK = 10
+# The recap may take at most this share of the budget. Beyond it, the
+# OLDEST scene summaries drop out and the story-so-far rollup is prepended
+# in their place.
+_RECAP_FRACTION = 0.25
+
+
+@dataclass(frozen=True)
+class ContextShape:
+    """The shaping settings an assembly runs under — read off the session
+    or carried by a worker Job, so the two can never disagree."""
+
+    # All required: the values come from the config and the prompts —
+    # defaults here would be a second copy of theirs.
+    head_messages: int
+    tail_messages: int
+    recap_header: str
+    card_framing: str  # the card block template, for composing card rows
+
+
+@dataclass(frozen=True)
+class WireTurn:
+    """One turn as SENT — composed wire text, nothing else. A distinct
+    type from the stored `Message` on purpose: a stored row's body is
+    the line as typed, a wire turn's body is what the model receives,
+    and the boundary between them is type-checked, not remembered.
+    (`body`, not `text`, so it satisfies `providers.WireMessage`.)"""
+
+    role: str
+    body: str
+
+
+@dataclass(frozen=True)
+class AssembledPrompt:
+    """The wire-ready request plus the numbers behind it."""
+
+    messages: list[WireTurn]  # [system?] + the wire turns
+    context_max: int
+    system_tokens: int
+    transcript_tokens: int  # head + recap + tail estimate
+    head_count: int  # verbatim opening messages on the wire
+    scenes_summarized: int  # scene summaries standing in for the middle
+    scenes_rolled_up: int  # older scenes the story-so-far rollup covers instead
+    recap: str  # the recap text, "" when none (the preview keys on it)
+    transcript_kept: int  # verbatim messages on the wire (head + tail)
+    transcript_total: int
+
+    @property
+    def total_tokens(self) -> int:
+        return self.system_tokens + self.transcript_tokens
+
+
+def estimate_tokens(text: str) -> int:
+    """~4 chars/token — close enough for budgeting without a tokenizer."""
+    return max(1, len(text) // 4)
+
+
+def assemble(
+    system: str,
+    messages: list[Message],
+    context_max: int | None,
+    *,
+    scenes: Sequence[Scene] = (),
+    shape: ContextShape,
+) -> AssembledPrompt:
+    """Compose the next request from a transcript and its current scenes.
+    With no covering scene — or a transcript short enough — this degrades
+    to the raw prompt a plain chat would send. Pure over its inputs: card
+    rows must arrive with their bodies already composed. The shape's
+    `recap_header`, when non-empty, opens the recap block; it is sent, so
+    the preview needs no heading of its own."""
+    window = context_max or _DEFAULT_CONTEXT
+    system_tokens = estimate_tokens(system) if system else 0
+    budget = max(0, window - _RESPONSE_RESERVE - system_tokens)
+
+    head, chapters, tail = _split_transcript(
+        messages, scenes, shape.head_messages, shape.tail_messages
+    )
+    recap_rows, kept_summaries, rolled_up = _recap_rows(
+        chapters, scenes, shape.recap_header, budget
+    )
+    # The recap's cost and the preview's marker are its merged text — the
+    # join `_wire_turns` will make of these rows.
+    recap = "\n\n".join(_wire_text(m) for m in recap_rows)
+
+    used = (
+        sum(_wire_tokens(m) for m in head)
+        + (estimate_tokens(recap) if recap else 0)
+        + sum(_wire_tokens(m, is_last=i == len(tail) - 1) for i, m in enumerate(tail))
+    )
+    if used > budget:
+        used, head, tail = _trim_overflow(used, head, tail, budget)
+
+    wire: list[WireTurn] = []
+    if system:
+        wire.append(WireTurn(role="system", body=system))
+    wire.extend(_wire_turns(head + recap_rows + tail))
+    return AssembledPrompt(
+        messages=wire,
+        context_max=window,
+        system_tokens=system_tokens,
+        transcript_tokens=used,
+        head_count=len(head),
+        scenes_summarized=kept_summaries,
+        scenes_rolled_up=rolled_up,
+        recap=recap,
+        transcript_kept=len(head) + len(tail),
+        transcript_total=len(messages),
+    )
+
+
+def assemble_story(
+    store: Store,
+    story_id: int | None,
+    *,
+    system: str,
+    messages: list[Message],
+    shape: ContextShape,
+    context_max: int | None,
+) -> AssembledPrompt:
+    """`assemble` over the story's CURRENT scenes and card archives — the
+    one wrapper every call site (the turn, the preview, the warm-up) goes
+    through, so none can disagree on what the next request looks like.
+    Card rows compose HERE, from the cast's current archives: the stored
+    row is the line as typed, and what it sends follows the TOML wherever
+    a lore edit took it. The package's one store read; it writes nothing."""
+    scenes = _current_scenes(store, story_id, messages)
+    return assemble(
+        system,
+        _composed_cards(store, story_id, messages, shape.card_framing),
+        context_max,
+        scenes=scenes,
+        shape=shape,
+    )
+
+
+# ---------- assembly internals ----------
+
+
+def _current_scenes(store: Store, story_id: int | None, messages: list[Message]) -> list[Scene]:
+    if story_id is None or not messages:
+        return []
+    return store.scenes.get_current(story_id, [m.id for m in messages])
+
+
+def _composed_cards(
+    store: Store, story_id: int | None, messages: list[Message], card_framing: str
+) -> list[Message]:
+    """The transcript with each card row's wire text composed from its
+    character's archive (`cards.card_to_wire`), found through the row's
+    speaker link. A row with no reachable archive — the body predates the
+    typed-row shape, or the link is gone — sends its body as it stands."""
+    if story_id is None or all(m.kind != "card" for m in messages):
+        return messages
+    archives = {c.id: c.card for c in store.characters.list(story_id) if c.card}
+    out: list[Message] = []
+    for m in messages:
+        toml = archives.get(m.speaker_id) if m.kind == "card" and m.speaker_id else None
+        out.append(replace(m, body=card_to_wire(toml, card_framing)) if toml else m)
+    return out
+
+
+@dataclass
+class _Chapter:
+    """One covered scene of the recap: its summary and the card rows its
+    span held — paired so the cap can drop a summary without losing what
+    must float (`_recap_rows`)."""
+
+    cards: list[Message]
+    summary: str
+
+
+def _split_transcript(
+    messages: list[Message],
+    scenes: Sequence[Scene],
+    head_messages: int,
+    tail_messages: int,
+) -> tuple[list[Message], list[_Chapter], list[Message]]:
+    """HEAD + the covered scenes as chapters + TAIL. The tail is
+    scene-aligned: it starts right after the last summarized scene's end,
+    targeting the most recent `tail_messages`. Scenes ending inside the
+    head or the tail stay verbatim there and are not summarized.
+
+    A card row in the replaced region is never replaced with it: it joins
+    the chapter of the first covered scene ending at or after it — the
+    summary it will stand in front of. A card's position deliberately
+    does not matter, its retention does. Falls back to
+    everything-verbatim when the transcript is short or no scene summary
+    covers the middle."""
+    if len(messages) <= head_messages + tail_messages:
+        # Everything verbatim — but split the head off anyway: a story can
+        # be short by count and still overflow the window, and the trim
+        # drops the tail's oldest first. The opening must never be what
+        # overflows: the head is always sent verbatim.
+        return messages[:head_messages], [], messages[head_messages:]
+    position = {m.id: i for i, m in enumerate(messages)}
+    head_end = head_messages - 1
+    tail_target = len(messages) - tail_messages
+    covered = [
+        s
+        for s in scenes
+        if s.summary and head_end < position.get(s.end_message_id, -1) < tail_target
+    ]
+    if not covered:
+        # Everything verbatim — but split the head off anyway: under
+        # overflow the tail trims oldest-first, and the opening must
+        # never be what overflows (the head is always sent verbatim).
+        return messages[:head_messages], [], messages[head_messages:]
+    boundary = position[covered[-1].end_message_id]
+    chapters = [_Chapter(cards=[], summary=s.summary) for s in covered]
+    ends = [position[s.end_message_id] for s in covered]
+    for m in messages[head_messages : boundary + 1]:
+        if m.kind == "card":
+            chapters[bisect_left(ends, position[m.id])].cards.append(m)
+    return messages[:head_messages], chapters, messages[boundary + 1 :]
+
+
+def _recap_rows(
+    chapters: list[_Chapter],
+    scenes: Sequence[Scene],
+    recap_header: str,
+    budget: int,
+) -> tuple[list[Message], int, int]:
+    """The recap as wire-ready rows, plus how many scene summaries ride
+    it and how many dropped scenes the rollup covers in their stead: each
+    chapter's cards in front of its summary, oldest chapter first —
+    capped at `_RECAP_FRACTION` of the budget, the oldest summaries
+    dropping out and the story-so-far rollup (the newest scene history)
+    taking their place. The rolled-up count is what the WIRE shows: zero
+    when nothing dropped, and zero again when no history exists to stand
+    in — dropped-and-uncovered is not a rollup.
+
+    The cap weighs summaries alone: card rows are charged to the WHOLE
+    budget, never to the recap's fraction — one large card would
+    otherwise keep the cap permanently overflowed and silently evict
+    every summary — and they never drop: a dropped chapter's cards float
+    to the front, above the rollup that replaced their summary."""
+    if not chapters:
+        return [], 0, 0
+    recap_budget = int(budget * _RECAP_FRACTION)
+    kept = list(chapters)
+    used = sum(estimate_tokens(ch.summary) for ch in kept)
+    floated: list[Message] = []
+    while len(kept) > 1 and used > recap_budget:
+        dropped = kept.pop(0)
+        used -= estimate_tokens(dropped.summary)
+        floated.extend(dropped.cards)
+
+    rows: list[Message] = []
+    if recap_header:
+        rows.append(_recap_row(recap_header))
+    rows.extend(floated)
+    rolled_up = 0
+    if len(kept) < len(chapters):
+        story_so_far = next((s.history for s in reversed(scenes) if s.history), "")
+        if story_so_far:
+            rows.append(_recap_row(story_so_far))
+            rolled_up = len(chapters) - len(kept)
+    for chapter in kept:
+        rows.extend(chapter.cards)
+        rows.append(_recap_row(chapter.summary))
+    return rows, len(kept), rolled_up
+
+
+def _recap_row(text: str) -> Message:
+    """A synthesized user row of the recap — marked wire-only, its body
+    already wire text (see `_wire_text`)."""
+    return Message(role="user", body=text, kind="recap")
+
+
+def _trim_overflow(
+    used: int, head: list[Message], tail: list[Message], budget: int
+) -> tuple[int, list[Message], list[Message]]:
+    """Over budget: drop the tail's oldest messages, aiming `_TRIM_SLACK`
+    below budget, then snap the cut FORWARD to a `_TRIM_BLOCK` multiple so
+    the boundary stays put across turns — unless the window is so tight the
+    block would eat half of what fits, where the cache is a lost cause
+    anyway and context wins. The head is sent verbatim while anything else
+    can give: only when the tail is down to its floor does the head's own
+    start trim — a window the whole opening cannot fit beats no request.
+    Card rows are never dropped from either end: never-evicted is the
+    card promise, and a window they alone overflow is the user's call
+    (the import warned)."""
+    target = budget - int(budget * _TRIM_SLACK)
+    dropped = 0
+    while dropped < len(tail) - 1 and len(head) + len(tail) - dropped > _MIN_KEEP:
+        if used <= target:
+            break
+        used -= _wire_tokens(tail[dropped])
+        dropped += 1
+    affordable = len(tail) - dropped
+    snapped = min(
+        -(-dropped // _TRIM_BLOCK) * _TRIM_BLOCK,
+        max(0, len(tail) - 1),
+        max(0, len(head) + len(tail) - _MIN_KEEP),
+    )
+    if len(tail) - snapped >= max(_MIN_KEEP, affordable // 2):
+        used -= sum(_wire_tokens(m) for m in tail[dropped:snapped])
+        dropped = snapped
+    # A card is never evicted: the cut passes over card rows and they stay
+    # on the wire wherever it lands, their tokens restored to the count.
+    rescued = [m for m in tail[:dropped] if m.kind == "card"]
+    used += sum(_wire_tokens(m) for m in rescued)
+    tail = rescued + tail[dropped:]
+    lost = 0
+    while used > target and lost < len(head) and len(head) - lost + len(tail) > _MIN_KEEP:
+        if head[lost].kind == "card":
+            break  # the head's own trim stops at a card rather than skip it
+        used -= _wire_tokens(head[lost])
+        lost += 1
+    return used, head[lost:], tail
+
+
+def _wire_text(message: Message, *, is_last: bool = False) -> str:
+    """One row's wire text. A recap row's body IS its wire text —
+    synthesized here, never stored, so it never reaches `syntax.to_wire`;
+    every other row (card rows included: their bodies arrive composed,
+    and `to_wire`'s card branch returns them untouched — card prose that
+    happens to spell an inliner is never split as syntax) composes per
+    turn."""
+    if message.kind == "recap":
+        return message.body
+    return syntax.to_wire(message, is_last=is_last)
+
+
+def _wire_tokens(message: Message, *, is_last: bool = False) -> int:
+    """Tokens one row costs on the wire. `is_last` defaults to False for
+    the trim, which only ever weighs rows it is dropping — and the newest
+    row is never dropped (the two-message floor keeps it)."""
+    return estimate_tokens(_wire_text(message, is_last=is_last))
+
+
+def _wire_turns(kept: list[Message]) -> list[WireTurn]:
+    """Transcript rows → wire turns: each turn's own text and nothing else.
+    Consecutive same-role rows rejoin into one turn — storage granularity is
+    otaku's bookkeeping; the model sees one prompt per exchange."""
+    out: list[WireTurn] = []
+    for position, message in enumerate(kept):
+        # Newest = the LAST POSITION, never object identity: two turns can
+        # hold the same text, and only where a row sits decides whether its
+        # cue is still live.
+        text = _wire_text(message, is_last=position == len(kept) - 1)
+        if out and out[-1].role == message.role:
+            out[-1] = WireTurn(role=message.role, body=out[-1].body + "\n\n" + text)
+        else:
+            out.append(WireTurn(role=message.role, body=text))
+    return out

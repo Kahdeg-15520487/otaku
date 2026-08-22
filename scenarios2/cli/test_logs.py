@@ -1,0 +1,56 @@
+"""`otaku logs`: the day-rotated request and system logs, printed."""
+
+import pytest
+
+from scenarios2.support.harness import App, run_otaku
+
+pytestmark = pytest.mark.cli
+
+
+class TestRequests:
+    def test_todays_requests_print_what_was_sent(self, app: App) -> None:
+        app.play("I enter the hall.")
+        result = run_otaku(app.paths.root, "logs", "requests")
+        assert result.returncode == 0
+        assert "I enter the hall." in result.stdout
+        assert "[chat]" in result.stdout  # every entry is tagged with its purpose
+
+    def test_list_names_the_days(self, app: App) -> None:
+        app.play("I enter the hall.")
+        result = run_otaku(app.paths.root, "logs", "requests", "--list")
+        assert result.returncode == 0
+        assert " B" in result.stdout  # a day and its size
+
+
+class TestErrors:
+    def test_a_contained_crash_prints_and_a_day_without_refuses(
+        self, app: App, capsys, monkeypatch
+    ) -> None:
+        def boom(chat: object, raw: object) -> None:
+            raise RuntimeError("boom")
+
+        from otaku2.terminal.chat import bindings
+
+        monkeypatch.setitem(bindings._INTERACTIVE, "/help", boom)
+        app.play("/help")
+        result = run_otaku(app.paths.root, "logs", "error")
+        assert result.returncode == 0
+        assert "RuntimeError: boom" in result.stdout
+        refused = run_otaku(app.paths.root, "logs", "error", "2001-01-01")
+        assert refused.returncode == 1
+        assert "no error log for 2001-01-01" in refused.stderr
+
+
+class TestSystem:
+    def test_the_workers_account_prints(self, app: App) -> None:
+        for i in range(3):
+            app.play(f"Turn number {i}.")
+        app.play("/extract")
+        result = run_otaku(app.paths.root, "logs", "system")
+        assert result.returncode == 0
+        # Long operations log uniformly: a started line, and a finished
+        # line carrying the elapsed time.
+        assert "extraction started (story" in result.stdout
+        assert "extraction finished (story" in result.stdout
+        assert "scene close started (story" in result.stdout
+        assert "scene close finished (story" in result.stdout

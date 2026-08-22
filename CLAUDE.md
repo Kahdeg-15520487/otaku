@@ -60,8 +60,8 @@ release — a format change lands inside one of them, never beside them:
   every launch, self-healing; detailed under Configuration files above.
 - **Database** (`otaku/store/migrations`) — the versioned ladder;
   detailed under Architecture below.
-- **Export format** (`otaku/transfer`) — the import parser IS the
-  upward migration: it reads every format version ever written.
+- **Export format** (`otaku/transfer`; otaku2: `backend/formats`) — the
+  import parser IS the upward migration: it reads every format version ever written.
   `EXPORT_FORMAT_VERSION` bumps when an older reader would misread the
   layout, and a document declaring a newer format is refused with
   directions (`imports.NewerFormatError`), never guessed at.
@@ -150,69 +150,97 @@ milliseconds. The fast offline suite is therefore
 
 Each package may import only the packages listed after its arrow (plus the
 standard library and the declared dependencies); everything else is
-forbidden:
+forbidden. `web` is the NOT-YET-BUILT second frontend: no such package
+exists, but its row stays — it is the standing test for what belongs in
+`backend` (anything both frontends would need) versus a frontend (only
+the medium). This is the TARGET layout — the restructure to it is this
+branch's work (design: notes/code-review-2026-08-17-architecture.md); until
+a package has moved, its old imports stand:
 
-    cli        → app, crypto, logs, paths, settings, store, update,
-                 formatting
-    app        → chat, tui, lore, store, providers, settings, crypto, logs,
-                 paths, terminal, formatting
-    chat       → transfer, lore, store, providers, settings, logs, paths,
-                 terminal, formatting
-    tui        → store, providers, settings, paths, terminal, formatting
-    transfer   → store
-    lore       → store, providers, settings, logs, formatting,
-                 chat.framing
-    store      → crypto, logs, paths
-    providers  → settings, logs
-    logs       → crypto, paths, formatting
-    crypto     → settings, paths
-    settings   → paths
-    terminal   → settings, formatting
+    cli        → terminal, web, backend (launch + log unlock), logging, update
+    terminal   → backend, formatting
+    web        → backend, formatting
+    worker     → context, providers, store, logging, formatting
+    backend    → worker, context, providers, store, settings, encryption, logging, formatting
+    context    → store (reads only)
+    providers  → settings (its ProviderConfig and sections live there)
+    store      → encryption
+    settings   → formatting
+    logging    → encryption, formatting
+    encryption → formatting
     update     → (nothing)
-    paths      → (nothing)
     formatting → (nothing)
 
-`chat.framing` is the one arrow that points upward: it owns the prompt
-syntax, which `lore` must read to compose the wire. It stays safe by being
-a LEAF of `chat` — it imports nothing from its own package, so the cycle
-is never real. The moment it imports a sibling, the arrow breaks.
+Control flow — the same system as one diagram. It can carry both graphs
+because control flow and dependency point the same way everywhere: no
+upward import, no import that is not exercised by a call in its own
+direction. Legend: a solid arrow between packages = imports AND calls;
+arrows from the margin = stimuli (user, browser, idle), not imports; the
+captions under the graph state the edges ASCII cannot draw cleanly.
 
-`chat.help` is a leaf for the same reason, one level down: it owns the
-command surface — every name, what each takes, what it is called — while
-`chat.commands` owns the handlers and therefore imports `chat.session`.
-The names are upstream of everything that answers to them, so any module
-in `chat` may read them (the screen ledger and the prompt's highlighting
-both do) without waiting on the dispatch table.
+    user ─► cli ─┬─► terminal ─────────┐        cli also: ─► logging (viewing) · ─► update
+                 └─► web (◄─ browser) ─┤                  ─► backend (launch + unlock
+                                       ▼                      for the sealed request log)
+                                ┌─────────────────────┐    schedules    ┌──────────────────────┐
+                                │       backend       │ ──────────────► │        worker        │ ◄── idle deadline
+                                │  Session · transfer │                 │ extraction · warm-up │
+                                └──┬──┬──┬──┬──┬──┬───┘                 └──┬────┬────┬────┬────┘
+                                   │  │  │  │  │  │                        │    │    │    │
+                                   │  │  │  │  │  └► settings              │    │    │    │
+                                   │  │  │  │  └───► encryption (unlock)   │    │    │    │
+                                   │  │  │  └──────► logging ◄─────────────┘    │    │    │
+                                   │  │  └─────────► providers ◄────────────────┘    │    │
+                                   │  └────────────► context ◄───────────────────────┘    │
+                                   │                   │ reads                            │
+                                   └────────────────► store ◄─────────────────────────────┘
 
-How a message LOOKS is decided once, by `chat.session.message` — a reply
-typeset the way it streamed, a request with its commands picked out. The
-prompt, the played block, the resume echo and the story browser all render
-through it. `tui` may not read chat at all, so the browser is handed the
-function outright rather than the settings to rebuild the answer from.
+    sealing: store · logging ─► encryption — the DATA plane (one session cipher
+             for the database and the request log, BY DESIGN); backend ─► encryption
+             covers both
+             planes (data unlock + the api-key plane); keys are wired only in
+             backend.launch
+    formatting: stdlib-like leaf — anyone above may use it (its arrows are not drawn);
+             providers ─► settings (ProviderConfig and the sections live there)
+    dashed, injected at composition (no import): worker status ─► frontend repaint ·
+             ask_secret ─► frontend
 
-The data model lives in `otaku/store/schema.py` (the DDL, its semantics,
-and the row types). `schema.py` is always the CURRENT shape: a fresh
-database is created from it directly, and `otaku/store/migrations` — a
-versioned ladder over `meta.schema_version`, distinct from the settings
-migrations because a database has a cursor and transactional DDL — brings
-old databases to it. The invariant, held by scenarios: a migrated database
-equals a fresh one, `sqlite_master` row for row. The package docstring
-carries the full case table; the steps live in `steps.py`, each FROZEN —
-a step writes what its target version WAS, never what schema.py says now (backup-first, unharmed-on-failure,
-newer-refused).
+`context.syntax` owns the story's typed language — read by the backend
+at record time, by the assembler and the worker at wire time, and
+re-exported to the frontends for their menus. It lives in `context`, not
+`backend`, because the wire side is consumed BELOW backend; reading and
+writing are one vocabulary, so the language has one home. The shared
+command surface is `backend.commands`: one table both frontends route
+by, its SYNTAX rows derived from `context.syntax` so the language is
+declared once.
 
-Every color lives in `otaku/terminal/theme.py`: one `Theme` per
-background, the user's `[ui]` settings laid over it by `use(config)` at
-the launch, and `theme()` returning the one in force. A surface names the
-role it needs (`panel`, `text`, `muted`, `selection`, …) and gets the
-right shade — no module picks a light/dark pair or reads a color setting
-of its own. That is why `terminal` may read `settings`, and it is where a
-whole theme read from a file will land.
+How a message LOOKS is decided once, in `terminal.tty.render` — the
+prompt's live coloring, the played block, the resume echo and the story
+browser all render through it, which is why the screen ledger's row
+math can never disagree with an echo.
 
-`use` is called at the top of `App.__init__`, before anything draws:
-settling the theme asks the terminal for its background, that ask reads
-stdin, and from the first prompt or picker on stdin belongs to
-prompt_toolkit — where a query eats the keystroke it lands on.
+The data model lives in `otaku2/store/schema.py` (the DDL, its
+semantics, and the row types) — always the CURRENT shape: a fresh
+database is created from it directly, and `store/migrations` — a
+versioned ladder over `meta.schema_version` — brings old databases to
+it. Each step is a FROZEN module per version (`v2.py`, `v3.py`): a step
+writes what its target version WAS, never what schema.py says now
+(backup-first, unharmed-on-failure, newer-refused). The invariant: a
+migrated database equals a fresh one, `sqlite_master` row for row.
+
+Every color lives in `terminal/tty/theme.py`: one `Theme` per
+background, the user's looks arriving as `backend`'s `UiSettings` (the
+terminal reads no settings files), `use()` settling the theme once at
+launch — before anything draws, because the background ask reads stdin,
+which belongs to prompt_toolkit from the first prompt on.
+
+A protected name (`_leading_underscore`) marks what is not part of a
+module's surface. Two named extensions: SUBCLASS HOOKS declared by a
+base class (`_fetch_context_size`, the `ListScreen` `_on_*` contract) —
+"for subclasses, not callers", every hook declared on the base so the
+extension surface is visible in one place — and BACKEND-PACKAGE-PRIVATE
+names on `Session` (`session._store`, `_record_turn`): the backend's own
+modules are the implementation and may use them; frontends never do
+(grep-enforced: no `session._` outside otaku2/backend).
 
 `created_at` / `updated_at` columns are audit fields: no business logic may
 ever rely on them. UI display use (e.g. ordering the story list by recency)
@@ -222,7 +250,7 @@ is allowed.
 
 The `@` sigil in a command argument exists ONLY to trigger path
 autocompletion (the menu pops at `@` and filters while typing — see
-`otaku/chat/pathcomplete.py`). Commands must ignore it: every handler
+`otaku/chat/pathcomplete.py`; otaku2: `terminal/prompt/pathcomplete.py`). Commands must ignore it: every handler
 that reads a path strips a leading `@` (`removeprefix("@")`) and never
 branches on it — it is a UI trigger, not part of any name or value.
 
