@@ -17,7 +17,7 @@ from pathlib import Path
 from otaku import encryption
 from otaku.backend.api import transfer
 from otaku.backend.paths import Paths
-from otaku.backend.session import NO_MODEL_HINT, Session
+from otaku.backend.session import NO_MODEL_HINT, Refused, Session
 from otaku.encryption import AskSecret, Cipher, EncryptionError, SealedError
 from otaku.formatting import pretty_path
 from otaku.logging import ErrorLog, RequestLog, SystemLog
@@ -52,8 +52,9 @@ def open_session(root: str | Path | None = None, *, ask_secret: AskSecret | None
     package dir, then the repo), its hint landing in `session.notice`
     (the one bold post-scene line); EVERY settings-file warning (state,
     prompts, providers, keys) joins `session.notices`, and the store's
-    admin facts go to the system log: below backend nothing prints
-    conversation. The one sanctioned stderr voice below cli is the
+    admin facts go to the system log — the ones it marks `show` (a
+    migration that ran, a failed backup) joining `session.notices` too:
+    below backend nothing prints conversation. The one sanctioned stderr voice below cli is the
     append-only logs' own last-resort write-failure warning; everything
     else on stderr is cli's `otaku:` diagnostics. Raises ConfigError,
     EncryptionError, or DatabaseError when a piece refuses; the caller ends
@@ -92,11 +93,14 @@ def open_session(root: str | Path | None = None, *, ask_secret: AskSecret | None
     store = Store.open(
         paths.database_file, cipher, backups_dir=paths.backups_dir, keep=config.backups
     )
-    # The store's admin facts (a migration ladder's report, the daily
-    # backup) are the system log's, not conversation.
+    # The store's admin facts are the system log's — except the ones it
+    # marks `show`: a ladder that ran, a backup that failed. Those the
+    # user is told, before the banner, with the launch's other reports.
     system_log = SystemLog(paths.logs_dir)
     for note in store.notes:
-        system_log.record(note)
+        system_log.record(note.text)
+        if note.show:
+            notices.append(note.show)
     # The worker's own store connection (WAL makes the concurrent write
     # safe), opened lazily on its thread; keep=0 — the session's open
     # above owns the daily snapshot. It exists whatever [lore_extraction]
@@ -129,12 +133,16 @@ def open_session(root: str | Path | None = None, *, ask_secret: AskSecret | None
     return session
 
 
-def request_log(root: str | Path | None = None) -> RequestLog:
+def request_log(
+    root: str | Path | None = None, *, ask_secret: AskSecret | None = None
+) -> RequestLog:
     """The request log, unlocked the way the app unlocks — cli's one door
-    to the sealed bodies. Raises ConfigError/EncryptionError."""
+    to the sealed bodies. `ask_secret` answers the passphrase provider,
+    exactly as at launch: a sealed log stays readable to whoever can
+    open the store. Raises ConfigError/EncryptionError."""
     paths = Paths.resolve(root)
     config, _, _ = _load_config(paths)
-    return RequestLog(paths.logs_dir, _unlock_cipher(config, paths))
+    return RequestLog(paths.logs_dir, _unlock_cipher(config, paths, ask_secret=ask_secret))
 
 
 def system_log(root: str | Path | None = None) -> SystemLog:
@@ -231,18 +239,15 @@ def _resolve_api_keys(
     """The providers with sealed api keys opened for the session, plus a
     warning line per key that would not open — its provider keeps an
     empty key, so requests go out unauthenticated rather than with a
-    dead token."""
+    dead token. The sealing key is fetched once for the whole pass — a
+    launch never asks the OS keychain per provider."""
     resolved: dict[str, ProviderConfig] = {}
     warnings: list[str] = []
+    unseal = encryption.opener(key_file=paths.config_key_file, service=paths.keychain_service)
     for name, config in providers.items():
         if encryption.is_sealed(config.api_key):
             try:
-                opened = encryption.unseal(
-                    config.api_key,
-                    key_file=paths.config_key_file,
-                    service=paths.keychain_service,
-                )
-                config = replace(config, api_key=opened)
+                config = replace(config, api_key=unseal(config.api_key))
             except SealedError as e:
                 warnings.append(
                     f"The api key for {name!r} cannot be unsealed ({e}); "
@@ -261,7 +266,14 @@ def _seed_sample(session: Session) -> None:
     package = Path(__file__).parent.parent  # otaku/ (named otaku once installed)
     for candidate in (package / "samples" / "story.md", package.parent / "samples" / "story.md"):
         if candidate.is_file():
-            transfer.import_file(session, candidate.read_text(encoding="utf-8"), candidate.name)
+            try:
+                transfer.import_file(session, candidate.read_text(encoding="utf-8"), candidate.name)
+            except (Refused, OSError) as e:
+                # Best effort, like the missing file below: a damaged
+                # sample says so and the session opens empty. A first
+                # launch is the worst possible place for a traceback.
+                session.notices.append(f"The sample story could not be imported ({e}).")
+                return
             session._save_state()
             session.notice = _SAMPLE_NOTICE
             return

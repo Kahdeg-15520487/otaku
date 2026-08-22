@@ -51,6 +51,18 @@ class TestModel:
         assert relaunched.session.model == 'oddly"named'
         relaunched.close()
 
+    def test_a_saved_parameter_the_model_rejects_is_said_at_the_switch(
+        self, app: App, capsys
+    ) -> None:
+        # A hand-edited models.toml is the only way in. The launch says
+        # such a thing before the banner; a switch has to say it where it
+        # happens, or the session drops a parameter in silence.
+        app.paths.models_file.write_text("[other-model]\nbogus = 1\n")
+        capsys.readouterr()
+        app.play("/model test/other-model")
+        assert "bogus" in capsys.readouterr().out
+        assert "bogus" not in app.session.params
+
     def test_cancelling_the_picker_keeps_the_model(self, app: App, monkeypatch) -> None:
         monkeypatch.setattr(screen_models, "pick", lambda session, initial_spec=None: None)
         app.play("/model")

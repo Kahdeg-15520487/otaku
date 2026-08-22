@@ -111,9 +111,10 @@ class _LoreBrowser(ListScreen):
 
     def _reload(self) -> None:
         """The whole memory again, after a save — cheap for one story, and
-        the store's own invalidation is never mirrored by hand."""
+        the store's own invalidation is never mirrored by hand. The
+        visible set is NOT recomputed: an edit that drops a row out of an
+        open filter would otherwise take it away as it is saved."""
         self.view = api_lore.view(self.session)
-        self._refilter()
         self._rebuild_fields()
 
     def _scene_by_id(self, scene_id: int) -> Scene | None:

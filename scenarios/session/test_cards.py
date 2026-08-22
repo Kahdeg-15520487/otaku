@@ -26,10 +26,8 @@ class TestImport:
         rows = app.store.stories.get_messages(app.session.story_id)
         assert [(m.role, m.kind) for m in rows] == [("user", "card"), ("assistant", "dialogue")]
         row, greeting = rows
-        # The row is the typed line, its FILE spelled by name alone (the
-        # import is upload-shaped: a machine path belongs to no story) —
-        # the block composes at wire time.
-        assert row.body == "/card seraphina.png" and row.template is None
+        # The row is the line as typed — the block composes at wire time.
+        assert row.body == f"/card {SERAPHINA}" and row.template is None
         (character,) = app.store.characters.list(app.session.story_id)
         assert character.name == "Seraphina"
         # Both rows carry the speaker link; the card row's is the compose key.

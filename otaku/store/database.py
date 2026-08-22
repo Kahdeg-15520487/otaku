@@ -7,13 +7,15 @@ encryption configured, an encrypted one opened without it, AND a wrong
 or replaced key, all before any content is touched. A daily
 `VACUUM INTO` snapshot lands in the backups dir on the first open of the
 day. Administrative facts (a migration ran, a backup was written or
-failed) are RETURNED in `Database.notes` for the caller to log — the
-store writes no log itself.
+failed) are RETURNED as `Database.notes` for the caller to log — the
+store writes no log itself. A note marked `show` is one the user has to
+be TOLD, not merely have recorded for them.
 """
 
 import base64
 import re
 import sqlite3
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Self
@@ -33,10 +35,22 @@ class DatabaseError(Exception):
     pass
 
 
+@dataclass(frozen=True)
+class Note:
+    """One administrative fact from opening the database. `text` is the
+    log line, always recorded; `show` is what to TELL the user, empty
+    when the log suffices — the two registers differ (the log speaks in
+    lowercase detail, the screen in a sentence), so each carries its
+    own wording rather than one being derived from the other."""
+
+    text: str
+    show: str = ""
+
+
 class Database:
     def __init__(self, conn: sqlite3.Connection, cipher: Cipher) -> None:
         self.conn = conn
-        self.notes: list[str] = []  # administrative facts for the caller's log
+        self.notes: list[Note] = []  # administrative facts for the caller
         self._cipher = cipher
 
     @staticmethod
@@ -110,6 +124,7 @@ class Database:
                         f"pre-migration backup from {backups_dir}"
                     )
                 db = cls(conn, cipher)
+                # The ladder speaks for itself: it is told and logged.
                 db.notes.append(migrated)
             else:
                 conn.execute("PRAGMA foreign_keys = ON")
@@ -222,9 +237,13 @@ class Database:
             for old in pruned:
                 old.unlink()
             extra = f", {len(pruned)} old pruned" if pruned else ""
-            self.notes.append(f"daily database backup written at {dest.name}{extra}")
+            self.notes.append(Note(f"daily database backup written at {dest.name}{extra}"))
         except (sqlite3.Error, OSError) as e:
-            self.notes.append(f"daily backup failed: {e}")
+            # A backup that did not happen is the user's business, not the
+            # log's alone: they are one crash away from needing it.
+            self.notes.append(
+                Note(f"daily backup failed: {e}", show=f"The daily database backup failed: {e}")
+            )
 
 
 def check_value(cipher: Cipher) -> str:

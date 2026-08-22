@@ -135,6 +135,28 @@ class TestBackups:
         relaunched.close()
         assert any(app.paths.backups_dir.iterdir())
 
+    def test_a_backup_that_cannot_be_written_is_said_not_only_logged(
+        self, server: ModelServer, tmp_path
+    ) -> None:
+        # A snapshot that did not happen is the user's business: they are
+        # one crash away from needing it. The launch says so before the
+        # banner, and the system log keeps the same fact.
+        root = tmp_path / "state"
+        app = launch(root, server)
+        app.play("I enter the hall.")
+        app.close()
+        # The backups dir replaced by a file: the daily VACUUM INTO cannot land.
+        for stale in app.paths.backups_dir.iterdir():
+            stale.unlink()
+        app.paths.backups_dir.rmdir()
+        app.paths.backups_dir.write_text("not a directory")
+
+        relaunched = launch(root, server)
+        try:
+            assert any("backup failed" in notice for notice in relaunched.session.notices)
+        finally:
+            relaunched.close()
+
 
 class TestDatabaseGuard:
     def test_a_foreign_file_is_refused_with_the_curated_message(
@@ -169,7 +191,7 @@ class TestSchemaMigration:
         paths = _v1_database(tmp_path / "state")
         store = _open(paths)
         try:
-            assert any("Database migrated (v1 → v3)" in note for note in store.notes)
+            assert any("Database migrated (v1 → v3)" in note.show for note in store.notes)
             (message,) = store.stories.get_messages(1)
             # The v1 `framing` column reads back through the renamed one.
             assert (message.body, message.template) == ("I enter.", "TPL")
@@ -191,12 +213,25 @@ class TestSchemaMigration:
             store.close()
         assert _meta_version(paths) == "3"
 
+    def test_a_migration_that_ran_is_reported_at_launch(
+        self, server: ModelServer, tmp_path
+    ) -> None:
+        # The ladder moved the user's database under them — they are told
+        # before the banner, not left to find it in the log.
+        root = tmp_path / "state"
+        _v1_database(root)
+        app = launch(root, server)
+        try:
+            assert any("migrated" in notice for notice in app.session.notices)
+        finally:
+            app.close()
+
     def test_a_current_database_opens_silently(self, tmp_path) -> None:
         paths = _v1_database(tmp_path / "state")
         _open(paths).close()
         second = _open(paths)
         try:
-            assert not any("migrated" in note for note in second.notes)
+            assert not any("migrated" in note.text for note in second.notes)
         finally:
             second.close()
 
@@ -293,7 +328,7 @@ class TestSchemaMigration:
         monkeypatch.setitem(store_migrations._STEPS, 3, store_v3.to_3)
         resumed = _open(paths)
         try:
-            assert any("Database migrated (v2 → v3)" in note for note in resumed.notes)
+            assert any("Database migrated (v2 → v3)" in note.show for note in resumed.notes)
         finally:
             resumed.close()
         assert _meta_version(paths) == "3"

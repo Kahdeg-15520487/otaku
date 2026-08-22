@@ -100,13 +100,13 @@ COMMANDS: tuple[CommandSpec, ...] = (
     # Stories
     CommandSpec("/stories", "", "Browse stories, resume an old one", "stories", CommandKind.INTERACTIVE),
     CommandSpec("/fork", "[TITLE]", "Continue in a copy of this story; the original stays", "stories", CommandKind.OPERATION),
-    CommandSpec("/system", "<text | FILE>", "Set the system prompt for this story — directly or from a file", "stories", CommandKind.INTERACTIVE),
+    CommandSpec("/system", "<text | FILE>", "Set the system prompt for this story — either directly or from a file", "stories", CommandKind.INTERACTIVE),
     CommandSpec("/title", "NEW", "Set the story title", "stories", CommandKind.OPERATION),
     CommandSpec("/new", "", "Clear context and start a new story", "stories", CommandKind.OPERATION),
     # Lore
     CommandSpec("/lore", "", "Browse and edit the memory: scenes, cast, journals", "lore", CommandKind.INTERACTIVE),
     CommandSpec("/cast", "", "The same browser, opened directly on the cast", "lore", CommandKind.INTERACTIVE),
-    CommandSpec("/extract", "", "Extract lore from the recent messages now; also runs automatically on idle", "lore", CommandKind.INTERACTIVE),
+    CommandSpec("/extract", "", "Extract lore from the recent messages now; triggered automatically after 5 minutes of inactivity", "lore", CommandKind.INTERACTIVE),
     CommandSpec("/merge", "A into B", "Fold a duplicate character into the real one", "lore", CommandKind.OPERATION),
     # Inspect
     CommandSpec("/context", "", "Preview the next request (assembled prompt + budgets)", "inspect", CommandKind.INTERACTIVE),
@@ -119,12 +119,12 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("/export", "[FILE]", "Export the whole story to Markdown (memory + messages)", "transfer", CommandKind.INTERACTIVE),
     # Model and settings
     CommandSpec("/model", "[PROVIDER/MODEL]", "Switch model", "settings", CommandKind.INTERACTIVE),
-    CommandSpec("/set think", "<level>", "Thinking effort: on|off|none|low|medium|high|max|default", "settings", CommandKind.OPERATION),
-    CommandSpec("/set parameter", "<name> [val]", "Set an inference parameter; no val shows it, 'reset' returns the default", "settings", CommandKind.OPERATION),
+    CommandSpec("/set think", "<level>", "Thinking effort for the model: on|off|none|low|medium|high|max|default", "settings", CommandKind.OPERATION),
+    CommandSpec("/set parameter", "<name> <val>", "Set an inference parameter for the model; no <val> shows it, <val> = reset returns the default", "settings", CommandKind.OPERATION),
     CommandSpec("/set verbose", "on|off", "Show the stats line after each reply", "settings", CommandKind.OPERATION),
-    CommandSpec("/set autocorrect", "on|off", "Settle a typed character name to the cast's own spelling", "settings", CommandKind.OPERATION),
+    CommandSpec("/set autocorrect", "on|off", "Settle a character name you type in /you and /me commands to the cast's own spelling", "settings", CommandKind.OPERATION),
     # Meta
-    CommandSpec("/help", "", "Show the commands", "meta", CommandKind.INTERACTIVE),
+    CommandSpec("/help", "", "Show this help", "meta", CommandKind.INTERACTIVE),
     CommandSpec("/bye", "", "Exit", "meta", CommandKind.INTERACTIVE),
 )
 # fmt: on

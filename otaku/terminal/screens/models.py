@@ -243,6 +243,8 @@ class ModelPicker(ListScreen):
 
         # The switch notice on a confirmed pick; None while browsing.
         self.result: str | None = None
+        # The settled choice, executed by `run` once the screen is down.
+        self._picked: ModelEntry | None = None
         self.app = self._build_app()
 
         # The named providers (the cloud catalogs) answer after the screen
@@ -258,6 +260,16 @@ class ModelPicker(ListScreen):
         # to configuring an engine, so a machine with nothing reachable
         # must reach it — `pick` alone decides when opening is skipped.
         self.app.run()
+        if self._picked is not None:
+            # Execute the settled choice (the screens' one ownership
+            # rule), back on one thread — an "Already using" refusal is a
+            # notice too: either way the session is on that model now.
+            try:
+                self.result = api_providers.switch_model(
+                    self.session, self._picked.provider_name, self._picked.model
+                )
+            except Refused as e:
+                self.result = str(e)
         return self.result
 
     # ---------- text content ----------
@@ -528,12 +540,7 @@ class ModelPicker(ListScreen):
                 # Refresh load state for this provider only — under the
                 # lock, a concurrent catalog refresh may be swapping the
                 # list.
-                fresh = {
-                    model.name
-                    for row in self._fetch_rows(entry.provider_name)
-                    for model in row.models
-                    if model.loaded
-                }
+                fresh = api_providers.loaded_models(self.session, entry.provider_name)
                 with self._lock:
                     for e in self.all:
                         if e.provider_name == entry.provider_name:
@@ -569,13 +576,11 @@ class ModelPicker(ListScreen):
         threading.Thread(target=animator, daemon=True).start()
 
     def _finish_pick(self, entry: ModelEntry) -> None:
-        """Execute the confirmed choice (the screens' one ownership rule)
-        and leave with the switch notice — an "Already using" refusal is
-        a notice too: either way the session is on that model now."""
-        try:
-            self.result = api_providers.switch_model(self.session, entry.provider_name, entry.model)
-        except Refused as e:
-            self.result = str(e)
+        """Settle the choice and leave. The switch is EXECUTED in `run`,
+        on the caller's thread: this is reached from a load's worker
+        thread too, and that one may not be the thread reloading the
+        session's parameters and writing state.toml."""
+        self._picked = entry
         with contextlib.suppress(Exception):
             self.app.exit()
 

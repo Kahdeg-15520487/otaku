@@ -293,14 +293,14 @@ class TestExport:
         archive = app.store.characters.find(app.session.story_id, "Seraphina").card
         app.play("/export")
         document = (tmp_path / "glade.md").read_text()
-        assert "/card seraphina.png" in document
+        assert f"/card {card}" in document
         assert "#### Seraphina" in document
 
         app.play("/new")
         app.play(f"/import {tmp_path / 'glade.md'}")
         restored = app.store.characters.find(app.session.story_id, "Seraphina")
         assert restored is not None and restored.card == archive
-        assert app.session.messages[0].body == "/card seraphina.png"
+        assert app.session.messages[0].body == f"/card {card}"
         app.play("I sit up slowly.")
         wire = "\n".join(str(m["content"]) for m in app.server.requests[-1]["messages"])
         assert "Seraphina joins the story" in wire

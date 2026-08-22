@@ -48,8 +48,11 @@ sys.path.insert(0, str(REPO))
 from scenarios.support.server import ModelServer  # noqa: E402
 
 # Every published release this build claims to migrate. 0.2.0 and earlier
-# require Python >= 3.14 and are out of scope.
-VERSIONS = ("0.2.1", "0.2.2")
+# require Python >= 3.14 and are out of scope. A release already on the
+# current schema is still rehearsed — the settings, the export and the
+# read-back all matter — it simply has no ladder to run.
+VERSIONS = ("0.2.1", "0.2.2", "0.3.0")
+CURRENT_SCHEMA = "3"
 PROVIDER, MODEL = "test", "test-model"
 WORK = Path(os.environ.get("REHEARSAL_DIR", "/tmp/otaku-rehearsal"))
 
@@ -299,7 +302,9 @@ def verify(current: str, root: Path, report: Report, *, stamped: str, encrypted:
     conn = sqlite3.connect(root / "database/history.db")
     try:
         version = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0]
-        report.check("the schema is at the current version", version == "3", f"v{version}")
+        report.check(
+            "the schema is at the current version", version == CURRENT_SCHEMA, f"v{version}"
+        )
         scenes_ddl = conn.execute("SELECT sql FROM sqlite_master WHERE name='scenes'").fetchone()[0]
         chars_ddl = conn.execute(
             "SELECT sql FROM sqlite_master WHERE name='characters'"
@@ -330,12 +335,13 @@ def verify(current: str, root: Path, report: Report, *, stamped: str, encrypted:
     report.check("the scene summaries survived", bool(read["scenes"]), str(read["scenes"]))
     report.check("the journals survived", read["journals"] >= 1, str(read["journals"]))
 
-    backups = sorted((root / "database/backups").glob("*schema*"))
-    report.check(
-        f"a pre-migration backup of v{stamped} exists",
-        bool(backups),
-        str([b.name for b in backups]),
-    )
+    if stamped != CURRENT_SCHEMA:
+        backups = sorted((root / "database/backups").glob("*schema*"))
+        report.check(
+            f"a pre-migration backup of v{stamped} exists",
+            bool(backups),
+            str([b.name for b in backups]),
+        )
 
     if encrypted:
         print("\n--- encryption at rest ---")
@@ -437,10 +443,13 @@ def rehearse(version: str, current: str, *, encrypted: bool) -> Report:
         t.settle(1.5)
         transcript = t.transcript
         report.check("the app launches on the migrated state", "otaku" in transcript)
-        report.check(
-            f"the ladder reports v{stamped} → v3",
-            f"Database migrated (v{stamped} → v3)" in transcript,
-        )
+        if stamped != CURRENT_SCHEMA:
+            report.check(
+                f"the ladder reports v{stamped} → v{CURRENT_SCHEMA}",
+                f"Database migrated (v{stamped} → v{CURRENT_SCHEMA})" in transcript,
+            )
+        else:
+            print(f"    (schema v{stamped} is already current — no ladder to run)")
         t.line("The story continues after the upgrade.")
         t.expect("light went out")
         code = t.quit()

@@ -41,18 +41,23 @@ How every case at open resolves:
 
 import sqlite3
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from otaku.store.migrations import v2, v3
 from otaku.store.schema import SCHEMA_VERSION
+
+if TYPE_CHECKING:  # circular at runtime: database runs this ladder
+    from otaku.store.database import Note
 
 # The ladder itself: one entry per schema version, each a version
 # module's frozen step.
 _STEPS = {2: v2.to_2, 3: v3.to_3}
 
 
-def migrate(conn: sqlite3.Connection, db_path: Path, backups_dir: Path) -> str | None:
-    """Bring an existing database to the current version; the report line
-    when anything was actually migrated, else None. Raises
+def migrate(conn: sqlite3.Connection, db_path: Path, backups_dir: Path) -> "Note | None":
+    """Bring an existing database to the current version; the note when
+    anything was actually migrated, else None. The user is TOLD a ladder
+    ran under them — the log keeps the backup's name besides. Raises
     `DatabaseError` for every refusal the module docstring names — and
     the message always says what state the database was LEFT in, because
     a refusal that reads as damage costs more trust than the failure."""
@@ -87,7 +92,12 @@ def migrate(conn: sqlite3.Connection, db_path: Path, backups_dir: Path) -> str |
                 f"database is unharmed at version {at}, and the pre-migration backup at "
                 f"{backup} was not touched"
             ) from e
-    return f"Database migrated (v{stored} → v{current}), backup at {backup.name}"
+    from otaku.store.database import Note  # circular: database runs this ladder
+
+    return Note(
+        f"database migrated (v{stored} → v{current}), backup at {backup.name}",
+        show=f"Database migrated (v{stored} → v{current})",
+    )
 
 
 def _version(conn: sqlite3.Connection, path: Path) -> int:

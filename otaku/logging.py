@@ -36,6 +36,9 @@ class DailyLog:
 
     _prefix: ClassVar[str]
     _suffix: ClassVar[str]
+    # What a failed write calls itself on stderr; each log names its own,
+    # so the warning says which of the three could not be written.
+    _failure: ClassVar[str]
 
     def __init__(self, directory: Path) -> None:
         self._dir = directory
@@ -56,7 +59,8 @@ class DailyLog:
 
     def _append(self, text: str) -> Path:
         """Append `text` to today's file under the lock; warn on stderr
-        once per instance when the write fails. Returns the day's path."""
+        once per instance when the write fails, naming which log it was —
+        three of these run at once. Returns the day's path."""
         path = self.get_path(datetime.now().astimezone().strftime("%Y%m%d"))
         try:
             with self._lock:
@@ -66,13 +70,14 @@ class DailyLog:
         except OSError as e:
             if not self._warned:
                 self._warned = True
-                print(f"otaku: logging failed: {e}", file=sys.stderr)
+                print(f"otaku: {self._failure}: {e}", file=sys.stderr)
         return path
 
 
 class ErrorLog(DailyLog):
     _prefix = "error-"
     _suffix = ".log"
+    _failure = "error logging failed"
 
     def record(self, context: str, exc: BaseException) -> Path:
         """Append one crash: a `=== <timestamp> <context>` header and the
@@ -87,6 +92,7 @@ class ErrorLog(DailyLog):
 class SystemLog(DailyLog):
     _prefix = "system-"
     _suffix = ".log"
+    _failure = "system logging failed"
 
     def record(self, action: str) -> None:
         """Append one timestamped action line — work done or declined
@@ -106,6 +112,7 @@ class Entry:
 class RequestLog(DailyLog):
     _prefix = "requests-"
     _suffix = ".jsonl"
+    _failure = "request log failed"
 
     def __init__(self, directory: Path, cipher: Cipher) -> None:
         """The envelope is plaintext; the body is sealed with `cipher`

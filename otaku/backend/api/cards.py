@@ -46,12 +46,17 @@ class ImportedCard:
     report: str
 
 
-def prepare(session: Session, data: bytes, file_name: str, rename: str = "") -> PreparedCard:
+def prepare(
+    session: Session, data: bytes, file_name: str, rename: str = "", *, line: str = ""
+) -> PreparedCard:
     """A card FILE's bytes, vetted and normalized; `rename` overrides the
     card's own name. Bytes-shaped on purpose: resolving a path (the
     terminal's `FILE [NAME]` split, the `@` strip) is the frontend's —
-    the web uploads. Raises Refused — not a card, or a cast name already
-    taken."""
+    the web uploads. `line` is what the story RECORDS: the terminal
+    passes the argument as typed, so the row reads back like every
+    other command's; an upload has only a file name, which is what the
+    default composes. Raises Refused — not a card, or a cast name
+    already taken."""
     try:
         card, notes = load_card(data, file_name=file_name)
     except CardError as e:
@@ -75,10 +80,10 @@ def prepare(session: Session, data: bytes, file_name: str, rename: str = "") -> 
         session._prompts.card_framing,
     )
     tokens = estimate_tokens(block)
-    line = f"/card {file_name}" + (f" {rename}" if rename else "")
+    row = line or (f"/card {file_name}" + (f" {rename}" if rename else ""))
     return PreparedCard(
         card=card,
-        line=line,
+        line=row,
         notes=tuple(notes),
         block_tokens=tokens,
         large=tokens > _LARGE_CARD_TOKENS,

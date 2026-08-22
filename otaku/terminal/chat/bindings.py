@@ -12,7 +12,6 @@ the binding form and the caption — so no seam translates by hand.
 """
 
 import sys
-import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import NamedTuple
@@ -332,7 +331,7 @@ def _extract(chat: Chat, raw: str) -> None:
     run = api_lore.extract(chat.session)
     report = _wait_run(chat, run, opening="Closing a scene…")
     if report is not None:
-        chat.say(report)
+        chat.say(error_line(report) if run.failed else report)
 
 
 def _wait_run(chat: Chat, run: WorkerRun, *, opening: str) -> str | None:
@@ -348,8 +347,7 @@ def _wait_run(chat: Chat, run: WorkerRun, *, opening: str) -> str | None:
     sys.stdout.write(chat.ledger.said())
     transient(opening)
     try:
-        while run.poll() is None:
-            time.sleep(0.1)
+        while not run.settled(0.1):
             line = chat.session.status()
             if line and line != shown:
                 shown = line
@@ -397,7 +395,11 @@ def _card(chat: Chat, raw: str) -> None:
         chat.ledger.invalidate()
         return
     try:
-        prepared = api_cards.prepare(chat.session, data, path.name, rename)
+        # The row records the argument as typed — a path is what the
+        # terminal's user named the file, and /last must read it back.
+        prepared = api_cards.prepare(
+            chat.session, data, path.name, rename, line=f"/card {argument}"
+        )
     except Refused as e:
         chat.say(str(e))
         chat.ledger.invalidate()

@@ -12,7 +12,6 @@ changes.
 - otaku is restructured around a frontend-agnostic core: same app, same commands, same data — but
   the story machinery no longer belongs to the terminal.
 - Long story titles get more room: 50 characters instead of 40, wherever a title is shown.
-- `/card` records the card's file name rather than the path it was read from.
 
 **Full version:**
 
@@ -25,11 +24,14 @@ changes.
   Nothing about running otaku changes: the same commands, the same state dir, the same database.
 - Long story titles are cut at 50 characters instead of 40 — in the banner and in the line that
   names the story when it lands — with a fork's number kept whole, as before.
-- `/card FILE` records the card's file name in the story instead of the path it was read from, so
-  an exported story no longer carries the layout of the disk it was played on.
-- The database's administrative facts — the schema migration's report, the daily backup, a backup
-  that could not be written — are no longer printed at launch. They stay in the system log
-  (`otaku logs system`), where the app's other administrative moments already are.
+- Launching with a remembered model whose provider is no longer configured says so before the
+  picker opens, instead of opening it without a word.
+- The api key's sealing key tightens `configs/` to owner-only when it is created, as the database's
+  key already did.
+
+### Fixed
+- A sealing key that cannot be read no longer ends the launch with a traceback: the provider it
+  belongs to runs without its key and the launch says which one.
 
 ## [0.3.0] - 2026-08-17
 

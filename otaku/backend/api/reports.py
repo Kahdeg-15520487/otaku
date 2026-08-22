@@ -164,7 +164,7 @@ def _model_lines(session: Session) -> list[str]:
     # The registry's copy, not a snapshot: a URL or key edited in the
     # picker panel shows here immediately.
     config = client.config
-    out = [f"Model:    {session.full_model_name}", f"Engine:   {client.kind} ({config.url})"]
+    out = [f"Model:    {session.full_model_name}", f"Backend:  {client.kind} ({config.url})"]
     if config.api_key:
         out.append("Auth:     api_key configured")
     # The model's own row — load state only where loading is a real state

@@ -62,6 +62,7 @@ class WorkerRun:
         self._session = session
         self._done = threading.Event()
         self._report = ""
+        self._failed = False
 
     def wait(self) -> str:
         """Block until the pass returns; the report to show — scenes
@@ -75,6 +76,19 @@ class WorkerRun:
         the non-blocking form the web's GET polls."""
         return self._report if self._done.is_set() else None
 
+    def settled(self, timeout: float) -> bool:
+        """Wait up to `timeout` seconds for the pass to return; True when
+        it has. A foreground wait refreshes its status line between
+        these, and wakes the moment the pass is done rather than at the
+        end of whatever sleep it was in."""
+        return self._done.wait(timeout)
+
+    @property
+    def failed(self) -> bool:
+        """Whether the returned pass FAILED — the report is a refusal,
+        and a frontend shows it the way it shows any other."""
+        return self._failed
+
     def cancel(self) -> str:
         """Abort mid-stream; nothing half-done commits. The notice."""
         self._session._worker.cancel()
@@ -84,6 +98,7 @@ class WorkerRun:
     # before the warm-up.
     def _finish(self, result: PassResult, report: Report) -> None:
         self._report = _pass_report(result, report, held=self._session.status())
+        self._failed = result is PassResult.FAILED
         self._done.set()
 
 
@@ -217,9 +232,10 @@ class LoreView:
         if char is None:
             return []
         out = [Field("description", "description", char.description, char.id, True)]
-        if char.card:
+        if char.card is not None:
             # Only an imported character carries a card; the archive is
-            # the author's to correct like any primitive.
+            # the author's to correct like any primitive — emptied to
+            # nothing included, so the row cannot vanish under the cursor.
             out.append(Field("card", "card", char.card, char.id, True))
         latest = self._latest_rows()
         for r in self._by_char().get(char.id, []):

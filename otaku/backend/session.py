@@ -13,7 +13,8 @@ Concurrency: the backend is single-threaded by contract — operations
 run one at a time on the caller's one session thread (the web runs
 every call on a single executor). The exceptions are the channel
 methods, safe from any thread: `touch`, `defer`, `status`,
-`set_on_status` — and a `WorkerRun`'s `wait`/`poll`/`cancel`, which
+`set_on_status`, `set_on_notice` — and a `WorkerRun`'s
+`wait`/`poll`/`cancel`, which
 touch only the run's own event. Frontends inherit this rule from here.
 """
 
@@ -80,6 +81,10 @@ class Session:
     # sample-story hint), where a hint belongs and a warning does not.
     notices: list[str]
     notice: str
+    # Where a notice goes once the launch is over: the frontend attaches
+    # a sink (`set_on_notice`) and later notices go straight out, the way
+    # they were printed on the spot before the backend existed.
+    _notify: Callable[[str], None] | None
     # Product state (read through the properties below).
     _provider: str
     _model: str
@@ -125,6 +130,7 @@ class Session:
         session = cls.__new__(cls)
         session.notices = []
         session.notice = ""
+        session._notify = None
         session._config = config
         session._prompts = prompts
         session._paths = paths
@@ -247,6 +253,23 @@ class Session:
         """The status repaint hook (thread-safe on the caller's side)."""
         self._worker.on_status = repaint
 
+    def set_on_notice(self, say: Callable[[str], None]) -> None:
+        """Where a notice goes from now on. The launch's own reports are
+        collected in `notices` because nothing can print yet; everything
+        after — a story deleted under the session, a saved parameter the
+        model's vocabulary rejects — is said when it happens, so the
+        frontend attaches this once it owns the screen."""
+        self._notify = say
+
+    def _note(self, text: str) -> None:
+        """Tell the user something the session had to decide on its own.
+        Before a frontend is listening it joins `notices`, which the
+        launch prints; after, it is said where it happens."""
+        if self._notify is None:
+            self.notices.append(text)
+        else:
+            self._notify(text)
+
     def recent_inputs(self) -> list[str]:
         """The prompt's Up/Down input history, most recent first —
         store-backed, so it survives sessions. Best-effort: a store
@@ -326,7 +349,7 @@ class Session:
         if self._story_id is not None and not self._store.stories.exists(self._story_id):
             self._story_id = None
             self._messages = []
-            self.notices.append("The story was deleted — continuing in a new one.")
+            self._note("The story was deleted — continuing in a new one.")
         if self._story_id is None:
             self._story_id = self._store.stories.add()
             if self._system:
@@ -390,14 +413,12 @@ class Session:
         for name, value in saved.items():
             coerce = KNOWN_PARAMS.get(name)
             if coerce is None:
-                self.notices.append(f"Ignoring unknown parameter {name!r} saved for {self._model}.")
+                self._note(f"Ignoring unknown parameter {name!r} saved for {self._model}.")
                 continue
             try:
                 self._params[name] = coerce(value)
             except (TypeError, ValueError):
-                self.notices.append(
-                    f"Ignoring invalid {name} value {value!r} saved for {self._model}."
-                )
+                self._note(f"Ignoring invalid {name} value {value!r} saved for {self._model}.")
 
     def _save_state(self) -> None:
         """Persist what bare `otaku` resumes: the model, the story, and

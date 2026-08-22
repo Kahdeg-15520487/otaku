@@ -57,6 +57,9 @@ class App:
             provider, _, model = spec.partition("/")
             api_providers.switch_model(self.session, provider, model)
         self.chat = Chat(self.session)
+        # What `loop.run` attaches once it owns the screen: a notice
+        # raised after the launch is SAID, not collected.
+        self.session.set_on_notice(self.chat.say)
         self.session.start_worker()
         # A second connection for assertions, unlocked the way the launch
         # unlocks (the scripted `command` KEK provider works headless), so

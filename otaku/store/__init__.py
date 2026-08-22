@@ -16,12 +16,12 @@ from pathlib import Path
 from typing import Self
 
 from otaku.encryption import Cipher
-from otaku.store.database import Database, DatabaseError, is_encrypted
+from otaku.store.database import Database, DatabaseError, Note, is_encrypted
 from otaku.store.ops.lore import CharacterOps, JournalOps, SceneOps
 from otaku.store.ops.records import HistoryOps, UsageOps
 from otaku.store.ops.stories import MessagesOps, StoryOps
 
-__all__ = ["DatabaseError", "Store", "is_encrypted"]
+__all__ = ["DatabaseError", "Note", "Store", "is_encrypted"]
 
 
 class Store:
@@ -42,9 +42,10 @@ class Store:
         return cls(Database.open(db_path, cipher, backups_dir=backups_dir, keep=keep))
 
     @property
-    def notes(self) -> list[str]:
+    def notes(self) -> list[Note]:
         """The nucleus's administrative facts (migration ran, backup
-        written or failed) — the caller logs them; the store never does."""
+        written or failed) — the caller logs every one and says the ones
+        carrying a `show` line; the store never does either."""
         return self._db.notes
 
     def close(self) -> None:

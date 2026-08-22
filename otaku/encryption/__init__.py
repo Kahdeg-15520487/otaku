@@ -15,7 +15,7 @@ arrives through an `ask` callable. Key WIRING happens only in
 
 from otaku.encryption._primitives.aead import Cipher, EncryptionError, PlainCipher
 from otaku.encryption.data import AskSecret, Keystore, unlock
-from otaku.encryption.keys import SealedError, is_sealed, seal, unseal
+from otaku.encryption.keys import SealedError, is_sealed, opener, seal, unseal
 
 __all__ = [
     "AskSecret",
@@ -25,6 +25,7 @@ __all__ = [
     "PlainCipher",
     "SealedError",
     "is_sealed",
+    "opener",
     "seal",
     "unlock",
     "unseal",

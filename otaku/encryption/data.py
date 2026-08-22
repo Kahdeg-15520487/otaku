@@ -146,12 +146,16 @@ def unlock(
         except (EncryptionError, InvalidTag, ValueError, KeyError, TypeError) as e:
             # InvalidTag stringifies to "" — say what it means instead. A
             # slot missing a field (KeyError) or holding the wrong type
-            # is the same curated refusal.
-            reason = str(e) or "the key does not open this slot"
-            errors.append(f"{name}: {reason}")
+            # is named the same way, never a traceback. One slot answers
+            # for itself; only a choice of them needs its name.
+            if isinstance(e, KeyError):
+                reason = f"slot is missing {e}"
+            else:
+                reason = str(e) or "the retrieved key does not unwrap this keystore"
+            errors.append(f"{name}: {reason}" if len(slots) > 1 else reason)
             continue
         return Cipher(dek)
-    raise EncryptionError("no keystore slot could be opened: " + "; ".join(errors))
+    raise EncryptionError("; ".join(errors) or f"{keys_file} has no slots")
 
 
 # ---------- KEK providers ----------

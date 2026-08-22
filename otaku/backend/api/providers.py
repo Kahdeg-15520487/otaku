@@ -85,6 +85,26 @@ def configured(session: Session) -> set[str]:
     return {config.name for config in session._providers_registry.configured()}
 
 
+def loaded_models(session: Session, provider: str) -> set[str]:
+    """Which of an engine's models are loaded right now — the picker's
+    read-back after a load or unload, asked of that ONE engine with the
+    listing's own patience (a server that just loaded a model is the
+    slowest it ever is). Raises Refused when it cannot be reached: a
+    refresh that failed quietly would leave the panel claiming the
+    opposite of what just happened."""
+    try:
+        client = session._providers_registry.get_client(provider)
+    except ValueError as e:
+        raise Refused(str(e)) from e
+    try:
+        return {model.name for model in client.models() if model.loaded}
+    except httpx.HTTPStatusError as e:
+        detail = printable(" ".join(e.response.text.split()))[:300]
+        raise Refused(f"The engine refused: {detail or e.response.status_code}") from e
+    except httpx.RequestError as e:
+        raise Refused(f"Could not reach {provider}.") from e
+
+
 def section(session: Session, provider: str) -> ProviderConfig:
     """The engine's current section when configured, its autoconfigured
     default otherwise — what the panel shows either way."""

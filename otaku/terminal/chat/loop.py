@@ -98,6 +98,9 @@ def run(session: Session) -> None:
             prompt_session.app.invalidate()
 
     session.set_on_status(repaint)
+    # The launch batch is printed above; from here a notice is said where
+    # it happens, not collected for a banner that has already been drawn.
+    session.set_on_notice(chat.say)
     # Typing is activity: every buffer change pushes a pending pass back
     # a full idle window, so it starts on REAL idle, not mid-composition.
     prompt_session.default_buffer.on_text_changed += lambda _buf: session.touch()

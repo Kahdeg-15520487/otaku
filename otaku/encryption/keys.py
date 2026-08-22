@@ -10,6 +10,7 @@ can read the other's key material.
 
 import base64
 import secrets
+from collections.abc import Callable
 from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -48,18 +49,34 @@ def seal(value: str, *, key_file: Path, service: str) -> str:
 def unseal(value: str, *, key_file: Path, service: str) -> str:
     """The plain text behind a sealed token (plain text passes through).
     Raises SealedError when the key is gone or the token will not open."""
-    if not is_sealed(value):
-        return value
-    key = _load_key(key_file=key_file, service=service, create=False)
-    if key is None:
-        raise SealedError("the sealing key is in neither the OS keychain nor the key file")
-    try:
-        blob = base64.b64decode(value[len(_PREFIX) :], validate=True)
-        if len(blob) < NONCE_LEN:
-            raise ValueError("token too short to hold a nonce")
-        return AESGCM(key).decrypt(blob[:NONCE_LEN], blob[NONCE_LEN:], None).decode()
-    except Exception as e:
-        raise SealedError("the sealed value does not decrypt with the sealing key") from e
+    return opener(key_file=key_file, service=service)(value)
+
+
+def opener(*, key_file: Path, service: str) -> Callable[[str], str]:
+    """An `unseal` bound to ONE key fetch, however many values it opens:
+    a launch with several sealed api keys must not ask the OS keychain
+    per provider. The fetch is lazy (nothing sealed, nothing asked) and
+    every refusal is still per value, so one key that will not open
+    never speaks for the rest."""
+    fetched: list[bytes | None] = []
+
+    def open_one(value: str) -> str:
+        if not is_sealed(value):
+            return value
+        if not fetched:
+            fetched.append(_load_key(key_file=key_file, service=service, create=False))
+        key = fetched[0]
+        if key is None:
+            raise SealedError("the sealing key is in neither the OS keychain nor the key file")
+        try:
+            blob = base64.b64decode(value[len(_PREFIX) :], validate=True)
+            if len(blob) < NONCE_LEN:
+                raise ValueError("token too short to hold a nonce")
+            return AESGCM(key).decrypt(blob[:NONCE_LEN], blob[NONCE_LEN:], None).decode()
+        except Exception as e:
+            raise SealedError("the sealed value does not decrypt with the sealing key") from e
+
+    return open_one
 
 
 def _load_key(*, key_file: Path, service: str, create: bool) -> bytes | None:

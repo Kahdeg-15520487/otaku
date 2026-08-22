@@ -119,7 +119,7 @@ def logs_requests(day: str | None, list_days: bool) -> None:
     ctx = click.get_current_context()
     root = resolve_root()
     try:
-        request_log = backend_launch.request_log(root)
+        request_log = backend_launch.request_log(root, ask_secret=getpass.getpass)
     except ConfigError as e:
         click.echo(f"Config error: {e}", err=True)
         ctx.exit(2)
