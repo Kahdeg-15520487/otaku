@@ -1,51 +1,44 @@
-"""What the app remembers between sessions: configs/state.toml.
+"""What the app remembers between sessions: state.toml — rewritten
+wholesale on every change; there are no user edits to preserve."""
 
-The app-owned counterpart of config.toml: config.toml holds what you edit in
-a file, this holds what commands change — the model bare `otaku` resumes, the
-story it reattaches, /set verbose, /set autocorrect, /set think. Rewritten wholesale on every
-change; there are no user edits to preserve.
-"""
-
-import sys
 import tomllib
 from dataclasses import dataclass
+from pathlib import Path
 
-from otaku.paths import Paths
-from otaku.settings.files import row, toml_scalar, write_atomic
+from otaku.formatting import toml_scalar
+from otaku.settings import row, write_atomic
 
 
 @dataclass(frozen=True)
-class AppState:
+class StateConfig:
     model: str = ""  # "provider/model" to resume; "" = open the picker
     story: int = 0  # story id to reattach; 0 = start detached
-    verbose: bool = False  # show the stats line after each reply
-    autocorrect: bool = True  # settle a typed character name to the cast's spelling
-    think: str = "none"  # thinking effort sent to the model
+    verbose: bool = False
+    autocorrect: bool = True
+    think: str = "none"
 
 
-def load(paths: Paths) -> AppState:
-    """Read state.toml. Missing file → defaults; a malformed one warns and
-    falls back — remembered state is a convenience, never worth failing a
-    launch over."""
-    path = paths.state_file
+def load(path: Path) -> tuple[StateConfig, list[str]]:
+    """Missing file → defaults; a malformed one falls back with a
+    returned warning — remembered state is never worth failing a launch,
+    and this module never prints."""
     if not path.exists():
-        return AppState()
+        return StateConfig(), []
     try:
         raw = tomllib.loads(path.read_text())
     except (OSError, tomllib.TOMLDecodeError) as e:
-        print(f"otaku: ignoring {path} ({e})", file=sys.stderr)
-        return AppState()
+        return StateConfig(), [f"Ignoring {path.name} ({e})."]
     story = raw.get("story")
-    return AppState(
+    return StateConfig(
         model=str(raw.get("model", "")),
         story=story if isinstance(story, int) and story > 0 else 0,
         verbose=bool(raw.get("verbose", False)),
         autocorrect=bool(raw.get("autocorrect", True)),
         think=str(raw.get("think", "none")),
-    )
+    ), []
 
 
-def save(paths: Paths, state: AppState) -> None:
+def save(path: Path, state: StateConfig) -> None:
     body = "\n".join(
         [
             "# Written by otaku — what it remembers between sessions.",
@@ -56,4 +49,4 @@ def save(paths: Paths, state: AppState) -> None:
             row(f"think = {toml_scalar(state.think)}", "/set think"),
         ]
     )
-    write_atomic(paths.state_file, body + "\n")
+    write_atomic(path, body + "\n")

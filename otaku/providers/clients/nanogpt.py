@@ -3,11 +3,12 @@ https://nano-gpt.com/api/v1. The base cloud listing serves it as is —
 context windows appear whenever the catalog reports `context_length`."""
 
 from otaku.providers.base import CloudClient
-from otaku.settings.config import ProviderConfig
+from otaku.settings.providers import ProviderConfig
 
 
 class NanoGptClient(CloudClient):
     kind = "nanogpt"
+    label = "NanoGPT"
     # The plain listing hides the model details; the flag adds each
     # model's context_length to the catalog rows.
     _MODELS_QUERY = "?detailed=true"

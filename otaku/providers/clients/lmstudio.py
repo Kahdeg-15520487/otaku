@@ -1,25 +1,25 @@
 """LM Studio: the model registry, load/unload, sizes, and context windows
 via its /api/v1/models surface; chat rides the OpenAI protocol at /v1."""
 
-import json
-from pathlib import Path
 from typing import Any
 
 import httpx
 
 from otaku.providers.base import ManagedClient, ModelInfo
-from otaku.settings.config import ProviderConfig
+from otaku.providers.clients import read_home_json
+from otaku.settings.providers import ProviderConfig
 
 
 class LmStudioClient(ManagedClient):
     kind = "lmstudio"
+    label = "LM Studio"
     supports_thinking = False  # no request-level knob; reasoning is per-model
 
     @classmethod
     def autoconfigure(cls) -> ProviderConfig:
         """The first-run section, its port detected from LM Studio's own
         server config file."""
-        port = _read_home_json(".lmstudio/.internal/http-server-config.json").get("port")
+        port = read_home_json(".lmstudio/.internal/http-server-config.json").get("port")
         url = f"http://localhost:{port if isinstance(port, int) else 1234}/v1"
         return ProviderConfig(name=cls.kind, url=url)
 
@@ -29,9 +29,9 @@ class LmStudioClient(ManagedClient):
         if any(row.name == model and row.loaded for row in self.models(timeout=5.0)):
             return
         response = httpx.post(
-            f"{self.provider_config.base_url}/api/v1/models/load",
+            f"{self.config.base_url}/api/v1/models/load",
             json={"model": model},
-            headers=self.provider_config.headers,
+            headers=self.config.headers,
             timeout=None,
         )
         response.raise_for_status()
@@ -47,9 +47,9 @@ class LmStudioClient(ManagedClient):
                 if not isinstance(instance_id, str):
                     continue
                 response = httpx.post(
-                    f"{self.provider_config.base_url}/api/v1/models/unload",
+                    f"{self.config.base_url}/api/v1/models/unload",
                     json={"instance_id": instance_id},
-                    headers=self.provider_config.headers,
+                    headers=self.config.headers,
                     timeout=None,
                 )
                 response.raise_for_status()
@@ -104,12 +104,3 @@ def _context_of(entry: dict[str, Any]) -> int | None:
             return context
     context = entry.get("max_context_length")
     return context if isinstance(context, int) and context > 0 else None
-
-
-def _read_home_json(relative: str) -> dict[str, Any]:
-    """A JSON object at `~/<relative>`, or {} on any failure."""
-    try:
-        parsed = json.loads((Path.home() / relative).read_text())
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return parsed if isinstance(parsed, dict) else {}

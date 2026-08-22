@@ -1,19 +1,20 @@
-"""Stream smoothing: re-time bursty model output into an even flow.
+"""Stream smoothing: `smoothen` re-times bursty model output into an
+even flow.
 
 Some servers merge tokens before flushing, so their stream arrives in
-bursts — chunky typing even when the generation rate is fine. `smooth` is a
-jitter buffer: a pump thread drains the source stream at full speed (so the
-final `Stats` timing stays real) while the wrapper emits characters at the
-stream's own measured arrival rate, holding roughly _LAG to 2x _LAG seconds
-of text. Below that band it decelerates proportionally instead of stalling;
-above it, it catches up boundedly — so the held lag self-stabilizes, which
-is the classic jitter-buffer tradeoff: smoothness beyond the held lag is
-impossible without more lag.
+bursts — chunky typing even when the generation rate is fine. `smoothen`
+is a jitter buffer: a pump thread drains the source stream at full speed
+(so the final `Stats` timing stays real) while the wrapper emits
+characters at the stream's own measured arrival rate, holding roughly
+_LAG to 2x _LAG seconds of text. Below that band it decelerates
+proportionally instead of stalling; above it, it catches up boundedly —
+so the held lag self-stabilizes, which is the classic jitter-buffer
+tradeoff: smoothness beyond the held lag is impossible without more lag.
 
 `Thinking` deltas pass through immediately; `Stats` (or a relayed error)
-arrives after the buffered text has fully drained. The pump checks a done
-flag on every chunk and closes the source stream itself, so cancelling the
-consumer still stops the server's generation promptly.
+arrives after the buffered text has fully drained. The pump checks a
+done flag on every chunk and closes the source stream itself, so
+cancelling the consumer still stops the server's generation promptly.
 """
 
 from __future__ import annotations  # `Chunk` is imported for typing only
@@ -32,7 +33,7 @@ _RATE_WINDOW = 3.0  # sliding window (seconds) for the arrival-rate estimate
 _TICK = 0.02  # emit cadence
 
 
-def smooth(chunks: Iterator[Chunk]) -> Iterator[Chunk]:
+def smoothen(chunks: Iterator[Chunk]) -> Iterator[Chunk]:
     from otaku.providers.base import Stats, Text, Thinking
 
     buffer: list[str] = []

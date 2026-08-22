@@ -3,11 +3,12 @@ chosen at launch — no load/unload. Chat rides the OpenAI protocol at /v1;
 the loaded context window comes from the native /props endpoint."""
 
 from otaku.providers.base import LocalSingleClient
-from otaku.settings.config import ProviderConfig
+from otaku.settings.providers import ProviderConfig
 
 
 class LlamaCppClient(LocalSingleClient):
     kind = "llamacpp"
+    label = "llama.cpp"
     supports_thinking = False  # no request-level knob; thinking is model-baked
 
     @classmethod

@@ -209,7 +209,8 @@ def install_current() -> str:
 
 def seed_config(python: str, root: Path, server_url: str, *, encrypted: bool) -> None:
     """The old release writes its OWN default config (its shape, no network),
-    then every provider url is dead-ended and the scripted one added."""
+    then every provider url is dead-ended and the scripted one added. The
+    snippet is the OLD release's api — never this build's."""
     code = (
         "from otaku.paths import Paths;"
         "from otaku.app import load_config;"
@@ -269,12 +270,15 @@ def read_through_app(current: str, root: Path) -> dict:
     python = str(Path(current).parent / "python")
     code = (
         "import json;"
-        "from otaku.paths import Paths;"
-        "from otaku.app import load_config, unlock_cipher;"
+        "from otaku.backend.paths import Paths;"
+        "from otaku.encryption import unlock;"
+        "from otaku.settings import config as config_file;"
         "from otaku.store import Store;"
         f"p = Paths.resolve({str(root)!r});"
-        "cfg = load_config(p);"
-        "s = Store.open(p, unlock_cipher(cfg, p), backups=0);"
+        "cfg = config_file.load(p.config_file);"
+        "c = unlock(cfg.encryption.provider, keys_file=p.keys_file, kek_file=p.kek_file,"
+        " service=p.keychain_service, retrieve_command=cfg.encryption.retrieve_command);"
+        "s = Store.open(p.database_file, c, backups_dir=p.backups_dir, keep=0);"
         "st = s.stories.get(1);"
         "ms = s.stories.get_messages(1);"
         "ids = s.stories.get_messages_ids(1);"

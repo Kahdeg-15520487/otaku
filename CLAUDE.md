@@ -31,131 +31,20 @@ adaptive color falls back). `conda activate` first, or pass
 `--no-capture-output`. Lint, typecheck and the test suites are unaffected;
 only what talks to the terminal is.
 
-The state dir defaults to `~/.otaku` (`_DEFAULT_ROOT` in
-`otaku/paths.py`), relocatable via the `OTAKU_CONFIG_DIR` env var.
-
-## Configuration files
-
-The app writes `configs/config.toml` and `configs/providers.toml` (one
-top-level `[name]` section per provider) once at first run and thereafter
-edits them only surgically — line by line, never rewritten as a whole:
-settings migrations (the `otaku/settings/migrations` package) and the
-model picker's provider-field saves. Migration is one idempotent,
-convergent mechanism: every step reruns at every launch, detects its own
-applicability on the parsed file (no version stamp), and heals any
-half-state — a crash between writes, a hand edit, a seal that could not
-happen — on the next run; nothing is ever one-shot. Every edit keeps the pre-edit file as
-`configs/backups/{config,providers}-YYYYMMDD.toml`, `-N` appended when
-the day already has one. Every setting changed from inside the app
-persists elsewhere and is rewritten wholesale: `configs/state.toml` for
-session-wide values (the resumed model and story, `/set` toggles) and
-`configs/models.toml` for per-model overrides.
-
-## Migrations
-
-Three compatibility frameworks, one per artifact that outlives a
-release — a format change lands inside one of them, never beside them:
-
-- **Settings** (`otaku/settings/migrations`) — convergent, rerun at
-  every launch, self-healing; detailed under Configuration files above.
-- **Database** (`otaku/store/migrations`) — the versioned ladder;
-  detailed under Architecture below.
-- **Export format** (`otaku/transfer`; otaku2: `backend/formats`) — the
-  import parser IS the upward migration: it reads every format version ever written.
-  `EXPORT_FORMAT_VERSION` bumps when an older reader would misread the
-  layout, and a document declaring a newer format is refused with
-  directions (`imports.NewerFormatError`), never guessed at.
-
-Before a release, all three are exercised against REAL artifacts of the
-last released version, not only the suites' synthetic fixtures: a state
-dir the released build wrote must launch clean (settings converge, the
-database ladders up), and a document it exported must import.
-
-## Tests
-
-Every rule in `docs/product_design.md` must be covered — that is the one
-place coverage is owed in full, and a new rule arrives with the test that
-holds it. Cover the promise, not its current wording: the
-framing templates come FROM `prompts.toml`, so the test edits the file and
-reads the wire — asserting the built-in text would pass even with the load
-path gone.
-
-A test earns its place by covering what RUNNING the app cannot show. Never
-assert user-facing copy or screen appearance — a wrong sentence, a missing
-blank line, a rule that failed to draw are all seen the moment the app
-runs, and pinning them only makes rewording break the suite. Assert what
-running it cannot show: the wire, the store, the files on disk, exit
-codes, and pure logic with many cases. Where the printed text IS the
-payload (`/context` previews the wire verbatim), asserting it is asserting
-the payload, not the copy.
-
-Unit tests (`tests/`, `make test`) are written test-first, from the
-module's documented contract — never by reading its code, so they check
-what the module promises rather than what it happens to do — and ONLY for
-pure functions: no disk, network, database, or terminal. A failure means
-the implementation is wrong until proven otherwise. `tests/` mirrors the
-package tree: `tests/lore/test_assembler.py` covers
-`otaku/lore/assembler.py`.
-
-Scenario tests (`scenarios/`, `make scenarios`) play user stories against
-the real application: `support/harness.py` builds the real `otaku.app.App`
-over a throwaway state dir whose config points at the scripted
-OpenAI-compatible server in `support/server.py`, and plays lines through
-the REPL's own `submit`; a few stories drive the real binary in a pty
-(`support/terminal.py`). Deterministic and offline; the wire is asserted
-against the server's recorded requests. The layout follows the app's
-command surface: `scenarios/chat/` has one test module per
-`otaku/chat/commands` module, classes in `/help` order, with the tui
-screen a command opens tested beside it; `scenarios/cli/` has one module
-per top-level command (`test_main.py` — the bare invocation, driven in a
-pty — `test_logs.py`, and `test_update.py`); `test_app.py` covers the launch itself
-(encryption, backups, resume); the live smokes live in `scenarios/live/`,
-one module per provider.
-In every test module — units included — the test classes come first
-(one class per command or group) and helper functions after them; within
-a class, tests follow the story's logical order.
-
-Two markers name the slow ends of the suite, so either can be deselected.
-The `live` smokes talk to real providers and each skips itself when its
-server or api key is absent (`scripts/live-providers.sh` launches the
-local engines; the cloud smokes read OPENROUTER_API_KEY / NANOGPT_API_KEY
-and send one short prompt to a cheap model). The `cli` ones are all of
-`scenarios/cli/`: they drive the real binary in a subprocess or a pty,
-which costs seconds per test where the in-process kind costs
-milliseconds. The fast offline suite is therefore
-`-m "not live and not cli"`.
-
-## Process rules
-
-- Never commit without the user's explicit approval.
-- A commit message is ONE line, under 150 characters — no body. Name what
-  changed, not every detail; the changelog and the code carry those.
-- Challenge design and implementation decisions and ask questions — the user
-  reviews every step. Functionality follows the product design.
-- Keep dependencies minimal; no optional extras.
-
-## Documentation rules
-
-1. Docs describe the final state only — never history or comparisons — and
-   each doc has one owner topic.
-2. A change updates its relevant doc in the same commit as the code.
-3. The code documents itself first: module docstrings say what a module owns;
-   comments only for non-obvious whys. Docs cover what code can't: product
-   intent, cross-module contracts, operational rules.
-4. The changelog diffs against the LAST RELEASE, not the working tree: no
-   entry for a fix or change to something this same version introduced —
-   that detail belongs inside the feature's own entry, or nowhere.
+The state dir defaults to `~/.otaku` (`DEFAULT_ROOT` in
+`otaku/backend/paths.py`), relocatable via the `OTAKU_CONFIG_DIR` env var
+(read by `cli`, which passes the resolved root down).
 
 ## Architecture
 
 Each package may import only the packages listed after its arrow (plus the
 standard library and the declared dependencies); everything else is
-forbidden. `web` is the NOT-YET-BUILT second frontend: no such package
+forbidden — `tests/test_architecture.py` reads the tree and holds this
+table, so an import that crosses a layer fails the suite rather than the
+review. `web` is the NOT-YET-BUILT second frontend: no such package
 exists, but its row stays — it is the standing test for what belongs in
 `backend` (anything both frontends would need) versus a frontend (only
-the medium). This is the TARGET layout — the restructure to it is this
-branch's work (design: notes/code-review-2026-08-17-architecture.md); until
-a package has moved, its old imports stand:
+the medium):
 
     cli        → terminal, web, backend (launch + log unlock), logging, update
     terminal   → backend, formatting
@@ -218,7 +107,7 @@ prompt's live coloring, the played block, the resume echo and the story
 browser all render through it, which is why the screen ledger's row
 math can never disagree with an echo.
 
-The data model lives in `otaku2/store/schema.py` (the DDL, its
+The data model lives in `otaku/store/schema.py` (the DDL, its
 semantics, and the row types) — always the CURRENT shape: a fresh
 database is created from it directly, and `store/migrations` — a
 versioned ladder over `meta.schema_version` — brings old databases to
@@ -240,17 +129,136 @@ base class (`_fetch_context_size`, the `ListScreen` `_on_*` contract) —
 extension surface is visible in one place — and BACKEND-PACKAGE-PRIVATE
 names on `Session` (`session._store`, `_record_turn`): the backend's own
 modules are the implementation and may use them; frontends never do
-(grep-enforced: no `session._` outside otaku2/backend).
+(test-enforced: no `session._` outside `otaku/backend`).
 
 `created_at` / `updated_at` columns are audit fields: no business logic may
 ever rely on them. UI display use (e.g. ordering the story list by recency)
 is allowed.
 
+## Configuration files
+
+The app writes `configs/config.toml` and `configs/providers.toml` (one
+top-level `[name]` section per provider) once at first run and thereafter
+edits them only surgically — line by line, never rewritten as a whole:
+settings migrations (the `otaku/settings/migrations` package) and the
+model picker's provider-field saves. Migration is one idempotent,
+convergent mechanism: every step reruns at every launch, detects its own
+applicability on the parsed file (no version stamp), and heals any
+half-state — a crash between writes, a hand edit, a seal that could not
+happen — on the next run; nothing is ever one-shot. Every edit keeps the pre-edit file as
+`configs/backups/{config,providers}-YYYYMMDD.toml`, `-N` appended when
+the day already has one. Every setting changed from inside the app
+persists elsewhere and is rewritten wholesale: `configs/state.toml` for
+session-wide values (the resumed model and story, `/set` toggles) and
+`configs/models.toml` for per-model overrides.
+
+## Migrations
+
+Three compatibility frameworks, one per artifact that outlives a
+release — a format change lands inside one of them, never beside them:
+
+- **Settings** (`otaku/settings/migrations`) — convergent, rerun at
+  every launch, self-healing; detailed under Configuration files above.
+- **Database** (`otaku/store/migrations`) — the versioned ladder;
+  detailed under Architecture below.
+- **Export format** (`otaku/backend/formats`) — the
+  import parser IS the upward migration: it reads every format version ever written.
+  `EXPORT_FORMAT_VERSION` bumps when an older reader would misread the
+  layout, and a document declaring a newer format is refused with
+  directions (`imports.NewerFormatError`), never guessed at.
+
+Before a release, all three are exercised against REAL artifacts of the
+last released version, not only the suites' synthetic fixtures: a state
+dir the released build wrote must launch clean (settings converge, the
+database ladders up), and a document it exported must import.
+
+## Tests
+
+Every rule in `docs/product_design.md` must be covered — that is the one
+place coverage is owed in full, and a new rule arrives with the test that
+holds it. Cover the promise, not its current wording: the
+framing templates come FROM `prompts.toml`, so the test edits the file and
+reads the wire — asserting the built-in text would pass even with the load
+path gone.
+
+A test earns its place by covering what RUNNING the app cannot show. Never
+assert user-facing copy or screen appearance — a wrong sentence, a missing
+blank line, a rule that failed to draw are all seen the moment the app
+runs, and pinning them only makes rewording break the suite. Assert what
+running it cannot show: the wire, the store, the files on disk, exit
+codes, and pure logic with many cases. Where the printed text IS the
+payload (`/context` previews the wire verbatim), asserting it is asserting
+the payload, not the copy.
+
+Unit tests (`tests/`, `make test`) are written test-first, from the
+module's documented contract — never by reading its code, so they check
+what the module promises rather than what it happens to do — and ONLY for
+pure functions: no disk, network, database, or terminal. A failure means
+the implementation is wrong until proven otherwise. `tests/` mirrors the
+package tree: `tests/context/test_assembler.py` covers
+`otaku/context/assembler.py`. One declared exception to the pure-function
+rule: `tests/test_architecture.py`, whose subject IS the source tree — it
+reads it and nothing else, holding the import table, the inertness of the
+`backend` bridge, and the privacy of the `Session` handles.
+
+Scenario tests (`scenarios/`, `make scenarios`) play user stories against
+the real application: `support/harness.py` builds a real session through
+`backend.launch.open_session` over a throwaway state dir whose config
+points at the scripted OpenAI-compatible server in `support/server.py`,
+and plays lines through the terminal's own `submit`; a few stories drive
+the real binary in a pty (`support/terminal.py`). Deterministic and
+offline; the wire is asserted against the server's recorded requests. A
+scenario reads the store through its own second connection — never the
+session's package-private handles. The layout follows the app's own
+seams: `scenarios/session/` is everything inside an open session, one
+module per `otaku/backend/api` module, classes in `/help` order, with the
+screen a command opens tested beside it; `scenarios/cli/` has one module
+per top-level command (`test_main.py` — the bare invocation, driven in a
+pty — `test_logs.py`, and `test_update.py`); `test_app.py` covers getting
+a session at all (encryption, backups, resume); the live smokes live in
+`scenarios/live/`, one module per provider. `scenarios/fixtures/` holds
+the artifacts a synthetic string cannot stand in for — a real
+SillyTavern chat, a character card PNG, prose with real typography.
+In every test module — units included — the test classes come first
+(one class per command or group) and helper functions after them; within
+a class, tests follow the story's logical order.
+
+Two markers name the slow ends of the suite, so either can be deselected.
+The `live` smokes talk to real providers and each skips itself when its
+server or api key is absent (`scripts/live-providers.sh` launches the
+local engines; the cloud smokes read OPENROUTER_API_KEY / NANOGPT_API_KEY
+and send one short prompt to a cheap model). The `cli` ones are all of
+`scenarios/cli/`: they drive the real binary in a subprocess or a pty,
+which costs seconds per test where the in-process kind costs
+milliseconds. The fast offline suite is therefore
+`-m "not live and not cli"`.
+
+## Process rules
+
+- Never commit without the user's explicit approval.
+- A commit message is ONE line, under 150 characters — no body. Name what
+  changed, not every detail; the changelog and the code carry those.
+- Challenge design and implementation decisions and ask questions — the user
+  reviews every step. Functionality follows the product design.
+- Keep dependencies minimal; no optional extras.
+
+## Documentation rules
+
+1. Docs describe the final state only — never history or comparisons — and
+   each doc has one owner topic.
+2. A change updates its relevant doc in the same commit as the code.
+3. The code documents itself first: module docstrings say what a module owns;
+   comments only for non-obvious whys. Docs cover what code can't: product
+   intent, cross-module contracts, operational rules.
+4. The changelog diffs against the LAST RELEASE, not the working tree: no
+   entry for a fix or change to something this same version introduced —
+   that detail belongs inside the feature's own entry, or nowhere.
+
 ## Command conventions
 
 The `@` sigil in a command argument exists ONLY to trigger path
 autocompletion (the menu pops at `@` and filters while typing — see
-`otaku/chat/pathcomplete.py`; otaku2: `terminal/prompt/pathcomplete.py`). Commands must ignore it: every handler
+`otaku/terminal/prompt/completion.py`). Commands must ignore it: every handler
 that reads a path strips a leading `@` (`removeprefix("@")`) and never
 branches on it — it is a UI trigger, not part of any name or value.
 

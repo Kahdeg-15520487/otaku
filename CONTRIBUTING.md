@@ -29,8 +29,10 @@ There are two suites, with a deliberate division of labor:
 
 - **Unit tests** (`tests/`, `make test`) exist ONLY for pure functions — no disk, network,
   database, or terminal. They are written from a module's documented contract, never by reading
-  its code, and the tree mirrors the package: `tests/lore/test_assembler.py` covers
-  `otaku/lore/assembler.py`.
+  its code, and the tree mirrors the package: `tests/context/test_assembler.py` covers
+  `otaku/context/assembler.py`. The one declared exception is
+  `tests/test_architecture.py`, whose subject is the source tree itself — it holds the
+  package layout, so an import that crosses a layer fails the suite.
 - **Scenario tests** (`scenarios/`, `make scenarios`) play user stories against the real
   application: the real launch composition over a throwaway state dir, a scripted
   OpenAI-compatible server as the model, prompt_toolkit screens driven by real keystrokes, and a

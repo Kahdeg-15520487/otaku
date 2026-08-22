@@ -1,22 +1,14 @@
-"""The user's configuration: configs/config.toml.
-
-Read-only for the app — bootstrap writes it once at first run, the user
-edits it thereafter, and the one exception is `settings.migrations`:
-surgical shape updates applied at launch when the file is from an older
-build. Everything the app itself changes lives in state.toml
-(`settings.state`) or models.toml instead.
-
-This module owns the config surface: the dataclasses, the reader, and the
-rendering — `Config.to_toml()` renders any instance as the file. The
-provider sections come from the backend classes (each backend's
-`autoconfigure`), assembled at the first-run write by the CLI.
+"""The user's configuration: config.toml. The provider sections are a
+sibling surface (`settings.providers`); `Config` deliberately does not
+carry them — the Registry does, injected at the launch.
 """
 
 import tomllib
 from dataclasses import dataclass, field
+from pathlib import Path
 
-from otaku.paths import Paths
-from otaku.settings.files import row, toml_key, toml_scalar
+from otaku.formatting import toml_scalar
+from otaku.settings import row
 
 
 class ConfigError(Exception):
@@ -24,31 +16,21 @@ class ConfigError(Exception):
 
 
 @dataclass(frozen=True)
-class ProviderConfig:
-    """One [NAME] section of providers.toml: an OpenAI-compatible server."""
+class UiSettings:
+    """The configured looks a frontend needs at its own launch — the one
+    slice of config.toml that is the frontend's business (a persisted
+    slice, hence a settings type; run-time bundles live beside their
+    consumers instead)."""
 
-    name: str
-    url: str
-    api_key: str = ""
-    keep_alive: str = ""  # how long an explicitly loaded model stays resident (ollama)
-
-    @property
-    def base_url(self) -> str:
-        """The URL without a trailing /v1 — where a backend's native
-        management endpoints live."""
-        return self.url[: -len("/v1")] if self.url.endswith("/v1") else self.url
-
-    @property
-    def headers(self) -> dict[str, str]:
-        """Auth headers for every request to this provider."""
-        return {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+    dialogue_color: str
+    dialogue_bold: bool
+    show_banner: bool
 
 
 @dataclass(frozen=True)
 class Encryption:
-    """The [encryption] section. Provider "none" (the default) stores content
-    as readable plain text; the others name where the key-encryption key
-    comes from — see `otaku.crypto`."""
+    """The [encryption] section. Provider "none" (the default) stores
+    content as readable plain text."""
 
     provider: str = "none"
     retrieve_command: str | None = None
@@ -56,7 +38,6 @@ class Encryption:
 
 @dataclass(frozen=True)
 class Config:
-    providers: dict[str, ProviderConfig]
     encryption: Encryption = field(default_factory=Encryption)
     # [settings]
     show_banner: bool = True
@@ -77,16 +58,10 @@ class Config:
     backups: int = 7
     seed_sample: bool = True
 
-    def serves(self, spec: str) -> bool:
-        """Whether `spec` ("provider/model") names a configured provider —
-        what the launcher asks before resuming a remembered model."""
-        provider_name, _, model = spec.partition("/")
-        return bool(model) and provider_name in self.providers
-
     def to_toml(self) -> str:
-        """This configuration rendered as config.toml text: every key present
-        with an aligned comment, so the whole surface is discoverable and
-        editable in place."""
+        """This configuration rendered as config.toml text: every key
+        present with an aligned comment, so the whole surface is
+        discoverable and editable in place."""
         # One setting per source line, whatever the width — E501 is off
         # for this file (see pyproject).
         # fmt: off
@@ -131,20 +106,25 @@ class Config:
             )
         return "\n".join(lines) + "\n"
 
+    @property
+    def ui(self) -> UiSettings:
+        """The frontend slice, cut once here."""
+        return UiSettings(
+            dialogue_color=self.dialogue_color,
+            dialogue_bold=self.dialogue_bold,
+            show_banner=self.show_banner,
+        )
 
-def load(paths: Paths) -> Config:
-    """Read and validate config.toml and providers.toml. Raises
-    ConfigError with a message that names the file — both are
-    hand-edited, so errors must be human."""
-    path = paths.config_file
+
+def load(path: Path) -> Config:
+    """Read and validate config.toml. Raises ConfigError with a message
+    that names the file — it is hand-edited, so errors must be human."""
     try:
         raw = tomllib.loads(path.read_text())
     except FileNotFoundError as e:
         raise ConfigError(f"{path} does not exist") from e
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"{path}: invalid TOML — {e}") from e
-
-    providers = _load_providers(paths)
 
     enc_raw = _table(raw, "encryption", path)
     command = enc_raw.get("retrieve_command")
@@ -160,7 +140,6 @@ def load(paths: Paths) -> Config:
     database = _table(raw, "database", path)
     try:
         return Config(
-            providers=providers,
             encryption=encryption,
             show_banner=bool(settings.get("show_banner", True)),
             smooth_streaming=bool(settings.get("smooth_streaming", True)),
@@ -178,51 +157,6 @@ def load(paths: Paths) -> Config:
         )
     except ValueError as e:
         raise ConfigError(f"{path}: {e}") from e
-
-
-def providers_toml(providers: dict[str, ProviderConfig]) -> str:
-    """Render configs/providers.toml — one top-level [name] section per
-    provider; what first run writes. Thereafter the file is the user's,
-    edited surgically (the picker's field saves, migrations)."""
-    lines = [
-        "# otaku providers — one [name] section per provider. The model",
-        "# picker edits urls and api keys here; api keys are stored sealed.",
-    ]
-    for provider_config in providers.values():
-        lines += [
-            "",
-            f"[{toml_key(provider_config.name)}]",
-            f"url = {toml_scalar(provider_config.url)}",
-            f"api_key = {toml_scalar(provider_config.api_key)}",
-        ]
-        if provider_config.keep_alive:
-            lines.append(f"keep_alive = {toml_scalar(provider_config.keep_alive)}")
-    return "\n".join(lines) + "\n"
-
-
-def _load_providers(paths: Paths) -> dict[str, ProviderConfig]:
-    """The [NAME] sections of providers.toml, validated."""
-    path = paths.providers_file
-    try:
-        raw = tomllib.loads(path.read_text())
-    except FileNotFoundError as e:
-        raise ConfigError(f"{path} does not exist") from e
-    except tomllib.TOMLDecodeError as e:
-        raise ConfigError(f"{path}: invalid TOML — {e}") from e
-    sections = {name: entry for name, entry in raw.items() if isinstance(entry, dict)}
-    if not sections:
-        raise ConfigError(f"{path}: at least one [NAME] provider section is required")
-    providers: dict[str, ProviderConfig] = {}
-    for name, entry in sections.items():
-        if "url" not in entry:
-            raise ConfigError(f"{path}: [{name}] must have a 'url' key")
-        providers[name] = ProviderConfig(
-            name=str(name),
-            url=str(entry["url"]).rstrip("/"),
-            api_key=str(entry.get("api_key", "")),
-            keep_alive=str(entry.get("keep_alive", "")),
-        )
-    return providers
 
 
 def _table(raw: dict[str, object], name: str, path: object) -> dict[str, object]:

@@ -1,0 +1,431 @@
+"""The live session: what a frontend holds, and the state primitives the
+backend's own modules build on.
+
+Product state is readable through read-only properties — every mutation
+goes through a backend operation, so a frontend write is a type error,
+not a latent divergence from state.toml. The channel methods are the
+worker made frontend-safe; everything underscore is the implementation.
+The boundary is the PACKAGE: backend's own modules use the underscore
+names, frontends never do (grep-enforceable: no `session._` outside
+otaku/backend).
+
+Concurrency: the backend is single-threaded by contract — operations
+run one at a time on the caller's one session thread (the web runs
+every call on a single executor). The exceptions are the channel
+methods, safe from any thread: `touch`, `defer`, `status`,
+`set_on_status` — and a `WorkerRun`'s `wait`/`poll`/`cancel`, which
+touch only the run's own event. Frontends inherit this rule from here.
+"""
+
+import contextlib
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
+from typing import Self
+
+from otaku.backend.paths import Paths
+from otaku.context import assembler
+from otaku.context.assembler import AssembledPrompt, ContextShape
+from otaku.formatting import pretty_path
+from otaku.logging import ErrorLog
+from otaku.providers import OpenAIClient, ProviderConfig, Registry
+from otaku.settings import models as models_file
+from otaku.settings import state as state_file
+from otaku.settings.config import Config, UiSettings
+from otaku.settings.prompts import Prompts
+from otaku.settings.state import StateConfig
+from otaku.store import Store
+from otaku.store.schema import Message
+from otaku.worker import Worker
+
+# The inference parameters otaku understands, and how each is read from
+# the saved file or a `/set parameter` argument.
+KNOWN_PARAMS: dict[str, type] = {
+    "temperature": float,
+    "top_p": float,
+    "max_tokens": int,
+    "presence_penalty": float,
+    "frequency_penalty": float,
+    "seed": int,
+    "stop": str,
+}
+
+# Thinking effort, as `/set think` and state.toml spell it. "default" is
+# not a level: it means send nothing and let the model decide (None).
+THINK_LEVELS = {"none", "low", "medium", "high", "max"}
+THINK_ALIASES = {"on": "medium", "off": "none"}
+
+# What every model-facing door says while no model is selected.
+NO_MODEL_HINT = "No model selected — pick one with /model."
+
+
+class Refused(Exception):  # noqa: N818 — a refusal is an expected answer, not an error
+    """An operation declined for an expected reason; str(e) is the exact
+    sentence to show. The backend's one refusal channel — frontends catch
+    it at every call site and print, so no operation needs a `| str`
+    return. Always raised EAGERLY — never mid-stream (that is the
+    `Declined` event's job)."""
+
+
+class Session:
+    """One user's live session over one state dir — the object the
+    frontends hold and every backend operation takes first. A plain
+    class on purpose: `start` is the ONE constructor, and it owns the
+    invariants a generated `__init__` would skip. Ends with `close()`."""
+
+    # What the launch has to say. Two channels, both one-shot (the
+    # frontend prints and clears; the two deliberately mutable public
+    # fields): `notices` are the launch's REPORTS — created files, stale
+    # settings, keys that would not open — shown before the banner;
+    # `notice` is the one BOLD line shown after the resumed scene (the
+    # sample-story hint), where a hint belongs and a warning does not.
+    notices: list[str]
+    notice: str
+    # Product state (read through the properties below).
+    _provider: str
+    _model: str
+    _story_id: int | None
+    _system: str
+    _messages: list[Message]
+    _params: dict[str, object]
+    _think: str | None
+    _verbose: bool
+    _autocorrect: bool
+    # The stories content index behind `api.stories.search` — built on
+    # the first search, invalidated by the write primitives below.
+    _search_index: dict[int, str] | None
+    # The implementation handles (package-internal): the loaded machinery,
+    # not session state.
+    _config: Config
+    _prompts: Prompts
+    _paths: Paths
+    _store: Store
+    _providers_registry: Registry
+    _worker: Worker
+    _closed: bool
+
+    @classmethod
+    def start(
+        cls,
+        *,
+        config: Config,
+        prompts: Prompts,
+        paths: Paths,
+        store: Store,
+        registry: Registry,
+        worker: Worker,
+        model_spec: str,
+        state: StateConfig,
+    ) -> Self:
+        """The session for a launch on `model_spec` ("provider/model", or
+        "" for none) — `state.model` after the launch validated it
+        against the registry, passed separately so the validation has
+        one home. Saved parameters, persisted toggles, and the
+        remembered story applied; a stale remembered value lands in
+        `notices` and is skipped — never a failed launch."""
+        session = cls.__new__(cls)
+        session.notices = []
+        session.notice = ""
+        session._config = config
+        session._prompts = prompts
+        session._paths = paths
+        session._store = store
+        session._providers_registry = registry
+        session._worker = worker
+        session._closed = False
+        session._provider, _, session._model = model_spec.partition("/")
+        session._story_id = None
+        session._system = ""
+        session._messages = []
+        session._params = {}
+        session._search_index = None
+        session._verbose = state.verbose
+        session._autocorrect = state.autocorrect
+        session._think = _read_think(state.think)
+        session._reload_params()
+        # Reattach the story the previous session was on, so bare `otaku`
+        # reopens it mid-scene; one deleted since simply starts fresh.
+        if state.story and store.stories.exists(state.story):
+            session._switch_to(state.story)
+        return session
+
+    def close(self) -> None:
+        """Shut the worker down (non-blocking) and close the store.
+        Idempotent."""
+        if self._closed:
+            return
+        self._closed = True
+        self._worker.shutdown()
+        self._store.close()
+
+    # ---------- the read-only product state ----------
+
+    @property
+    def provider(self) -> str:
+        """The active provider's name; "" while no model is selected."""
+        return self._provider
+
+    @property
+    def model(self) -> str:
+        """The bare model name, as the server expects it."""
+        return self._model
+
+    @property
+    def story_id(self) -> int | None:
+        return self._story_id
+
+    @property
+    def system(self) -> str:
+        """The story's system prompt; never a message row."""
+        return self._system
+
+    @property
+    def messages(self) -> Sequence[Message]:
+        """The story as loaded, root → head."""
+        return self._messages
+
+    @property
+    def params(self) -> Mapping[str, object]:
+        """The model's saved parameters in force."""
+        return self._params
+
+    @property
+    def think(self) -> str | None:
+        """A THINK_LEVELS value; None = defer to the model."""
+        return self._think
+
+    @property
+    def verbose(self) -> bool:
+        return self._verbose
+
+    @property
+    def autocorrect(self) -> bool:
+        return self._autocorrect
+
+    @property
+    def full_model_name(self) -> str:
+        """ "provider/model" for display; "" without a model — derived, so
+        a switch can never leave it stale."""
+        return f"{self._provider}/{self._model}" if self._model else ""
+
+    @property
+    def ui(self) -> UiSettings:
+        """The configured looks, for the frontend's own launch."""
+        return self._config.ui
+
+    # ---------- what frontends may call ----------
+
+    def start_worker(self) -> None:
+        """Start the background actor — called once by the frontend, the
+        moment it can repaint (`open_session` builds it unstarted so no
+        status line races the first draw)."""
+        self._worker.start()
+
+    def record_crash(self, context: str, exc: BaseException) -> str:
+        """A contained crash into the error log; the day-file's pretty
+        path, for the one line the frontend prints. Never raises."""
+        try:
+            return pretty_path(ErrorLog(self._paths.logs_dir).record(context, exc))
+        except Exception:
+            return ""
+
+    def touch(self) -> None:
+        """The user is typing — a pending extraction pass waits for real
+        idle. Called per keystroke; stays cheap. Any thread."""
+        self._worker.touch()
+
+    def defer(self) -> None:
+        """The user submitted — queued background work is dropped. Any
+        thread."""
+        self._worker.defer()
+
+    def status(self) -> str:
+        """The background worker's one-line account; "" when idle. Any
+        thread."""
+        return self._worker.status()
+
+    def set_on_status(self, repaint: Callable[[], None]) -> None:
+        """The status repaint hook (thread-safe on the caller's side)."""
+        self._worker.on_status = repaint
+
+    def recent_inputs(self) -> list[str]:
+        """The prompt's Up/Down input history, most recent first —
+        store-backed, so it survives sessions. Best-effort: a store
+        hiccup yields an empty list, never a broken prompt."""
+        try:
+            return self._store.history.get_recent()
+        except Exception:
+            return []
+
+    def record_input(self, text: str) -> None:
+        """Remember one submitted line (blanks and immediate repeats
+        are skipped). Best-effort; never raises."""
+        with contextlib.suppress(Exception):
+            self._store.history.add(text)
+
+    # ---------- state primitives (backend package internal) ----------
+
+    def _provider_config(self) -> ProviderConfig | None:
+        """The active provider's CURRENT configuration, resolved through
+        the registry by name — never a snapshot."""
+        if not self._provider:
+            return None
+        try:
+            return self._providers_registry.get_client(self._provider).config
+        except ValueError:
+            return None
+
+    def _client(self) -> OpenAIClient | None:
+        if not self._model:
+            return None
+        try:
+            return self._providers_registry.get_client(self._provider)
+        except ValueError:
+            return None
+
+    def _shape(self) -> ContextShape:
+        """The assembly shape: config's window settings + the prompts'
+        recap header and card template, read fresh each call."""
+        return ContextShape(
+            head_messages=self._config.head_messages,
+            tail_messages=self._config.tail_messages,
+            recap_header=self._prompts.recap_header,
+            card_framing=self._prompts.card_framing,
+        )
+
+    def _assemble(self, context_max: int | None) -> AssembledPrompt:
+        """The next request — the one binding of the session's fields to
+        `assembler.assemble_story`, so the turn, the preview, and every
+        other call site can never disagree on what is sent."""
+        return assembler.assemble_story(
+            self._store,
+            self._story_id,
+            system=self._system,
+            messages=list(self._messages),
+            shape=self._shape(),
+            context_max=context_max,
+        )
+
+    def _switch_to(self, story_id: int, messages: list[Message] | None = None) -> None:
+        """Attach to a story — system, messages (or the given truncated
+        list), remembered state. The ONE way a session changes stories,
+        so none of the doors (launch resume, the browser, an import) can
+        forget a piece."""
+        self._story_id = story_id
+        self._system = self._store.stories.get_system(story_id)
+        self._messages = (
+            self._store.stories.get_messages(story_id) if messages is None else messages
+        )
+        self._save_state()
+
+    def _ensure_story(self) -> int:
+        """The story id, creating the story on the first real turn — so a
+        knob or an immediate exit never leaves an empty row behind. A
+        story deleted out from under the session is detected here too:
+        without this, later writes would fail while the session only
+        looked recorded."""
+        if self._story_id is not None and not self._store.stories.exists(self._story_id):
+            self._story_id = None
+            self._messages = []
+            self.notices.append("The story was deleted — continuing in a new one.")
+        if self._story_id is None:
+            self._story_id = self._store.stories.add()
+            if self._system:
+                self._store.stories.set_system(self._story_id, self._system)
+            self._save_state()
+        return self._story_id
+
+    def _record_turn(self, message: Message) -> None:
+        """Append one turn to the session and the store, the in-memory
+        copy carrying its assigned id."""
+        story_id = self._ensure_story()
+        message_id = self._store.stories.append(story_id, message)
+        self._messages.append(replace(message, id=message_id))
+        self._search_index = None
+
+    def _undo(self) -> list[Message]:
+        """Discard the trailing exchange: the assistant reply (if any)
+        plus the ONE user row that prompted it — every submission is a
+        single row (a /me or /you direction rides its row's template),
+        and an imported backlog of consecutive user rows is story, not
+        one submission. Nothing is deleted: the head moves back and the
+        undone turns stay in the tree as siblings. Returns the popped
+        messages."""
+        popped: list[Message] = []
+        if not self._messages:
+            return popped
+        if self._messages[-1].role == "assistant":
+            popped.append(self._messages.pop())
+        if self._messages and self._messages[-1].role == "user":
+            popped.append(self._messages.pop())
+        if popped:
+            self._move_head()
+            self._search_index = None
+        return popped
+
+    def _drop_last_reply(self) -> Message | None:
+        """Pop the trailing assistant reply (regenerate's first half): the
+        head moves back one; the discarded reply stays in the tree as a
+        sibling."""
+        if not self._messages or self._messages[-1].role != "assistant":
+            return None
+        popped = self._messages.pop()
+        self._move_head()
+        self._search_index = None
+        return popped
+
+    def _set_system(self, text: str) -> None:
+        """The story's system prompt — persisted with the story when one
+        exists; a story created later picks it up at creation."""
+        self._system = text
+        if self._story_id is not None:
+            self._store.stories.set_system(self._story_id, text)
+
+    def _reload_params(self) -> None:
+        """Replace the live parameters with the current model's saved
+        ones — parameters follow the model, at startup and on a switch.
+        A saved value the vocabulary no longer makes sense of lands in
+        `notices` and is skipped."""
+        self._params = {}
+        saved = models_file.load(self._paths.models_file).get(self._model, {})
+        for name, value in saved.items():
+            coerce = KNOWN_PARAMS.get(name)
+            if coerce is None:
+                self.notices.append(f"Ignoring unknown parameter {name!r} saved for {self._model}.")
+                continue
+            try:
+                self._params[name] = coerce(value)
+            except (TypeError, ValueError):
+                self.notices.append(
+                    f"Ignoring invalid {name} value {value!r} saved for {self._model}."
+                )
+
+    def _save_state(self) -> None:
+        """Persist what bare `otaku` resumes: the model, the story, and
+        the /set toggles. Best-effort — remembered state is never worth
+        failing a turn."""
+        with contextlib.suppress(OSError):
+            state_file.save(
+                self._paths.state_file,
+                StateConfig(
+                    model=self.full_model_name,
+                    story=self._story_id or 0,
+                    verbose=self._verbose,
+                    autocorrect=self._autocorrect,
+                    think=self._think if self._think is not None else "default",
+                ),
+            )
+
+    def _move_head(self) -> None:
+        """Point the story at the session's last message (None when empty)."""
+        if self._story_id is None:
+            return
+        head = self._messages[-1].id if self._messages else None
+        self._store.stories.set_head(self._story_id, head)
+
+
+def _read_think(think: str) -> str | None:
+    """state.toml's remembered value onto the session's vocabulary — an
+    unrecognized one falls to "none" (never a failed launch)."""
+    if think == "default":
+        return None
+    return think if think in THINK_LEVELS else "none"

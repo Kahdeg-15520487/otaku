@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from otaku.settings.config import ProviderConfig
+from otaku.backend.api import providers as api_providers
+from otaku.settings.providers import ProviderConfig
 from scenarios.support.live import first_model
 from scenarios.support.live import live_app as build_app
 
@@ -24,8 +25,9 @@ class TestLlamaCpp:
         assert chain[1].body.strip()
 
     def test_the_context_window_reads_from_props(self, live_app) -> None:  # type: ignore[no-untyped-def]
-        client = live_app.session.providers.get_client("llamacpp")
-        assert client.get_context_size(live_app.session.model)
+        rows, _ = api_providers.get_providers(live_app.session)
+        engine = next(r for r in rows if r.config.name == "llamacpp")
+        assert any(m.context for m in engine.models)
 
 
 @pytest.fixture

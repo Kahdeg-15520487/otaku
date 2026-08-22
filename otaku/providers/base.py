@@ -1,11 +1,13 @@
-"""The OpenAI-compatible client — and the base of every backend family.
+"""The OpenAI-compatible client — and the base of every ENGINE family
+("engine" everywhere here: the model server — llama.cpp, Ollama, a cloud
+catalog — never the application's backend package).
 
 `OpenAIClient` speaks the OpenAI wire protocol: `/models` to list and
 streaming `/chat/completions` to generate. That is the whole protocol
 surface; a provider that is just an OpenAI endpoint is served by this
 class as is. `models()` is the one listing call, returning rich
-`ModelInfo` rows — the base fills only the names, and each backend
-family fills what its native APIs know in one pass.
+`ModelInfo` rows — the base fills only the names, and each engine family
+fills what its native APIs know in one pass.
 
 The families, one subclass each:
 
@@ -18,10 +20,10 @@ The families, one subclass each:
   listed with their context windows, never sized (no disk to weigh),
   and every row is simply available.
 
-`chat_stream` yields typed chunks: `Thinking` deltas, `Text` deltas, and a
-final `Stats`. Bursty output is re-timed into an even flow when smoothing
-is on (see `providers.streaming`); calls nobody watches pass smooth=False
-and skip it.
+`chat_stream` yields typed chunks: `Thinking` deltas, `Text` deltas, and
+a final `Stats`. Bursty output is re-timed into an even flow when
+smoothing is on (see `providers.streaming`); calls nobody watches pass
+watched=False and skip it.
 """
 
 import contextlib
@@ -34,18 +36,17 @@ from typing import Any, ClassVar, Protocol
 
 import httpx
 
-from otaku.logs.requests import RequestLog
 from otaku.providers import streaming
-from otaku.settings.config import ProviderConfig
+from otaku.settings.providers import ProviderConfig
 
 
 @dataclass(frozen=True)
 class ModelInfo:
     """One model as its provider reports it — the row every listing
-    returns, filled as far as the backend's native API can see."""
+    returns, filled as far as the engine's native API can see."""
 
     name: str
-    size: int | None = None  # bytes on disk; local backends only
+    size: int | None = None  # bytes on disk; local engines only
     context: int | None = None  # the model's context window, when reported
     loaded: bool = False
 
@@ -65,7 +66,7 @@ class Stats:
     prompt_tokens: int | None
     completion_tokens: int | None
     duration_seconds: float
-    # The loaded context window, when the backend exposes it.
+    # The loaded context window, when the engine exposes it.
     context_max: int | None = None
     # Decode-only span: first emitted token → end of stream, excluding the
     # prefill — the honest tok/s denominator.
@@ -73,6 +74,24 @@ class Stats:
 
 
 Chunk = Text | Thinking | Stats
+
+
+@dataclass(frozen=True)
+class Provider:
+    """One reachable provider with its models — what
+    `Registry.get_providers` answers and the model picker lists."""
+
+    config: ProviderConfig
+    models: list[ModelInfo]
+    can_load_unload: bool
+    local: bool  # False: a hosted catalog — billed rows, nothing to size
+
+
+class RequestSink(Protocol):
+    """Where request bodies are recorded — the injected log seam; the
+    session's request log satisfies it."""
+
+    def record(self, provider: str, purpose: str, body: dict[str, object]) -> None: ...
 
 
 class WireMessage(Protocol):
@@ -87,31 +106,33 @@ class WireMessage(Protocol):
 
 class OpenAIClient:
     kind: ClassVar[str] = "openai"
-    # Whether the backend understands a request-level thinking knob —
+    label: ClassVar[str] = "OpenAI-compatible"  # how the provider panel captions it
+    # Whether the engine understands a request-level thinking knob —
     # class knowledge, not configuration. The OpenAI protocol itself has
     # `reasoning_effort`, so the base says yes; engines where thinking is
     # baked into the model declare False, and /set think refuses levels.
     supports_thinking: ClassVar[bool] = True
-    # Whether the backend runs on this machine. A cloud catalog says no,
+    # Whether the engine runs on this machine. A cloud catalog says no,
     # and launch-time introspection never waits on the internet for it.
     local: ClassVar[bool] = True
 
     @classmethod
     def autoconfigure(cls) -> ProviderConfig:
-        """The backend's default provider section: what the provider panel
-        shows before a backend is configured, and what first-run writes
-        for the local engines. The plain OpenAI client has no natural
-        endpoint — a generic provider is configured by hand."""
+        """The engine's default provider section: what the provider panel
+        shows before an engine is configured, and what first-run writes
+        for the local engines (each client says what it detects). The
+        plain OpenAI client has no natural endpoint — a generic provider
+        is configured by hand."""
         return ProviderConfig(name=cls.kind, url="")
 
     def __init__(
         self,
-        provider_config: ProviderConfig,
+        config: ProviderConfig,
         *,
-        request_log: RequestLog | None = None,
+        request_log: RequestSink | None = None,
         smooth: bool = False,
     ) -> None:
-        self.provider_config = provider_config
+        self.config = config
         self._request_log = request_log
         self._smooth = smooth
         self._context_cache: dict[str, int] = {}
@@ -120,7 +141,7 @@ class OpenAIClient:
 
     def models(self, timeout: float = 10.0) -> list[ModelInfo]:
         """Every model this provider offers, as rich rows — the one
-        listing call, never overridden. Each backend shapes its own rows
+        listing call, never overridden. Each engine shapes its own rows
         in `_list`, the single override point; the base knows only the
         plain /models names."""
         return self._list(timeout)
@@ -143,8 +164,8 @@ class OpenAIClient:
     def _model_names(self, timeout: float) -> list[str]:
         """The bare /models listing, sorted — raises when unreachable."""
         response = httpx.get(
-            f"{self.provider_config.url}/models",
-            headers=self.provider_config.headers,
+            f"{self.config.url}/models",
+            headers=self.config.headers,
             timeout=_timeout(timeout, connect=2.0),
         )
         response.raise_for_status()
@@ -160,11 +181,12 @@ class OpenAIClient:
         think: str | None = None,
         timeout: float = 600.0,
         purpose: str = "chat",
-        smooth: bool = True,
+        watched: bool = True,
     ) -> Iterator[Chunk]:
-        """Stream one completion. `smooth=False` for calls nobody watches —
-        an accumulated string gains nothing from pacing, and the held lag
-        would only delay their cancellation."""
+        """Stream one completion: Thinking and Text deltas, then a final
+        Stats. `watched=False` for calls nobody watches — an accumulated
+        string gains nothing from pacing, and the held lag would only
+        delay their cancellation."""
         body: dict[str, object] = {
             "model": model,
             "messages": [{"role": m.role, "content": m.body} for m in messages],
@@ -174,10 +196,10 @@ class OpenAIClient:
         }
         self._apply_thinking(body, think)
         if self._request_log is not None:
-            self._request_log.record(self.provider_config.name, purpose, body)
+            self._request_log.record(self.config.name, purpose, body)
         stream = self._stream(model, body, timeout)
-        if smooth and self._smooth:
-            return streaming.smooth(stream)
+        if watched and self._smooth:
+            return streaming.smoothen(stream)
         return stream
 
     def _stream(self, model: str, body: dict[str, object], timeout: float) -> Iterator[Chunk]:
@@ -188,9 +210,9 @@ class OpenAIClient:
 
         with httpx.stream(
             "POST",
-            f"{self.provider_config.url}/chat/completions",
+            f"{self.config.url}/chat/completions",
             json=body,
-            headers=self.provider_config.headers,
+            headers=self.config.headers,
             timeout=_timeout(timeout, connect=5.0),
         ) as response:
             if response.status_code >= 400:
@@ -241,14 +263,14 @@ class OpenAIClient:
     def _apply_thinking(self, body: dict[str, object], think: str | None) -> None:
         """Translate the think setting into the request. Base = OpenAI-style
         `reasoning_effort`: a level enables it, "none" actively disables it,
-        None sends nothing and leaves the backend's default."""
+        None sends nothing and leaves the engine's default."""
         if think and self.supports_thinking:
             body["reasoning_effort"] = think
 
     # ---------- passive introspection (native APIs; defaults = unknown) ----------
 
     def get_context_size(self, model: str) -> int | None:
-        """The loaded context window for `model`, or None when the backend
+        """The loaded context window for `model`, or None when the engine
         does not expose it. Only a real answer is cached — None retries,
         because the usual cause is asking before the model loads."""
         if model in self._context_cache:
@@ -259,17 +281,20 @@ class OpenAIClient:
         return result
 
     def _fetch_context_size(self, model: str) -> int | None:
+        """The subclass hook `get_context_size` caches — each engine's
+        native way of asking; the base knows none. Declared here so the
+        extension point is visible on the interface that owns it."""
         return None
 
-    # ---------- helpers for the backends ----------
+    # ---------- helpers for the engines ----------
 
     def _get_json(self, path: str, *, timeout: float) -> Any | None:
         """GET `<base url>{path}` → parsed JSON; None on any error or
         non-200. For best-effort native-API reads only."""
         try:
             response = httpx.get(
-                f"{self.provider_config.base_url}{path}",
-                headers=self.provider_config.headers,
+                f"{self.config.base_url}{path}",
+                headers=self.config.headers,
                 timeout=_timeout(timeout, connect=1.0),
             )
             if response.status_code == 200:
@@ -284,9 +309,9 @@ class OpenAIClient:
         fail loudly use httpx directly."""
         try:
             response = httpx.post(
-                f"{self.provider_config.base_url}{path}",
+                f"{self.config.base_url}{path}",
                 json=body,
-                headers=self.provider_config.headers,
+                headers=self.config.headers,
                 timeout=_timeout(timeout, connect=1.0),
             )
             if response.status_code == 200:
@@ -334,12 +359,12 @@ class CloudClient(OpenAIClient):
 
     def __init__(
         self,
-        provider_config: ProviderConfig,
+        config: ProviderConfig,
         *,
-        request_log: RequestLog | None = None,
+        request_log: RequestSink | None = None,
         smooth: bool = False,
     ) -> None:
-        super().__init__(provider_config, request_log=request_log, smooth=smooth)
+        super().__init__(config, request_log=request_log, smooth=smooth)
         # One failed catalog fetch stops chat-time context lookups for
         # the session — a down catalog must not tax every turn with a
         # timeout; any later successful listing clears the mark.
@@ -360,13 +385,13 @@ class CloudClient(OpenAIClient):
     def _list(self, timeout: float) -> list[ModelInfo]:
         # No key, or one the account rejects → unreachable: rows from a
         # public catalog would only invite a chat that fails with 401.
-        if not self.provider_config.api_key:
-            raise PermissionError(f"{self.provider_config.name} has no api key")
+        if not self.config.api_key:
+            raise PermissionError(f"{self.config.name} has no api key")
         if not self._key_works(timeout):
-            raise PermissionError(f"{self.provider_config.name} rejected the api key")
+            raise PermissionError(f"{self.config.name} rejected the api key")
         response = httpx.get(
-            f"{self.provider_config.url}/models{self._MODELS_QUERY}",
-            headers=self.provider_config.headers,
+            f"{self.config.url}/models{self._MODELS_QUERY}",
+            headers=self.config.headers,
             timeout=_timeout(timeout, connect=2.0),
         )
         response.raise_for_status()

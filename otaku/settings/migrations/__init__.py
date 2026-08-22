@@ -2,29 +2,28 @@
 
 This module holds the shape-change tables themselves and `migrate`, the
 whole launch step; `surgery` is the toolkit every edit is built from,
-`providers` the moves over providers.toml, and `prompts` the refreshed
-templates for prompts.toml. Each file has its own ordered table —
-`_CONFIG_MIGRATIONS`, `_provider_migrations`, and `_PROMPT_MIGRATIONS` — one
-entry per shape change across app versions. Everything here is
-idempotent and convergent: it all simply reruns at every launch — no
-version stamp to trust, no one-shot step whose half-state could stick —
-so a crash between writes, a hand edit, or a launch that could not
-finish (a key that would not seal, say) heals on the next one. A file
-is written only when something actually changed.
+`providers_file` the moves over providers.toml, and `prompt_texts` the
+refreshed templates for prompts.toml. Everything here is idempotent and
+convergent: it all simply reruns at every launch — no version stamp to
+trust, no one-shot step whose half-state could stick — so a crash
+between writes, a hand edit, or a launch that could not finish heals on
+the next one. A file is written only when something actually changed.
 """
 
 import contextlib
 from collections.abc import Callable
+from pathlib import Path
 
-from otaku.paths import Paths
-from otaku.settings.config import ProviderConfig
-from otaku.settings.files import row, write_atomic
-from otaku.settings.migrations.prompts import EXTRACT_0_2_2, refresh_template, update_prompts
-from otaku.settings.migrations.providers import (
+from otaku.settings import row, write_atomic
+from otaku.settings.migrations.prompt_texts import (
+    EXTRACT_0_2_2,
+    refresh_template,
+    update_prompts,
+)
+from otaku.settings.migrations.providers_file import (
     ensure_providers,
     move_providers,
     seal_api_keys,
-    sealer,
 )
 from otaku.settings.migrations.surgery import (
     Migration,
@@ -36,6 +35,7 @@ from otaku.settings.migrations.surgery import (
     update_providers,
 )
 from otaku.settings.prompts import EXTRACT_DEFAULT
+from otaku.settings.providers import ProviderConfig
 
 __all__ = [
     "Migration",
@@ -77,34 +77,48 @@ _PROMPT_MIGRATIONS: list[Migration] = [
 ]
 
 
-def _provider_migrations(seal: Callable[[str], str]) -> list[Migration]:
-    """providers.toml's shape-change table — a function, unlike the config
-    table above, because its entries need the launch's sealer. Its
-    sections carry the user's own names, so an entry here sweeps all of
-    them — and runs after the move from an old config, so it cleans a
+def _provider_migrations(
+    seal: Callable[[str], str], is_sealed: Callable[[str], bool]
+) -> list[Migration]:
+    """providers.toml's shape-change table — a function, unlike the
+    config table above, because its entries need the launch's sealer.
+    Its sections carry the user's own names, so an entry here sweeps all
+    of them — and runs after the move from an old config, so it cleans a
     section the same way wherever the section came from."""
     return [
-        # 0.2.2 — thinking support became class knowledge of the backend.
+        # 0.2.2 — thinking support became class knowledge of the engine.
         drop_key_everywhere("supports_thinking"),
         # 0.2.2 — api keys live sealed; a plain one (hand-typed, or left
         # by a launch that could not seal) is sealed as soon as possible.
-        seal_api_keys(seal),
+        seal_api_keys(seal, is_sealed),
     ]
 
 
-def migrate(paths: Paths, providers: dict[str, ProviderConfig]) -> None:
+def migrate(
+    *,
+    config_path: Path,
+    providers_path: Path,
+    prompts_path: Path,
+    backups_dir: Path,
+    provider_defaults: dict[str, ProviderConfig],
+    seal: Callable[[str], str],
+    is_sealed: Callable[[str], bool],
+) -> None:
     """The whole launch step over the settings files, in order: the
-    config table, the provider move, the providers table, the given
-    backends' sections ensured. providers.toml itself converges too:
+    config table, the provider move, the providers table (plain api
+    keys sealed — `is_sealed` rides with `seal` so the migration skips
+    sealed keys itself; an unsealable line stays for the next launch),
+    the given engines' sections ensured, the
+    prompt-template refreshes. providers.toml itself converges too:
     missing beside an existing config — a crash between the first-run
     writes, a hand deletion — it is founded empty here, for the ensured
     sections to fill. A missing config is bootstrap's business, and
     failures are swallowed — a migration is never worth a launch."""
-    update_config(paths, _CONFIG_MIGRATIONS)
-    move_providers(paths)
-    if paths.config_file.exists() and not paths.providers_file.exists():
+    update_config(config_path, backups_dir, _CONFIG_MIGRATIONS)
+    move_providers(config_path, providers_path, backups_dir)
+    if config_path.exists() and not providers_path.exists():
         with contextlib.suppress(OSError):
-            write_atomic(paths.providers_file, "")
-    update_providers(paths, _provider_migrations(sealer(paths)))
-    ensure_providers(paths, providers)
-    update_prompts(paths, _PROMPT_MIGRATIONS)
+            write_atomic(providers_path, "")
+    update_providers(providers_path, backups_dir, _provider_migrations(seal, is_sealed))
+    ensure_providers(providers_path, backups_dir, provider_defaults)
+    update_prompts(prompts_path, backups_dir, _PROMPT_MIGRATIONS)

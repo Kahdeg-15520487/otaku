@@ -1,16 +1,10 @@
-"""Per-model inference parameters: configs/models.toml.
-
-App-owned, written by `/set parameter` — one table per bare model name
-holding that model's parameter overrides, applied when a session starts on
-the model. Rewritten atomically, preserving every other model's entry; a
-file that cannot be parsed is refused rather than rewritten from scratch,
-which would silently drop the other models' settings.
-"""
+"""Per-model inference parameters: models.toml, written by /set parameter."""
 
 import tomllib
+from pathlib import Path
 
-from otaku.paths import Paths
-from otaku.settings.files import toml_key, toml_scalar, write_atomic
+from otaku.formatting import toml_key, toml_scalar
+from otaku.settings import write_atomic
 
 _HEADER = [
     "# Per-model inference parameters, written by /set parameter.",
@@ -19,10 +13,9 @@ _HEADER = [
 ]
 
 
-def load(paths: Paths) -> dict[str, dict[str, object]]:
-    """Every model's saved parameters. Best effort: a missing or malformed
-    file just yields no overrides."""
-    path = paths.models_file
+def load(path: Path) -> dict[str, dict[str, object]]:
+    """Every model's saved parameters. Best effort: a missing or
+    malformed file yields no overrides."""
     if not path.exists():
         return {}
     try:
@@ -32,10 +25,10 @@ def load(paths: Paths) -> dict[str, dict[str, object]]:
     return {str(name): dict(entry) for name, entry in raw.items() if isinstance(entry, dict)}
 
 
-def save_parameters(paths: Paths, model: str, parameters: dict[str, object]) -> None:
+def save_parameters(path: Path, model: str, parameters: dict[str, object]) -> None:
     """Replace one model's saved parameters (empty = remove its entry),
-    keeping every other model's. Raises ValueError on an unreadable file."""
-    path = paths.models_file
+    keeping every other model's. Raises ValueError on an unreadable file
+    rather than silently dropping the other models' settings."""
     data: dict[str, dict[str, object]] = {}
     if path.exists():
         try:

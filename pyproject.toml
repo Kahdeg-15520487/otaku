@@ -56,9 +56,6 @@ Issues = "https://github.com/enclavum/otaku/issues"
 
 [project.scripts]
 otaku = "otaku.cli:main"
-# TEMPORARY (Phase 2 → 3): the restructured build beside the old one;
-# gone at the swap, when otaku2/ becomes otaku/ and `otaku` runs it.
-otaku2 = "otaku2.cli:main"
 
 [dependency-groups]
 dev = [
@@ -73,7 +70,12 @@ dev = [
 path = "otaku/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["otaku", "otaku2"]  # otaku2 TEMPORARY — see [project.scripts]
+packages = ["otaku"]
+
+[tool.hatch.build.targets.wheel.force-include]
+# The seed story ships inside the package; the source tree keeps it at the
+# repo root, where a source run's fallback reads it (see backend.launch).
+"samples" = "otaku/samples"
 
 [tool.ruff]
 line-length = 100
@@ -89,24 +91,18 @@ select = ["B", "E", "F", "I", "N", "RUF", "SIM", "UP", "W"]
 # SQL statements are kept on two rows with their parameters on one, whatever
 # the width (see the store modules' `# fmt: off` blocks).
 "otaku/store/*" = ["E501"]
-"otaku2/store/*" = ["E501"]
 # The command surface: one help row per source line, whatever the width
 # (see the `# fmt: off` block).
-"otaku/chat/help.py" = ["E501"]
-"otaku2/backend/commands.py" = ["E501"]
+"otaku/backend/commands.py" = ["E501"]
 # The rendered config: one setting per source line, whatever the width
 # (see the `# fmt: off` block in to_toml).
 "otaku/settings/config.py" = ["E501"]
-"otaku2/settings/config.py" = ["E501"]
 "tests/*" = ["RUF001"]
 "scenarios/*" = ["RUF001"]
-# TEMPORARY (Phase 2 → 3): the restructured suites beside the old ones.
-"tests2/*" = ["RUF001"]
-"scenarios2/*" = ["RUF001"]
 
 [tool.mypy]
 strict = true
-files = ["otaku", "otaku2"]  # otaku2: becomes the sole entry at the Phase 3 swap
+files = ["otaku"]
 python_version = "3.11"  # type-check against the floor, not the interpreter in use
 
 [tool.pytest.ini_options]

@@ -4,11 +4,12 @@ state and reads the true context window; chat rides the OpenAI protocol
 at /v1."""
 
 from otaku.providers.base import LocalSingleClient, ModelInfo
-from otaku.settings.config import ProviderConfig
+from otaku.settings.providers import ProviderConfig
 
 
 class KoboldCppClient(LocalSingleClient):
     kind = "koboldcpp"
+    label = "KoboldCpp"
     supports_thinking = False  # no request-level knob; thinking is model-baked
 
     @classmethod

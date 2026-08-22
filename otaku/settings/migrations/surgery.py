@@ -8,8 +8,7 @@ exact rows a change requires, never a re-render: every other byte,
 comment, and blank of the file survives. A chained result must parse
 back or it is discarded wholesale — a migration bug leaves the file
 old, never broken — and the write is atomic, the pre-edit text kept as
-a dated backup in configs/backups/ (`-N` appended when the day already
-has one).
+a dated backup (`-N` appended when the day already has one).
 
 The textual scan is line-based, which is sound for these files because
 they hold no multiline strings by construction; prompts.toml (multiline
@@ -23,8 +22,7 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
-from otaku.paths import Paths
-from otaku.settings.files import write_atomic
+from otaku.settings import write_atomic
 
 # One shape change: config text in, config text out (unchanged when the
 # change does not apply).
@@ -117,47 +115,44 @@ def apply_migrations(text: str, migrations: list[Migration]) -> str:
     return migrated
 
 
-def update_config(paths: Paths, changes: list[Migration]) -> bool:
-    """One edit of config.toml, committed — the launch table rides this.
+def update_config(config_path: Path, backups_dir: Path, changes: list[Migration]) -> bool:
+    """One committed edit of config.toml — the launch table rides this.
     A missing file is bootstrap's business, and OSError is swallowed: an
     edit is never worth a crash. Returns whether the file changed."""
+    return _update(config_path, backups_dir, "config", changes)
+
+
+def update_providers(providers_path: Path, backups_dir: Path, changes: list[Migration]) -> bool:
+    """Same machinery over providers.toml — the provider moves and the
+    model picker's field saves ride this. Returns whether the file
+    changed; False also covers an edit that could not land."""
+    return _update(providers_path, backups_dir, "providers", changes)
+
+
+def _update(path: Path, backups_dir: Path, stem: str, changes: list[Migration]) -> bool:
     try:
-        text = paths.config_file.read_text()
+        text = path.read_text()
     except OSError:
         return False
     migrated = apply_migrations(text, changes)
     if migrated == text:
         return False
-    return commit(paths.config_file, backup_path(paths, "config"), text, migrated)
-
-
-def update_providers(paths: Paths, changes: list[Migration]) -> bool:
-    """One edit of providers.toml, committed — the provider moves and the
-    model picker's field saves ride this. Same machinery, same guarantees
-    as `update_config`. Returns whether the file changed."""
-    try:
-        text = paths.providers_file.read_text()
-    except OSError:
-        return False
-    migrated = apply_migrations(text, changes)
-    if migrated == text:
-        return False
-    return commit(paths.providers_file, backup_path(paths, "providers"), text, migrated)
+    return commit(path, backup_path(backups_dir, stem), text, migrated)
 
 
 # ---------- the write machinery ----------
 
 
-def backup_path(paths: Paths, stem: str) -> Path:
+def backup_path(backups_dir: Path, stem: str) -> Path:
     """The next free dated backup name: `stem-YYYYMMDD.toml` for the
     day's first edit, `-N` appended for every further one — no edit ever
     overwrites an earlier state."""
     stamp = datetime.now().astimezone().strftime("%Y%m%d")
-    path = paths.config_backups_dir / f"{stem}-{stamp}.toml"
+    path = backups_dir / f"{stem}-{stamp}.toml"
     n = 0
     while path.exists():
         n += 1
-        path = paths.config_backups_dir / f"{stem}-{stamp}-{n}.toml"
+        path = backups_dir / f"{stem}-{stamp}-{n}.toml"
     return path
 
 

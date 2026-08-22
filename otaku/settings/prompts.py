@@ -1,31 +1,28 @@
-"""Model-facing text templates: configs/prompts.toml.
+"""Model-facing text templates: prompts.toml.
 
-Every string otaku puts in front of a model is a template here, loaded once
-into a `Prompts` value, in two groups. The `/me`, `/you`, and `/ooc`
-commands write their template into a turn's `template` verbatim — nothing
-is filled at write time, so the turn keeps the wording this file had when
-it played; the `((OOC: …))` enclosure lives IN the template, so the code
-wraps nothing and what you edit is exactly what the model sees. `{name}`
-and `{body}`, where a template has them, mark where the turn's own name and
-text are slotted at wire time. The lore templates build the memory — one scene (`extract_prompt`),
-a character's rolled-up history, the story-so-far — and `recap_header` is
-the line that carries the finished scene summaries back into the request.
+Every string otaku puts in front of a model is a template here, loaded
+once into a `Prompts` value. The direction commands write their template
+into a turn's `template` verbatim — nothing is filled at write time, so
+the turn keeps the wording this file had when it played; `{name}` and
+`{body}` mark where the turn's own name and text slot in at wire time.
+The lore templates build the memory; `recap_header` carries the finished
+scene summaries back into the request.
 
-The stub is written on first use with every template active; once the file
-exists it is the source — edit a value to change it, delete the file to
-regenerate the release defaults. A key absent from the file falls back to
-the built-in, and a malformed file (or a template missing a required
-placeholder) is reported once and ignored — a bad override must never cost
-a session.
+The stub is written on first use with every template active; once the
+file exists it is the source — edit a value to change it, delete the
+file to regenerate the release defaults. A key absent from the file
+falls back to the built-in, and a malformed file or template is IGNORED
+with a returned warning — a bad override must never cost a session, and
+this module never prints (the launch folds warnings into the session's
+notices).
 """
 
-import re
-import sys
 import tomllib
 from dataclasses import dataclass, fields
+from pathlib import Path
 
-from otaku.paths import Paths
-from otaku.settings.files import write_atomic
+from otaku.formatting import toml_string
+from otaku.settings import write_atomic
 
 # The big lore templates, named here so the _DEFAULTS table stays readable.
 
@@ -185,56 +182,44 @@ class Prompts:
     recap_header: str = _DEFAULTS["recap_header"]
 
 
-def load(paths: Paths) -> Prompts:
-    """The templates, with the file's overrides applied over the built-ins."""
-    path = paths.prompts_file
+def load(path: Path) -> tuple[Prompts, list[str]]:
+    """The templates, with the file's overrides applied over the
+    built-ins, plus the warnings to show — a malformed file, an unknown
+    key, a template missing a required placeholder (ignored, each with
+    its sentence)."""
     if not path.exists():
-        return Prompts()
+        return Prompts(), []
+    warnings: list[str] = []
     try:
         raw = tomllib.loads(path.read_text())
     except (OSError, tomllib.TOMLDecodeError) as e:
-        print(f"otaku: ignoring {path} ({e})", file=sys.stderr)
-        return Prompts()
+        return Prompts(), [f"Ignoring {path.name} ({e})."]
     known = {f.name for f in fields(Prompts)}
     unknown = sorted(set(raw) - known)
     if unknown:
-        # A key otaku no longer reads (or a typo) would otherwise sit there
-        # looking active while doing nothing — say so once.
-        keys = ", ".join(unknown)
-        print(f"otaku: {path}: ignoring unknown prompt key(s): {keys}", file=sys.stderr)
+        # A key otaku no longer reads (or a typo) would otherwise sit
+        # there looking active while doing nothing — say so once.
+        warnings.append(f"{path.name}: ignoring unknown prompt key(s): {', '.join(unknown)}.")
     overrides: dict[str, str] = {}
     for key in known:
         value = raw.get(key)
         if value is None:
             continue
         if not isinstance(value, str):
-            print(f"otaku: {path}: {key} must be a string — ignored", file=sys.stderr)
+            warnings.append(f"{path.name}: {key} must be a string — ignored.")
             continue
         missing = [p for p in _REQUIRED.get(key, ()) if "{" + p + "}" not in value]
         if missing:
             placeholders = ", ".join("{" + p + "}" for p in missing)
-            print(f"otaku: {path}: {key} is missing {placeholders} — ignored", file=sys.stderr)
+            warnings.append(f"{path.name}: {key} is missing {placeholders} — ignored.")
             continue
         overrides[key] = value
-    return Prompts(**overrides)
+    return Prompts(**overrides), warnings
 
 
-def render(template: str, **substitutions: str) -> str:
-    """Fill a template's `{placeholder}`s in ONE pass. Only the given
-    names substitute; every other brace stays literal, so a template can
-    hold a JSON example without doubling anything, and the substituted
-    text is never rescanned, so story content can never inject a
-    placeholder. Rendering cannot fail: an unknown `{word}` is just text."""
-    if not substitutions:
-        return template
-    pattern = "|".join(r"\{" + re.escape(name) + r"\}" for name in substitutions)
-    return re.sub(pattern, lambda m: substitutions[m.group(0)[1:-1]], template)
-
-
-def write_stub(paths: Paths) -> bool:
-    """Write the first-run file — every template active, round-trip exact.
-    Returns True when it wrote; an existing file is never overwritten."""
-    path = paths.prompts_file
+def write_stub(path: Path) -> bool:
+    """Write the first-run file — every template active, round-trip
+    exact. True when it wrote; an existing file is never overwritten."""
     if path.exists():
         return False
     lines = [*_HEADER, ""]
@@ -243,13 +228,3 @@ def write_stub(paths: Paths) -> bool:
         lines.append("")
     write_atomic(path, "\n".join(lines))
     return True
-
-
-def toml_string(value: str) -> str:
-    """A TOML string literal that parses back byte-for-byte. A clean single
-    line is a single-quoted literal; anything with a newline or an
-    apostrophe uses a triple-single literal, whose newline right after the
-    opening TOML trims."""
-    if "\n" not in value and "'" not in value:
-        return f"'{value}'"
-    return f"'''\n{value}'''"

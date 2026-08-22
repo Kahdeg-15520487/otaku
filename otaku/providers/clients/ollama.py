@@ -6,11 +6,12 @@ import os
 import httpx
 
 from otaku.providers.base import ManagedClient, ModelInfo
-from otaku.settings.config import ProviderConfig
+from otaku.settings.providers import ProviderConfig
 
 
 class OllamaClient(ManagedClient):
     kind = "ollama"
+    label = "Ollama"
 
     @classmethod
     def autoconfigure(cls) -> ProviderConfig:
@@ -27,12 +28,12 @@ class OllamaClient(ManagedClient):
             "model": model,
             "prompt": "",
             "stream": False,
-            "keep_alive": self.provider_config.keep_alive or "24h",
+            "keep_alive": self.config.keep_alive or "24h",
         }
         response = httpx.post(
-            f"{self.provider_config.base_url}/api/generate",
+            f"{self.config.base_url}/api/generate",
             json=body,
-            headers=self.provider_config.headers,
+            headers=self.config.headers,
             timeout=None,
         )
         response.raise_for_status()
@@ -40,9 +41,9 @@ class OllamaClient(ManagedClient):
     def unload_model(self, model: str) -> None:
         body = {"model": model, "prompt": "", "stream": False, "keep_alive": 0}
         response = httpx.post(
-            f"{self.provider_config.base_url}/api/generate",
+            f"{self.config.base_url}/api/generate",
             json=body,
-            headers=self.provider_config.headers,
+            headers=self.config.headers,
             timeout=None,
         )
         response.raise_for_status()
@@ -56,7 +57,7 @@ class OllamaClient(ManagedClient):
         sizes: dict[str, int] = {}
         data = self._get_json("/api/tags", timeout=timeout)
         if data is None:
-            raise httpx.ConnectError(f"{self.provider_config.name} is not answering /api/tags")
+            raise httpx.ConnectError(f"{self.config.name} is not answering /api/tags")
         for entry in data.get("models") or [] if isinstance(data, dict) else []:
             name = entry.get("name") or entry.get("model")
             size = entry.get("size")

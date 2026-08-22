@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from otaku.providers.clients.openrouter import OpenRouterClient
-from otaku.settings.config import ProviderConfig
+from otaku.settings.providers import ProviderConfig
 from scenarios.support.live import live_app as build_app
 from scenarios.support.live import require_env
 

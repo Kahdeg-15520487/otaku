@@ -3,11 +3,12 @@ OpenAI protocol at https://openrouter.ai/api/v1. The base cloud listing
 already harvests each model's `context_length` from the catalog."""
 
 from otaku.providers.base import CloudClient
-from otaku.settings.config import ProviderConfig
+from otaku.settings.providers import ProviderConfig
 
 
 class OpenRouterClient(CloudClient):
     kind = "openrouter"
+    label = "OpenRouter"
 
     @classmethod
     def autoconfigure(cls) -> ProviderConfig:

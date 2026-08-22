@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from otaku.backend.api import providers as api_providers
 from otaku.providers.clients.omlx import OmlxClient
 from scenarios.support.live import live_app as build_app
 
@@ -30,10 +31,10 @@ class TestOmlx:
         assert chain[1].body.strip()
 
     def test_the_listing_marks_the_loaded_model(self, live_app) -> None:  # type: ignore[no-untyped-def]
-        client = live_app.session.providers.get_client("omlx")
-        rows = client.models()
-        assert rows
-        assert any(row.loaded for row in rows)
+        providers, _ = api_providers.get_providers(live_app.session)
+        engine = next(r for r in providers if r.config.name == "omlx")
+        assert engine.models
+        assert any(row.loaded for row in engine.models)
 
 
 @pytest.fixture

@@ -1,31 +1,26 @@
 """The database nucleus: connection + cipher, lifecycle, guards, backups.
 
-`Database.open` owns opening: a fresh file gets the schema, its version, and
-a sealed *check canary*; an existing one must present a canary the session
-cipher opens — which catches a plaintext database opened with encryption
-configured, an encrypted one opened without it, AND a wrong or replaced key,
-all before any content is touched. A daily `VACUUM INTO` snapshot lands in
-database/backups/ on the first open of the day.
-
-A `Database` instance is what every ops class builds on: the sqlite
-connection and the seal/unseal helpers that move content through the
-session cipher.
+`Database.open` owns opening: a fresh file gets the schema, its version,
+and a sealed *check canary*; an existing one must present a canary the
+session cipher opens — which catches a plaintext database opened with
+encryption configured, an encrypted one opened without it, AND a wrong
+or replaced key, all before any content is touched. A daily
+`VACUUM INTO` snapshot lands in the backups dir on the first open of the
+day. Administrative facts (a migration ran, a backup was written or
+failed) are RETURNED in `Database.notes` for the caller to log — the
+store writes no log itself.
 """
 
 import base64
 import re
 import sqlite3
-import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Self
 
 from cryptography.exceptions import InvalidTag
 
-from otaku.crypto import Cipher, PlainCipher
-from otaku.logs.system import SystemLog
-from otaku.paths import Paths
-from otaku.store.schema import SCHEMA_DDL, SCHEMA_VERSION
+from otaku.encryption import Cipher, PlainCipher
 
 _DECRYPT_ERRORS = (InvalidTag, ValueError)
 
@@ -41,10 +36,13 @@ class DatabaseError(Exception):
 class Database:
     def __init__(self, conn: sqlite3.Connection, cipher: Cipher) -> None:
         self.conn = conn
+        self.notes: list[str] = []  # administrative facts for the caller's log
         self._cipher = cipher
 
     @staticmethod
     def connect(path: Path) -> sqlite3.Connection:
+        """A connection with the session pragmas; refuses a file that is
+        not SQLite with a curated DatabaseError."""
         conn = sqlite3.connect(path)
         # journal_mode=WAL persists in the file header; the rest are
         # per-connection and must be set on every open.
@@ -63,11 +61,13 @@ class Database:
         return conn
 
     @classmethod
-    def open(cls, paths: Paths, cipher: Cipher, *, backups: int) -> Self:
+    def open(cls, db_path: Path, cipher: Cipher, *, backups_dir: Path, keep: int) -> Self:
         """Open (or create) the story database with the session cipher."""
-        path = paths.database_file
-        path.parent.mkdir(parents=True, exist_ok=True)
-        conn = cls.connect(path)
+        from otaku.store.schema import SCHEMA_DDL, SCHEMA_VERSION
+
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = cls.connect(db_path)
+        db = cls(conn, cipher)
         # No tables means fresh: a never-written file, an empty one, or a
         # first run that crashed mid-creation and rolled back. Creation is
         # ONE transaction — schema, version, and canary land together, so
@@ -92,31 +92,32 @@ class Database:
             from otaku.store import migrations
 
             # Schema surgery runs unenforced — a rebuild step's DROP must
-            # not fire cascades into the tables that reference it (SQLite's
-            # own rebuild procedure opens the same way); the steps check
-            # their own consistency, and enforcement returns with the
-            # reopen below, or explicitly on the no-op path.
+            # not fire cascades into the tables that reference it; the
+            # steps check their own consistency, and enforcement returns
+            # with the reopen below, or explicitly on the no-op path.
             conn.execute("PRAGMA foreign_keys = OFF")
-            migrated = migrations.migrate(conn, paths)
+            migrated = migrations.migrate(conn, db_path, backups_dir)
             if migrated is not None:
                 # The stored DDL changed under `writable_schema`: a fresh
                 # connection reloads the schema before anything prepares a
                 # statement against the old text.
                 conn.close()
-                conn = cls.connect(path)
+                conn = cls.connect(db_path)
                 if conn.execute("PRAGMA quick_check").fetchone()[0] != "ok":
                     conn.close()
                     raise DatabaseError(
-                        f"{path} failed its integrity check after migrating; restore the "
-                        f"pre-migration backup from {paths.backups_dir}"
+                        f"{db_path} failed its integrity check after migrating; restore the "
+                        f"pre-migration backup from {backups_dir}"
                     )
-                print(migrated)
+                db = cls(conn, cipher)
+                db.notes.append(migrated)
             else:
                 conn.execute("PRAGMA foreign_keys = ON")
-            cls._guard(conn, path, cipher)
-        if backups > 0:
-            cls._daily_backup(conn, paths, keep=backups)
-        return cls(conn, cipher)
+                db.conn = conn
+            cls._guard(db.conn, db_path, cipher)
+        if keep > 0:
+            db._daily_backup(db_path, backups_dir, keep=keep)
+        return db
 
     def close(self) -> None:
         self.conn.close()
@@ -138,8 +139,9 @@ class Database:
         return None if text is None else self.seal(text)
 
     def unseal(self, sealed: bytes | None) -> str:
-        """A sealed column to text. NULL → "" (never set); a value the cipher
-        cannot open → a sentinel, so one bad row cannot fail a whole listing."""
+        """A sealed column to text. NULL → "" (never set); a value the
+        cipher cannot open → a sentinel, so one bad row cannot fail a
+        whole listing."""
         if not sealed:
             return ""
         try:
@@ -157,13 +159,13 @@ class Database:
     @classmethod
     def _guard(cls, conn: sqlite3.Connection, path: Path, cipher: Cipher) -> None:
         """Refuse a database this session cannot read correctly. The check
-        canary must unseal to its known plaintext under the session cipher;
-        how it fails tells the user what is actually wrong."""
+        canary must unseal to its known plaintext under the session
+        cipher; how it fails tells the user what is actually wrong."""
+        from otaku.store.schema import SCHEMA_VERSION
+
         try:
             meta = dict(conn.execute("SELECT key, value FROM meta"))
         except sqlite3.Error as e:
-            # A foreign or corrupt file — the curated message, never a
-            # raw traceback.
             conn.close()
             raise DatabaseError(
                 f"{path} is not a database this app wrote ({e}); move the file aside"
@@ -201,44 +203,42 @@ class Database:
             "KEK does not match this database; restore the ones it was created with"
         )
 
-    @staticmethod
-    def _daily_backup(conn: sqlite3.Connection, paths: Paths, *, keep: int) -> None:
-        """Once-a-day snapshot into database/backups/, then prune to the
-        newest `keep` files matching this function's own naming pattern.
-        `VACUUM INTO` yields a consistent, compacted copy even mid-WAL.
-        Best-effort: a failure warns on stderr and never blocks opening."""
-        stem = paths.database_file.stem
-        suffix = paths.database_file.suffix
+    def _daily_backup(self, db_path: Path, backups_dir: Path, *, keep: int) -> None:
+        """Once-a-day snapshot, then prune to the newest `keep` files
+        matching this function's own naming pattern. `VACUUM INTO` yields
+        a consistent, compacted copy even mid-WAL. Best-effort: a failure
+        joins `notes` and never blocks opening."""
+        stem, suffix = db_path.stem, db_path.suffix
         stamp = datetime.now().astimezone().strftime("%Y%m%d")
-        dest = paths.backups_dir / f"{stem}-{stamp}{suffix}"
+        dest = backups_dir / f"{stem}-{stamp}{suffix}"
         if dest.exists():
             return
         try:
-            paths.backups_dir.mkdir(parents=True, exist_ok=True)
-            conn.execute("VACUUM INTO ?", (str(dest),))
+            backups_dir.mkdir(parents=True, exist_ok=True)
+            self.conn.execute("VACUUM INTO ?", (str(dest),))
             pattern = re.compile(rf"^{re.escape(stem)}-\d{{8}}{re.escape(suffix)}$")
-            dated = sorted(p for p in paths.backups_dir.iterdir() if pattern.match(p.name))
+            dated = sorted(p for p in backups_dir.iterdir() if pattern.match(p.name))
             pruned = dated[:-keep]
             for old in pruned:
                 old.unlink()
             extra = f", {len(pruned)} old pruned" if pruned else ""
-            SystemLog(paths).record(f"daily database backup written at {dest.name}{extra}")
+            self.notes.append(f"daily database backup written at {dest.name}{extra}")
         except (sqlite3.Error, OSError) as e:
-            print(f"otaku: daily backup failed: {e}", file=sys.stderr)
+            self.notes.append(f"daily backup failed: {e}")
 
 
 def check_value(cipher: Cipher) -> str:
-    """The canary as stored in meta: a known plaintext sealed by the session
-    cipher, base64 for the TEXT column. Under provider "none" this is just
-    base64 of the literal bytes — readable without any key."""
+    """The canary as stored in meta: a known plaintext sealed by the
+    session cipher, base64 for the TEXT column. Under provider "none"
+    this is just base64 of the literal bytes — readable without any
+    key."""
     return base64.b64encode(cipher.seal(_CANARY)).decode()
 
 
 def is_encrypted(path: Path) -> bool | None:
     """Whether the database's content is sealed — None when there is no
-    database (or no canary to judge by). A plaintext read, so the CLI can
-    refuse an encrypted database with a missing keystore BEFORE the key
-    ceremony could mint a fresh key over it."""
+    database (or no canary to judge by). A plaintext read, usable before
+    any key ceremony."""
     if not path.exists() or path.stat().st_size == 0:
         return None
     try:

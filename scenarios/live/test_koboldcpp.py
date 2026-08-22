@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from otaku.settings.config import ProviderConfig
+from otaku.backend.api import providers as api_providers
+from otaku.settings.providers import ProviderConfig
 from scenarios.support.live import first_model
 from scenarios.support.live import live_app as build_app
 
@@ -24,13 +25,18 @@ class TestKoboldCpp:
         assert chain[1].body.strip()
 
     def test_the_context_window_reads_from_the_extra_api(self, live_app) -> None:  # type: ignore[no-untyped-def]
-        client = live_app.session.providers.get_client("koboldcpp")
-        assert client.get_context_size(live_app.session.model)
+        rows, _ = api_providers.get_providers(live_app.session)
+        engine = next(r for r in rows if r.config.name == "koboldcpp")
+        row = next(m for m in engine.models if m.name == live_app.session.model)
+        assert row.context  # the /api/extra window rode the listing
 
 
 @pytest.fixture
 def live_app(tmp_path: Path, server):  # type: ignore[no-untyped-def]
-    model = first_model(URL)
+    # KoboldCpp's raw /v1 lists its model as "koboldcpp/NAME"; the app's
+    # own listing strips that brand, so the smoke plays the model under
+    # the name the picker would use.
+    model = first_model(URL).removeprefix("koboldcpp/")
     app = build_app(tmp_path, server, ProviderConfig(name="koboldcpp", url=URL), model)
     yield app
     app.close()
