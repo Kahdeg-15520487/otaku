@@ -132,16 +132,12 @@ class _LoreBrowser(ListScreen):
         return next((f for f in self.view.char_fields(cid) if f.kind == "history"), None)
 
     def _label_parts(self, scene_id: int) -> tuple[str, str, str]:
-        """`scene_label`'s "4  61-84  The Crossing" split back into
-        (number, span, title) for the aligned list columns — the span is
-        the one N-M part, so the parse cannot take a title for it."""
-        parts = self.view.scene_label(scene_id).split("  ")
-        no = parts[0]
-        rest = parts[1:]
-        span = ""
-        if rest and _is_span(rest[0]):
-            span, rest = rest[0], rest[1:]
-        return no, span, "  ".join(rest)
+        """The label's three columns — number, span, title — as the view
+        holds them (`scene_no`, `scene_span`), so the aligned list never
+        has to fish a part back out of display text."""
+        scene = self._scene_by_id(scene_id)
+        title = flatten(scene.title) if scene is not None and scene.title else ""
+        return str(self.view.scene_no(scene_id)), self.view.scene_span(scene_id), title
 
     def _rebuild_fields(self) -> None:
         if self.detail is None:
@@ -608,9 +604,3 @@ class _LoreBrowser(ListScreen):
 
         root = VSplit([left_pane, self._preview_gap(), preview_pane])
         return self._finish_app(root, bindings, _style(), floats=[])
-
-
-def _is_span(part: str) -> bool:
-    """Whether a label part is the N-M span column."""
-    first, dash, last = part.partition("-")
-    return bool(dash) and first.isdigit() and last.isdigit()

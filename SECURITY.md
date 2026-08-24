@@ -39,6 +39,30 @@ The request log seals its entries with the same cipher; with encryption off, it 
 text too: every prompt as sent, kept indefinitely — deleting a story does not delete its wire
 history. The log directory is yours to prune.
 
+## The web interface
+
+`otaku web` serves one open session over plain HTTP. It has no accounts and no login: whoever can
+reach the port has the session — every story, the ability to play, and the provider fields. That
+is the design, and what holds it is where it listens: loopback, port 9600, unless you say
+otherwise in `configs/config.toml`'s `[web]` section. Pointing it at another interface publishes
+an unauthenticated app to that network, over a connection nothing encrypts — a deliberate choice
+for a network you trust, and not one to make on a shared or public one.
+
+Loopback is not the whole defence, because the browser that reads the page also reads everything
+else. Two guards sit in front of every request:
+
+- **DNS rebinding.** A name that resolves to 127.0.0.1 lets a page you are reading address your
+  otaku. A request whose `Host` is not this machine is refused (421) — except under a wildcard
+  bind, where answering to every name is the whole point.
+- **Cross-origin writes.** A form on another site can POST without a preflight, and a write does
+  its damage without ever reading the answer. Every write must carry `Sec-Fetch-Site: same-origin`
+  or an `Origin` equal to the one it was addressed to; anything else is refused (403). A request
+  with neither header is not a browser (curl, a script on this machine) and is let through — the
+  bind is what guards those.
+
+What may be served is a closed table of files, so no request can compose its way to
+`configs/providers.toml`, and the page is never sent an api key's value — only whether one is set.
+
 ## Provider API keys
 
 Cloud provider API keys never sit in a config file as plain text. They are stored in

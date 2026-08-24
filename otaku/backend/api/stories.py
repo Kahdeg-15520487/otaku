@@ -38,13 +38,20 @@ def messages_of(session: Session, story_id: int) -> list[Message]:
 
 
 def search(session: Session, query: str) -> list[int]:
-    """Ids of the stories whose current chain contains `query`,
-    case-insensitive — the browser's content filter, one call per
-    keystroke. Served from the session-held index (`_search_index`),
-    built on the first search and invalidated by the SESSION's write
-    primitives — where every chain-changing write already funnels (play,
-    undo, cards, imports, this module) — so a keystroke never
-    re-decrypts the library and the corpus never crosses the boundary."""
+    """Ids of the stories that match `query`, case-insensitive — the ONE
+    filter rule both browsers promise, one call per keystroke: a story
+    matches on its buried content (the CURRENT CHAIN's text) or on the
+    face its listing row shows (label, arc summary, first prompt,
+    model). Declared here because two frontends filtering by different
+    halves would be two browsers finding different stories.
+
+    The content half is served from the session-held index
+    (`_search_index`), built on the first search and invalidated by the
+    SESSION's write primitives — where every chain-changing write
+    already funnels (play, undo, cards, imports, this module) — so a
+    keystroke never re-decrypts the library and the corpus never crosses
+    the boundary. Best-effort throughout: a filter is never worth a
+    failure, so a store hiccup narrows the match rather than raising."""
     if session._search_index is None:
         try:
             session._search_index = session._store.stories.get_texts()
@@ -53,7 +60,15 @@ def search(session: Session, query: str) -> list[int]:
     needle = query.strip().lower()
     if not needle:
         return list(session._search_index)
-    return [sid for sid, text in session._search_index.items() if needle in text]
+    ids = {sid for sid, text in session._search_index.items() if needle in text}
+    try:
+        rows = session._store.stories.list()
+    except Exception:
+        rows = []
+    for row in rows:
+        if needle in f"{row.label} {row.story_so_far} {row.first_user} {row.model}".lower():
+            ids.add(row.id)
+    return sorted(ids)
 
 
 def land(session: Session, story_id: int, upto_message_id: int, action: LandAction) -> str:
@@ -110,17 +125,27 @@ def new(session: Session, raw: str = "") -> str:
     return f'Started a new story: "{truncate_label(title, LABEL_WIDTH)}".'
 
 
-def set_title(session: Session, raw: str) -> str:
-    """Title this story; "" reports the current title instead. Returns
-    the confirmation (or the report)."""
+def set_title(session: Session, raw: str, story_id: int | None = None) -> str:
+    """Title a story: the open one, or the one `story_id` names — a
+    browser can reach every story, and a title is how a reader finds one
+    again. Returns the confirmation.
+
+    An empty title means two different things, and both are answered:
+    asked of the OPEN story it is the bare command, which reports the
+    title instead; asked of a NAMED one it is a rename that emptied the
+    field, and it is refused rather than applied — a story with no title
+    falls back to its own opening text, and clearing a title is a
+    different decision from giving one."""
     title = raw.strip()
     if not title:
+        if story_id is not None:
+            raise Refused("A story needs a title — or leave the one it has.")
         story = (
             session._store.stories.get(session.story_id) if session.story_id is not None else None
         )
         current = story.title if story else ""
         return f'Title: "{current}"' if current else "Usage: /title NEW-TITLE"
-    session._store.stories.set_title(session._ensure_story(), title)
+    session._store.stories.set_title(story_id or session._ensure_story(), title)
     return f'Story title set to "{title}".'
 
 

@@ -30,7 +30,7 @@ import contextlib
 import json
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any, ClassVar, Protocol
 
@@ -193,6 +193,7 @@ class OpenAIClient:
         timeout: float = 600.0,
         purpose: str = "chat",
         watched: bool = True,
+        on_idle: Callable[[], None] | None = None,
     ) -> Iterator[Chunk]:
         """Stream one completion: Thinking and Text deltas, then a final
         Stats. `watched=False` for calls nobody watches — an accumulated
@@ -210,7 +211,7 @@ class OpenAIClient:
             self._request_log.record(self.config.name, purpose, body)
         stream = self._stream(model, body, timeout)
         if watched and self._smooth:
-            return streaming.smoothen(stream)
+            return streaming.smoothen(stream, on_idle)
         return stream
 
     def _stream(self, model: str, body: dict[str, object], timeout: float) -> Iterator[Chunk]:

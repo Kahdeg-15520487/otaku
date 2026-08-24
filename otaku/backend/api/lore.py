@@ -240,7 +240,7 @@ class LoreView:
         latest = self._latest_rows()
         for r in self._by_char().get(char.id, []):
             scene = self._scene_by_id(r.scene_id)
-            no = self._scene_no(r.scene_id)
+            no = self.scene_no(r.scene_id)
             label = flatten(scene.title) if scene and scene.title else f"scene {no}"
             is_latest = latest.get(char.id) == r.id
             out.append(
@@ -258,17 +258,39 @@ class LoreView:
 
     def scene_label(self, scene_id: int) -> str:
         """ "4  61-84  The Crossing" — number, span, title (flattened,
-        UNCUT: display width is the frontend's)."""
+        UNCUT: display width is the frontend's). Composed from the two
+        parts below; a frontend that wants the parts asks for THEM — a
+        label with the span dropped reads a title as a range."""
         scene = self._scene_by_id(scene_id)
         if scene is None:
             return "?"
-        parts = [str(self._scene_no(scene_id))]
-        span = self._span(scene)
+        parts = [str(self.scene_no(scene_id))]
+        span = self.scene_span(scene_id)
         if span:
             parts.append(span)
         if scene.title:
             parts.append(flatten(scene.title))
         return "  ".join(parts)
+
+    def scene_no(self, scene_id: int) -> int:
+        """1-based position of a scene in story order — the number every
+        label leads with; 0 for a scene not in the view."""
+        return next((i + 1 for i, s in enumerate(self.scenes) if s.id == scene_id), 0)
+
+    def scene_span(self, scene_id: int) -> str:
+        """The scene's "N-M" message range on the CURRENT chain — "" when
+        either end is off it (an edit moved the head past the scene).
+        The one home of the span, as data: both frontends print it
+        beside the title, and neither may fish it back out of the
+        label."""
+        scene = self._scene_by_id(scene_id)
+        if scene is None:
+            return ""
+        start = self._ordinal.get(scene.start_message_id)
+        end = self._ordinal.get(scene.end_message_id)
+        if start is None or end is None:
+            return ""
+        return f"{start}-{end}"
 
     def vintage(self, row_id: int) -> str:
         """How current a journal row's state is, for the preview: its
@@ -277,7 +299,7 @@ class LoreView:
         scene = self._scene_by_id(r.scene_id) if r is not None else None
         if r is None or scene is None:
             return ""
-        no = self._scene_no(r.scene_id)
+        no = self.scene_no(r.scene_id)
         ago = self.total_messages - self._ordinal.get(scene.end_message_id, self.total_messages)
         title = f" '{scene.title}'" if scene.title else ""
         return f"scene {no}{title}, {ago} msgs ago"
@@ -289,17 +311,6 @@ class LoreView:
 
     def _char_by_id(self, character_id: int) -> Character | None:
         return next((c for c in self.cast if c.id == character_id), None)
-
-    def _scene_no(self, scene_id: int) -> int:
-        """1-based position of a scene in story order."""
-        return next((i + 1 for i, s in enumerate(self.scenes) if s.id == scene_id), 0)
-
-    def _span(self, scene: Scene) -> str:
-        start = self._ordinal.get(scene.start_message_id)
-        end = self._ordinal.get(scene.end_message_id)
-        if start is None or end is None:
-            return ""
-        return f"{start}-{end}"
 
     def _by_scene(self) -> dict[int, list[Journal]]:
         out: dict[int, list[Journal]] = {}

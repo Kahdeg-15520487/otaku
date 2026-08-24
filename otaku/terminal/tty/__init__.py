@@ -5,10 +5,11 @@ fixed ones, `str.format` templates for those parameterized by a row
 number) and the input-side helpers — `latin_key`, the confirm answers,
 and `ask`, the raw-tty question posture the real-terminal reads share;
 the siblings own the theme, the typesetter, row math (and the cursor's
-one real ask), the pinned row, the spinner, the banner, the clipboard,
-and the notification sound. `render` is the one member that knows the
-story's types (how a turn looks), placed here so prompt and screens can
-reach it from below chat.
+one real ask), the pinned row, the spinner, the clipboard, and the
+notification sound. The mark a session opens with is not here: both
+frontends draw it, so it lives below them (`otaku.console`). `render`
+is the one member that knows the story's types (how a turn looks),
+placed here so prompt and screens can reach it from below chat.
 """
 
 import contextlib
@@ -27,12 +28,14 @@ except ImportError:
     termios = None  # type: ignore[assignment]
     _tty = None  # type: ignore[assignment]
 
-# SGR text attributes
+# SGR text attributes. The console spells three of these for itself —
+# the banner and the tail draw with the same ink — and a one-line
+# constant is not worth an import between two packages that otherwise
+# share nothing.
 BOLD = "\x1b[1m"
 DIM = "\x1b[2m"
 ITALIC = "\x1b[3m"
 RESET = "\x1b[0m"
-DEFAULT_BG = "\x1b[49m"  # back to the terminal's own background
 
 # Not a sequence but the one other byte otaku prints for its own sake:
 # the bell, whose meaning — a beep, a flash, a desktop notification —

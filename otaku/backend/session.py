@@ -38,6 +38,14 @@ from otaku.store import Store
 from otaku.store.schema import Message
 from otaku.worker import Worker
 
+# The /set think ladder as every menu offers it: default first (the way
+# out), then the levels by effort. A frontend-shared ORDER, so it lives
+# here with the rest of the /set vocabulary — the file's own vocabulary
+# is `settings.state.THINK_LEVELS` (a set), and a unit test pins the
+# two consistent. The typed sugar (`on`/`off`) is the command surface's
+# and stays out of a menu of VALUES.
+THINK_MENU: tuple[str, ...] = (THINK_DEFAULT, "none", "low", "medium", "high", "max")
+
 # The inference parameters otaku understands, and how each is read from
 # the saved file or a `/set parameter` argument.
 KNOWN_PARAMS: dict[str, type] = {
@@ -80,6 +88,9 @@ class Session:
     # a sink (`set_on_notice`) and later notices go straight out, the way
     # they were printed on the spot before the backend existed.
     _notify: Callable[[str], None] | None
+    # What to do with this thread while a reply is waited on — a
+    # frontend that runs its own work on it attaches one (`set_on_idle`).
+    _on_idle: Callable[[], None] | None
     # Product state (read through the properties below). The model is
     # `_state`'s — it is what state.toml remembers, and the halves the
     # app works in are its own to split.
@@ -127,6 +138,7 @@ class Session:
         session.notices = []
         session.notice = ""
         session._notify = None
+        session._on_idle = None
         session._story_id = None
         session._system = ""
         session._messages = []
@@ -162,6 +174,22 @@ class Session:
     def provider(self) -> str:
         """The active provider's name; "" while no model is selected."""
         return self._state.provider
+
+    @property
+    def engine(self) -> str:
+        """The KIND of server behind the model — "ollama", "openai" — as
+        against `provider`, which is the section that configured it: a
+        section somebody named themselves is not named after its engine.
+        "" while no model is selected."""
+        client = self._client()
+        return client.kind if client is not None else ""
+
+    @property
+    def on_cloud(self) -> bool:
+        """Whether the story is played against a hosted catalog — the
+        prompt marker's question, answered per turn."""
+        client = self._client()
+        return client is not None and not client.local
 
     @property
     def model(self) -> str:
@@ -219,6 +247,20 @@ class Session:
 
     # ---------- what frontends may call ----------
 
+    def context_size(self) -> int | None:
+        """The loaded model's window, for a header to state — None when
+        nobody can say. Best-effort and never blocking on the internet:
+        a CLOUD catalog is not asked, because its answer lives across
+        the internet and a launch does not wait for that. Not a property:
+        a local engine is asked over its own socket."""
+        client = self._client()
+        if client is None or not client.local:
+            return None
+        try:
+            return client.get_context_size(self.model)
+        except Exception:
+            return None
+
     def start_worker(self) -> None:
         """Start the background actor — called once by the frontend, the
         moment it can repaint (`open_session` builds it unstarted so no
@@ -251,6 +293,15 @@ class Session:
     def set_on_status(self, repaint: Callable[[], None]) -> None:
         """The status repaint hook (thread-safe on the caller's side)."""
         self._worker.on_status = repaint
+
+    def set_on_idle(self, tick: Callable[[], None]) -> None:
+        """What to do with this thread while a reply is being waited on.
+        Called on the session's OWN thread, many times a second, from
+        the moment a request goes out until the last token — a frontend
+        that shares that thread (the web serves its reads on it) uses
+        this to stay answerable while the model talks. Whatever it
+        raises is swallowed: a hook may not break a reply."""
+        self._on_idle = tick
 
     def set_on_notice(self, say: Callable[[str], None]) -> None:
         """Where a notice goes from now on. The launch's own reports are

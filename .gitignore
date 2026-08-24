@@ -12,3 +12,6 @@ notes/
 
 .DS_Store
 *.py[cod]
+
+# the playwright MCP writes its page snapshots here
+.playwright-mcp/

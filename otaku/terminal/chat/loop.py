@@ -14,10 +14,12 @@ as it was.
 
 import sys
 
+from otaku import __version__
 from otaku.backend.api import play as api_play
-from otaku.backend.api import reports as api_reports
 from otaku.backend.api import stories as api_stories
 from otaku.backend.session import Refused, Session
+from otaku.console import banner
+from otaku.formatting import truncate_label
 from otaku.terminal.chat import bindings, stream
 from otaku.terminal.chat.chat import RESUME_TURNS, Chat
 from otaku.terminal.prompt import PLACEHOLDER, Carry, LineAssembler, build_prompt
@@ -29,7 +31,6 @@ from otaku.terminal.tty import (
     PROMPT_CONTINUATION,
     PROMPT_PREFIX,
     RESET,
-    banner,
     error_line,
     theme,
 )
@@ -65,7 +66,20 @@ def run(session: Session) -> None:
     if not session.model:
         screen_models.pick(session)
     if session.ui.show_banner:
-        print(banner.render(api_reports.banner(session)))
+        # Each field a public read; the no-model fallback is this
+        # frontend's own wording, and the story is cut to the same width
+        # as the landed line printed under it.
+        print(
+            banner.render_terminal(
+                banner.SessionFacts(
+                    version=__version__,
+                    model=session.model or "(no model)",
+                    engine=session.engine,
+                    context=session.context_size(),
+                    story=truncate_label(api_stories.headline(session), api_stories.LABEL_WIDTH),
+                )
+            )
+        )
     if session.messages:
         # A resumed story starts mid-scene: name what was resumed and
         # show its last turns, so the scene is on screen before the
@@ -112,7 +126,7 @@ def run(session: Session) -> None:
         # written to leave the machine.
         if assembler.in_block:
             prefix = PROMPT_CONTINUATION
-        elif api_reports.on_cloud(session):
+        elif session.on_cloud:
             prefix = CLOUD_PROMPT_PREFIX
         else:
             prefix = PROMPT_PREFIX
@@ -143,7 +157,11 @@ def run(session: Session) -> None:
             chat.ledger.typed_gone()
             if assembler.in_block:
                 chat.ledger.invalidate()
-            sys.stdout.write(f"\x1b[{_shown_rows(carry.text, prefix)}A\r\x1b[J")
+            # The rows the aborted prompt read occupies — the prefix plus
+            # the in-progress line, wrapping and embedded newlines
+            # included — go back up and away.
+            shown = measure(prefix + carry.text + "\n", terminal_width())
+            sys.stdout.write(f"\x1b[{shown}A\r\x1b[J")
         else:
             chat.ledger.typed(prefix + line + "\n")
             result = assembler.feed(line)
@@ -199,10 +217,3 @@ def submit(chat: Chat, line: str) -> None:
         path = session.record_crash(f"command {line.split(' ', 1)[0]!r}", e)
         where = f" — recorded in {path}" if path else ""
         chat.say(error_line(f"Command failed ({type(e).__name__}){where}"))
-
-
-def _shown_rows(text: str, prefix: str) -> int:
-    """Terminal rows the aborted prompt read occupies on screen: the
-    prefix plus the in-progress line — wrapping and embedded newlines
-    included — for the shortcut branch's own erase."""
-    return measure(prefix + text + "\n", terminal_width())

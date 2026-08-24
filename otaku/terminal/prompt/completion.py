@@ -25,7 +25,7 @@ from prompt_toolkit.completion import CompleteEvent, Completer, Completion
 from prompt_toolkit.document import Document
 
 from otaku.backend.commands import COMMANDS, CommandSpec
-from otaku.backend.session import KNOWN_PARAMS
+from otaku.backend.session import KNOWN_PARAMS, THINK_MENU
 from otaku.terminal.tty import latin_key
 
 # The story's characters for the menus: (name, one-line description).
@@ -48,7 +48,10 @@ CompletionTree = dict[str, "CompletionTree | str | None"]
 # here because they are completion affordances, not command semantics.
 _PATH_COMMANDS = {"/system", "/card", "/import", "/export"}
 _NAME_COMMANDS = {"/merge"}
-_THINK_MENU = ("on", "off", "none", "low", "medium", "high", "max", "default")
+# What `/set think` completes to: the typed sugar first (this menu is
+# of what you may TYPE), then the shared ladder — one order for the
+# values everywhere a menu offers them (`backend.session.THINK_MENU`).
+_THINK_COMPLETIONS = ("on", "off", *THINK_MENU)
 
 
 class MenuRow(Completion):
@@ -268,7 +271,7 @@ def _command_leaf(spec: CommandSpec) -> "CompletionTree | str | None":
 def _subcommand_leaf(name: str) -> "CompletionTree | None":
     """The /set family's value menus."""
     if name == "think":
-        return {level: None for level in _THINK_MENU}
+        return {level: None for level in _THINK_COMPLETIONS}
     if name == "parameter":
         return {p: {"reset": None} for p in KNOWN_PARAMS}
     if name in ("verbose", "autocorrect", "notification"):

@@ -347,20 +347,14 @@ class StoryPicker(ListScreen):
         if not q:
             self.filtered = list(self.all)
         else:
-            # Buried content matches come from the backend's session-held
-            # index (api.stories.search) — cheap per keystroke, and the
-            # corpus never crosses the boundary; the label fields are the
-            # browser's own rows.
-            try:
-                buried = set(api_stories.search(self.session, q))
-            except Exception:
-                buried = set()
-            self.filtered = [
-                row
-                for row in self.all
-                if q in f"{row.title} {row.story_so_far} {row.first_user} {row.model}".lower()
-                or row.id in buried
-            ]
+            # The whole filter rule lives below both frontends
+            # (api.stories.search): buried content OR the row's own
+            # face — so this browser and the page can never find
+            # different stories. Cheap per keystroke (the content index
+            # is session-held), and the corpus never crosses the
+            # boundary.
+            found = set(api_stories.search(self.session, q))
+            self.filtered = [row for row in self.all if row.id in found]
         if self.cursor >= len(self.filtered):
             self.cursor = max(0, len(self.filtered) - 1)
 

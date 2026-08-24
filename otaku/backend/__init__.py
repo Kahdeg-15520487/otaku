@@ -28,7 +28,7 @@ package root.
 
 from otaku.encryption import EncryptionError
 from otaku.providers import ModelInfo, Provider, ProviderConfig
-from otaku.settings.config import ConfigError, UiSettings
+from otaku.settings.config import ConfigError, UiSettings, WebSettings
 from otaku.store import DatabaseError
 from otaku.store.ops.stories import StoryListing
 from otaku.store.schema import Character, Journal, Message, Scene
@@ -46,4 +46,5 @@ __all__ = [
     "Scene",
     "StoryListing",
     "UiSettings",
+    "WebSettings",
 ]

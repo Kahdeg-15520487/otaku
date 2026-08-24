@@ -25,17 +25,39 @@ from otaku.context.syntax import is_command
 
 __all__ = [
     "COMMANDS",
+    "GROUP_LABELS",
     "PROSE_DESCRIPTION",
+    "PROSE_GROUP",
+    "PROSE_LABEL",
     "CommandKind",
     "CommandSpec",
     "find",
-    "help_text",
     "is_command",
 ]
 
 # The explainer /help opens the playing group with — prose is the
-# surface's real first row, in both frontends' chat boxes.
+# surface's real first row, in both frontends' chat boxes. It is not a
+# command and has no spec: what a help page needs is the label to give
+# it, the group it opens, and the sentence.
+PROSE_LABEL = "PROMPT"
+PROSE_GROUP = "playing"
 PROSE_DESCRIPTION = "Your character speaks or acts; the model continues the scene — sent verbatim"
+
+# What each group is called, in the table's own order. Every group has a
+# name: a heading is how a reader finds a command they cannot spell, and
+# the two rows about otaku itself are no less findable than the rest. The
+# wording is shared — the punctuation and the case around it are each
+# frontend's drawing.
+GROUP_LABELS: dict[str, str] = {
+    "playing": "Playing",
+    "inline": "Inside a prompt",
+    "stories": "Stories",
+    "lore": "Lore",
+    "inspect": "Inspect",
+    "transfer": "Import/export",
+    "settings": "Models and settings",
+    "meta": "Meta",
+}
 
 
 class CommandKind(enum.Enum):
@@ -102,14 +124,14 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("/merge", "A into B", "Fold a duplicate character into the real one", "lore", CommandKind.OPERATION),
     # Inspect
     CommandSpec("/context", "", "Preview the next request (assembled prompt + budgets)", "inspect", CommandKind.INTERACTIVE),
-    CommandSpec("/usage", "[all]", "Tokens spent on this story (or everything)", "inspect", CommandKind.OPERATION),
     CommandSpec("/balance", "", "Account balance of cloud providers", "inspect", CommandKind.OPERATION),
+    CommandSpec("/usage", "[all]", "Tokens spent on this story (or everything)", "inspect", CommandKind.OPERATION),
     CommandSpec("/info", "", "Show details about the current model + session", "inspect", CommandKind.OPERATION),
     # Import/export
     CommandSpec("/card", "FILE [NAME]", "Import a character card (PNG or JSON) into this story — NAME renames them", "transfer", CommandKind.INTERACTIVE),
     CommandSpec("/import", "FILE", "Import a story: an otaku export, SillyTavern chat (.jsonl), or plain text", "transfer", CommandKind.INTERACTIVE),
     CommandSpec("/export", "[FILE]", "Export the whole story to Markdown (memory + messages)", "transfer", CommandKind.INTERACTIVE),
-    # Model and settings
+    # Models and settings
     CommandSpec("/model", "[PROVIDER/MODEL]", "Switch model", "settings", CommandKind.INTERACTIVE),
     CommandSpec("/set think", "<level>", "Thinking effort for the model: on|off|none|low|medium|high|max|default", "settings", CommandKind.OPERATION),
     CommandSpec("/set parameter", "<name> <val>", "Set an inference parameter for the model; no <val> shows it, <val> = reset returns the default", "settings", CommandKind.OPERATION),
@@ -136,42 +158,3 @@ def find(token: str) -> CommandSpec | None:
             if spec.token == head:
                 return spec
     return None
-
-
-def help_text() -> str:
-    """The shared /help table — the playing group opened by the
-    PROSE_DESCRIPTION explainer row, then groups, commands, argument
-    shapes, descriptions; the wording both frontends show. A frontend
-    appends its own medium section (keys) — or rebuilds the table from
-    COMMANDS when it adds a column (the terminal's shortcuts)."""
-    labels = ["PROMPT", *(f"{s.token} {s.args}".strip() for s in COMMANDS)]
-    width = max(len(label) for label in labels)
-    lines: list[str] = []
-    group = None
-    for spec in COMMANDS:
-        if spec.group != group:
-            group = spec.group
-            if lines:
-                lines.append("")
-            heading = _GROUP_HEADINGS[group]
-            if heading:
-                lines.append(heading)
-            if group == "playing":
-                lines.append(f"  {'PROMPT':<{width}}  {PROSE_DESCRIPTION}")
-        label = f"{spec.token} {spec.args}".strip()
-        lines.append(f"  {label:<{width}}  {spec.description}")
-    return "\n".join(lines)
-
-
-# The /help group headings, in the table's own order; "" separates a
-# group without naming it (meta: /help and /bye explain themselves).
-_GROUP_HEADINGS = {
-    "playing": "Playing:",
-    "inline": "Inside a prompt:",
-    "stories": "Stories:",
-    "lore": "Lore:",
-    "inspect": "Inspect:",
-    "transfer": "Import/export:",
-    "settings": "Model and settings:",
-    "meta": "",
-}

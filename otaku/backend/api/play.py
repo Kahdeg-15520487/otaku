@@ -205,7 +205,14 @@ def _reply_events(
     final: Stats | None = None
     error: str | None = None
     stream = client.chat_stream(
-        session.model, wire, dict(session.params), think=session.think, purpose="chat"
+        session.model,
+        wire,
+        dict(session.params),
+        think=session.think,
+        purpose="chat",
+        # The thread this runs on belongs to the frontend between
+        # tokens, if the frontend said what to do with it.
+        on_idle=session._on_idle,
     )
     try:
         try:

@@ -1,243 +1,401 @@
-"""The read-only reports both frontends show verbatim.
+"""The read-only reports both frontends show.
 
-Everything here is plain text or plain data — the terminal pages or
-prints it, the web shows it; neither rewrites it.
+One function per report, and what it returns is the report: the facts it
+is made of, and `text()` — the same facts as a terminal pages them. A
+frontend that PRINTS asks for the text; one that DRAWS (a table, a
+definition list, the window diagram) takes the facts and draws them.
+Neither invents a fact, neither rewords a sentence, and the two cannot
+drift because the text is rendered from the facts beside it.
 """
 
 from dataclasses import dataclass
 
-from otaku import __version__
 from otaku.backend.api import stories
 from otaku.backend.session import NO_MODEL_HINT, Refused, Session
 from otaku.context.assembler import AssembledPrompt
 from otaku.formatting import format_context, format_size, pretty_path, printable, truncate_label
-from otaku.providers import CloudClient, ProviderConfig
+from otaku.providers import CLIENTS, CloudClient, ProviderConfig
 
 
-def context(session: Session, *, dim: str = "", reset: str = "") -> str:
-    """The next request EXACTLY as it will be sent, with token estimates
-    per part above — `dim`/`reset` bracket the role markers so a terminal
-    can fade them and the web can pass markers of its own. Nothing here
-    is otaku's own text except those markers (standing for the JSON role
-    field) and the summary — every other line is content the model
-    receives, in order. No model: the preview still stands, over the
-    assembler's default window — what WOULD be sent is a question that
-    needs no server."""
+@dataclass(frozen=True)
+class WindowShape:
+    """What the next request is MADE of — the counts a diagram is drawn
+    from and the summary line is written from. `middle` is the messages
+    the summaries stand in for, never a third slice of what is sent.
+
+    Not the assembler's `ContextShape`, which is the SETTING (how many
+    to keep); this is what came of it."""
+
+    head: int
+    tail: int
+    middle: int
+    kept: int  # messages sent verbatim, head and tail together
+    summaries: int
+    rolled_up: int  # older scenes folded into the rollup, 0 without one
+    total_tokens: int
+    system_tokens: int
+    transcript_tokens: int
+    context_max: int
+    used: int  # percent of the window
+
+
+@dataclass(frozen=True)
+class ContextPart:
+    """One message of the request, as the wire will carry it."""
+
+    role: str
+    body: str
+
+
+@dataclass(frozen=True)
+class ContextReport:
+    """The next request EXACTLY as it will be sent: what it is made of,
+    the summary that says so in words, and one part per message.
+
+    Nothing in it is otaku's own text except the summary and the role
+    markers `text` brackets (they stand for the JSON role field) — every
+    other line is content the model receives, in order."""
+
+    shape: WindowShape
+    summary: str
+    parts: tuple[ContextPart, ...]
+
+    def text(self, *, dim: str = "", reset: str = "") -> str:
+        """The whole preview as a terminal pages it. `dim`/`reset`
+        bracket the role markers, so a terminal can fade them."""
+        out = [self.summary]
+        for part in self.parts:
+            out.extend(["", f"{dim}[{part.role}]{reset}", part.body])
+        return "\n".join(out)
+
+
+def context(session: Session) -> ContextReport:
+    """Preview the next request: what it is made of, said in words, and
+    one part per message it will carry. No model: the preview still
+    stands, over the assembler's default window — what WOULD be sent is
+    a question that needs no server."""
     client = session._client()
     window = client.get_context_size(session.model) if client is not None else None
     prompt = session._assemble(window)
-    return _render_preview(prompt, dim=dim, reset=reset)
+    shape = _shape(prompt)
+    return ContextReport(
+        shape=shape,
+        summary=_summary(shape),
+        parts=tuple(
+            ContextPart(turn.role, "\n".join(_preview_body(printable(turn.body), prompt.recap)))
+            for turn in prompt.messages
+        ),
+    )
 
 
-def usage(session: Session, raw: str = "") -> str:
+@dataclass(frozen=True)
+class UsageRow:
+    """One thing tokens were spent on: a purpose, on a model, at a
+    provider. `rate` is completion tokens per second, 0.0 unmeasured."""
+
+    purpose: str
+    provider: str
+    model: str
+    requests: int
+    prompt_tokens: int
+    completion_tokens: int
+    rate: float
+
+
+@dataclass(frozen=True)
+class UsageReport:
+    """What the tokens went on, by purpose and by model."""
+
+    scope: str  # what was counted: "this story" or "all stories"
+    rows: tuple[UsageRow, ...]
+    requests: int
+    prompt_tokens: int
+    completion_tokens: int
+
+    @property
+    def total_tokens(self) -> int:
+        return self.prompt_tokens + self.completion_tokens
+
+    def text(self) -> str:
+        """The rows as a terminal prints them — a column each, the text
+        columns joined with " · "."""
+        purpose_w = max(len("total"), max(len(r.purpose) for r in self.rows))
+        provider_w = max(len(r.provider) for r in self.rows)
+        model_w = max(len(r.model) for r in self.rows)
+        # The header and total rows blank the separator out, so the
+        # numeric columns stay aligned under it.
+        head = f"  {'':<{purpose_w}}   {'':<{provider_w}}   {'':<{model_w}}"
+        out = [
+            f"Token usage — {self.scope}:",
+            f"{head}  {'REQS':>5}  {'PROMPT':>10}  {'REPLY':>10}  {'TOK/S':>7}",
+        ]
+        for r in self.rows:
+            out.append(
+                f"  {r.purpose:<{purpose_w}} · {r.provider:<{provider_w}} · {r.model:<{model_w}}  "
+                f"{r.requests:>5,}  {r.prompt_tokens:>10,}  {r.completion_tokens:>10,}"
+                f"  {r.rate:>7.1f}"
+            )
+        out.append(
+            f"  {'total':<{purpose_w}}   {'':<{provider_w}}   {'':<{model_w}}"
+            f"  {self.requests:>5,}  {self.prompt_tokens:>10,}  {self.completion_tokens:>10,}"
+            f"  {'':>7}\n  ({self.total_tokens:,} tokens across "
+            f"{len(self.rows)} model/purpose pairs)"
+        )
+        return "\n".join(out)
+
+
+# What /usage can count: the argument a frontend passes, and what the
+# report calls that scope. Declared here because both are the report's
+# own language — the terminal takes the argument on the command line,
+# and the page draws one tab per row.
+USAGE_SCOPES: tuple[tuple[str, str], ...] = (("", "this story"), ("all", "all stories"))
+
+
+def usage(session: Session, raw: str = "") -> UsageReport:
     """Tokens spent on this story — or on every story when `raw` is
     "all" (the one argument this command knows; anything else is Refused
     with the usage line). Grouped by what the tokens were spent on
-    (chat, lore, …), then by provider and model — a column each. Raises
-    Refused when there is nothing to report."""
+    (chat, lore, …), then by provider and model. Raises Refused when
+    there is nothing to report."""
     argument = raw.strip().lower()
     if argument not in ("", "all"):
         raise Refused("Usage: /usage [all]")
     everything = argument == "all"
     if not everything and session.story_id is None:
         raise Refused("No story yet — send a message first, or use /usage all.")
-    rows = session._store.usage.get_totals(None if everything else session.story_id)
-    if not rows:
+    totals = session._store.usage.get_totals(None if everything else session.story_id)
+    if not totals:
         raise Refused(
             "No recorded usage yet." if everything else "No recorded usage for this story."
         )
-    scope = "all stories" if everything else "this story"
-    purpose_w = max(len("total"), max(len(r.purpose) for r in rows))
-    provider_w = max(len(r.provider) for r in rows)
-    model_w = max(len(r.model) for r in rows)
-    # The text columns join with " · "; the header and total rows blank
-    # the separator out, so the numeric columns stay aligned.
-    head = f"  {'':<{purpose_w}}   {'':<{provider_w}}   {'':<{model_w}}"
-    out = [
-        f"Token usage — {scope}:",
-        f"{head}  {'REQS':>5}  {'PROMPT':>10}  {'REPLY':>10}  {'TOK/S':>7}",
-    ]
-    for r in rows:
-        rate = r.completion_tokens / r.seconds if r.seconds > 0 else 0.0
-        out.append(
-            f"  {r.purpose:<{purpose_w}} · {r.provider:<{provider_w}} · {r.model:<{model_w}}  "
-            f"{r.requests:>5,}  {r.prompt_tokens:>10,}  {r.completion_tokens:>10,}  {rate:>7.1f}"
+    rows = tuple(
+        UsageRow(
+            purpose=row.purpose,
+            provider=row.provider,
+            model=row.model,
+            requests=row.requests,
+            prompt_tokens=row.prompt_tokens,
+            completion_tokens=row.completion_tokens,
+            rate=row.completion_tokens / row.seconds if row.seconds > 0 else 0.0,
         )
-    total_p = sum(r.prompt_tokens for r in rows)
-    total_c = sum(r.completion_tokens for r in rows)
-    total_r = sum(r.requests for r in rows)
-    out.append(
-        f"  {'total':<{purpose_w}}   {'':<{provider_w}}   {'':<{model_w}}"
-        f"  {total_r:>5,}  {total_p:>10,}  {total_c:>10,}"
-        f"  {'':>7}\n  ({total_p + total_c:,} tokens across {len(rows)} model/purpose pairs)"
+        for row in totals
     )
-    return "\n".join(out)
+    return UsageReport(
+        scope=dict(USAGE_SCOPES)[argument],
+        rows=rows,
+        requests=sum(row.requests for row in rows),
+        prompt_tokens=sum(row.prompt_tokens for row in rows),
+        completion_tokens=sum(row.completion_tokens for row in rows),
+    )
 
 
-def info(session: Session) -> str:
-    """Everything otaku knows about the active model and session,
-    best-effort: network-backed fields are silently skipped. Without a
-    model only that half is missing: the state dir, the story, its
-    premise and the parameters are the session's own, and reporting them
-    needs no provider."""
-    out = [f"State dir: {pretty_path(session._paths.root)}", ""]
+@dataclass(frozen=True)
+class InfoSection:
+    """One block of `info`: labelled facts, or the one sentence that
+    stands where the facts would be (no model configured)."""
+
+    rows: tuple[tuple[str, str], ...] = ()
+    note: str = ""
+
+
+@dataclass(frozen=True)
+class InfoReport:
+    """Everything otaku knows about this session, in blocks."""
+
+    sections: tuple[InfoSection, ...]
+
+    def text(self) -> str:
+        """The blocks as a terminal prints them: one labelled fact per
+        line, a blank line between blocks."""
+        width = (
+            max((len(label) for section in self.sections for label, _ in section.rows), default=0)
+            + 2
+        )
+        out: list[str] = []
+        for section in self.sections:
+            if out:
+                out.append("")
+            if section.note:
+                out.append(section.note)
+            out.extend(f"{label + ':':<{width}}{value}" for label, value in section.rows)
+        return "\n".join(out)
+
+
+def info(session: Session) -> InfoReport:
+    """Everything otaku knows about the active model and session, in
+    blocks, best-effort: network-backed fields are silently skipped.
+    Without a model only that block is missing — the state dir, the
+    story, its premise and the parameters are the session's own, and
+    reporting them needs no provider."""
+    state = InfoSection(rows=(("State dir", pretty_path(session._paths.root)),))
     if session._client() is None:
-        out.append(NO_MODEL_HINT)
+        model = InfoSection(note=NO_MODEL_HINT)
     else:
-        out.extend(_model_lines(session))
-    out.append("")
-    out.extend(_session_lines(session))
-    return "\n".join(out)
+        model = InfoSection(rows=_model_rows(session))
+    return InfoReport((state, model, InfoSection(rows=_session_rows(session))))
 
 
-def balances(session: Session) -> str:
-    """The aligned provider/balance report, for the engines that have an
-    account to bill — the cloud catalogs, queried concurrently, the
-    unreachable simply skipped. Raises Refused when none answers."""
+@dataclass(frozen=True)
+class Balance:
+    provider: str  # the configured section's name
+    label: str  # what to CALL it: the engine's own caption
+    value: str
 
-    def probe(provider: str, config: ProviderConfig) -> tuple[str, str] | None:
-        client = session._providers_registry.get_client(provider)
+
+@dataclass(frozen=True)
+class BalanceReport:
+    """What each cloud account has left."""
+
+    rows: tuple[Balance, ...]
+
+    def text(self) -> str:
+        """The same rows, aligned for a terminal."""
+        width = max(len(row.label) for row in self.rows)
+        return "\n".join(f"{row.label:<{width}}  {row.value}" for row in self.rows)
+
+
+# What a provider that will not say has for a balance. Not a zero and not
+# a blank: a row that is there because the provider is, with nothing to
+# report on it yet.
+UNKNOWN_BALANCE = "\u2014"
+
+
+def balances(session: Session) -> BalanceReport:
+    """Every provider with an account to bill, and what each says it has
+    left. EVERY one: a provider with no key, a wrong key or an outage
+    keeps its row with a dash, because a report of only what answered
+    cannot be told apart from one that found nothing — and the row with
+    the dash is usually the one the reader came to look at. The cloud
+    catalogs are asked concurrently; a local engine has no account."""
+    registry = session._providers_registry
+    configured = {config.name for config in registry.configured()}
+
+    def probe(provider: str, config: ProviderConfig) -> Balance | None:
+        client = registry.get_client(provider)
         if not isinstance(client, CloudClient):
             return None  # a local engine has no account to ask
         try:
             value = client.balance(timeout=5.0)
         except Exception:
-            return None
-        return (provider, value) if value else None
+            value = ""
+        # What to CALL it: the engine's own caption — "OpenRouter", not
+        # "openrouter". A section somebody named themselves keeps THEIR
+        # name, with the engine in brackets: two sections of one kind
+        # are two accounts, and a report of balances that cannot tell
+        # them apart is a report of one number twice.
+        kind, label = type(client).kind, type(client).label
+        named = label if provider == kind else f"{provider} ({label})"
+        return Balance(provider, named, value or UNKNOWN_BALANCE)
 
-    rows = [row for row in session._providers_registry.map(probe) if row]
+    rows = [row for row in registry.map(probe) if row]
+    # A cloud engine otaku ships a client for and nobody has configured
+    # is still an account a reader may be about to open: it belongs in
+    # the list, with nothing in it.
+    rows += [
+        Balance(kind, cls.label, UNKNOWN_BALANCE)
+        for kind, cls in CLIENTS.items()
+        if issubclass(cls, CloudClient) and kind not in configured
+    ]
     if not rows:
-        raise Refused("Cannot get balances from cloud providers.")
-    width = max(len(name) for name, _ in rows)
-    return "\n".join(f"{name:<{width}}  {value}" for name, value in rows)
-
-
-@dataclass(frozen=True)
-class BannerFacts:
-    """What the session header states; the frontend owns the drawing."""
-
-    version: str
-    model: str  # "(no model)" when none
-    engine: str  # the client's kind; "" when none
-    context: int | None  # the loaded window, when a LOCAL engine answers
-    story: str  # the headline; "" when none
-
-
-def banner(session: Session) -> BannerFacts:
-    """Best-effort and never blocking on the internet: a cloud catalog is
-    not asked for its context window at launch — its answer lives across
-    the internet, and a launch does not wait for that."""
-    window = None
-    engine = ""
-    client = session._client()
-    if client is not None:
-        engine = client.kind
-        if client.local:
-            try:
-                window = client.get_context_size(session.model)
-            except Exception:
-                window = None
-    return BannerFacts(
-        version=__version__,
-        model=session.model or "(no model)",
-        engine=engine,
-        context=window,
-        story=stories.headline(session),
-    )
-
-
-def on_cloud(session: Session) -> bool:
-    """Whether the story is played against a hosted catalog — the prompt
-    marker's question, answered per turn."""
-    client = session._client()
-    return client is not None and not client.local
+        raise Refused("No cloud providers.")
+    return BalanceReport(tuple(rows))
 
 
 # ---------- report internals ----------
 
 
-def _model_lines(session: Session) -> list[str]:
-    """The active model's half of `info` — the caller checked a model is
-    active."""
+def _model_rows(session: Session) -> tuple[tuple[str, str], ...]:
+    """The active model's block of `info` — the caller checked a model
+    is active."""
     client = session._client()
     assert client is not None
     # The registry's copy, not a snapshot: a URL or key edited in the
     # picker panel shows here immediately.
     config = client.config
-    out = [f"Model:    {session.full_model_name}", f"Backend:  {client.kind} ({config.url})"]
+    out = [("Model", session.full_model_name), ("Backend", f"{client.kind} ({config.url})")]
     if config.api_key:
-        out.append("Auth:     api_key configured")
+        out.append(("Auth", "api_key configured"))
     # The model's own row — load state only where loading is a real state
     # (a plain endpoint or a cloud catalog serves everything statically).
     # A cloud catalog has neither a load state nor a size to report, and
     # asking costs a full catalog fetch: skip what would print nothing.
     row = client.model(session.model) if client.local else None
     if row is not None and client.local and client.kind != "openai":
-        out.append(f"Loaded:   {'yes' if row.loaded else 'no'}")
+        out.append(("Loaded", "yes" if row.loaded else "no"))
     if row is not None and row.size:
-        out.append(f"Size:     {format_size(row.size)}")
+        out.append(("Size", format_size(row.size)))
     window = format_context(client.get_context_size(session.model))
     if window:
-        out.append(f"Context:  {window}")
+        out.append(("Context", window))
     if client.supports_thinking:
-        out.append(f"Thinking: {session.think if session.think else 'default'}")
+        out.append(("Thinking", session.think if session.think else "default"))
     else:
-        out.append("Thinking: not supported")
+        out.append(("Thinking", "not supported"))
     if config.keep_alive:
-        out.append(f"Keep-alive: {config.keep_alive}")
-    return out
+        out.append(("Keep-alive", str(config.keep_alive)))
+    return tuple(out)
 
 
-def _session_lines(session: Session) -> list[str]:
-    """The session's half of `info` — what is loaded, not what answers."""
+def _session_rows(session: Session) -> tuple[tuple[str, str], ...]:
+    """The session's block of `info` — what is loaded, not what answers."""
     out = []
     if label := stories.headline(session):
-        out.append(f"Story:    {truncate_label(label, stories.LABEL_WIDTH)}")
-    out.append(f"Messages: {len(session.messages)}")
+        out.append(("Story", truncate_label(label, stories.LABEL_WIDTH)))
+    out.append(("Messages", str(len(session.messages))))
     if session.system:
-        out.append(f'System:   "{session.system}"')
+        out.append(("System", f'"{session.system}"'))
     if session.params:
-        rendered = ", ".join(f"{k} = {v}" for k, v in session.params.items())
-        out.append(f"Parameters: {rendered}")
-    return out
+        out.append(("Parameters", ", ".join(f"{k} = {v}" for k, v in session.params.items())))
+    return tuple(out)
 
 
-def _render_preview(prompt: AssembledPrompt, *, dim: str, reset: str) -> str:
-    """The context view's text (see `context`)."""
-    lines = ["Context preview — the exact request to be sent. Context summary:", ""]
-    used = round(100 * prompt.total_tokens / prompt.context_max) if prompt.context_max else 0
-    lines.append(
-        f"  ~{prompt.total_tokens:,} tokens · {used}% of the {prompt.context_max:,} window"
+def _shape(prompt: AssembledPrompt) -> WindowShape:
+    """What was assembled, counted — the arithmetic both the diagram and
+    the summary line stand on, done once."""
+    return WindowShape(
+        head=prompt.head_count,
+        tail=prompt.transcript_kept - prompt.head_count,
+        middle=prompt.transcript_total - prompt.transcript_kept,
+        kept=prompt.transcript_kept,
+        summaries=prompt.scenes_summarized,
+        rolled_up=prompt.scenes_rolled_up,
+        total_tokens=prompt.total_tokens,
+        system_tokens=prompt.system_tokens,
+        transcript_tokens=prompt.transcript_tokens,
+        context_max=prompt.context_max,
+        used=round(100 * prompt.total_tokens / prompt.context_max) if prompt.context_max else 0,
     )
-    if prompt.system_tokens:
-        lines.append(f"  system {prompt.system_tokens:,} · transcript {prompt.transcript_tokens:,}")
+
+
+def _summary(shape: WindowShape) -> str:
+    """What the request is made of, in words — the same arithmetic the
+    diagram is drawn from, said in the report's own sentences."""
+    lines = ["Context preview — the exact request to be sent. Context summary:", ""]
+    lines.append(
+        f"  ~{shape.total_tokens:,} tokens · {shape.used}% of the {shape.context_max:,} window"
+    )
+    if shape.system_tokens:
+        lines.append(f"  system {shape.system_tokens:,} · transcript {shape.transcript_tokens:,}")
     # The summaries are not a third slice of the transcript: they STAND IN
     # for the messages between head and tail. Naming that count is what
     # makes the line add up to the story's length instead of to nothing.
-    tail = prompt.transcript_kept - prompt.head_count
-    middle = prompt.transcript_total - prompt.transcript_kept
-    if prompt.scenes_rolled_up:
+    if shape.rolled_up:
         # Displaced summaries are named, not folded in: the rollup covers
         # the dropped scenes, and the line says so or the count would
         # claim the kept summaries cover the whole middle.
-        plural = "s" if prompt.scenes_rolled_up != 1 else ""
+        plural = "s" if shape.rolled_up != 1 else ""
         lines.append(
-            f"  {prompt.head_count} head + {tail} tail verbatim, plus {middle} middle "
-            f"inserted in between as a rollup and {prompt.scenes_summarized} last scene "
-            f"summaries. the rollup includes {prompt.scenes_rolled_up} older scene{plural}"
+            f"  {shape.head} head + {shape.tail} tail verbatim, plus {shape.middle} middle "
+            f"inserted in between as a rollup and {shape.summaries} last scene "
+            f"summaries. the rollup includes {shape.rolled_up} older scene{plural}"
         )
-    elif prompt.scenes_summarized:
+    elif shape.summaries:
         lines.append(
-            f"  {prompt.head_count} head + {tail} tail verbatim, plus {middle} middle "
-            f"inserted in between as {prompt.scenes_summarized} scene summaries"
+            f"  {shape.head} head + {shape.tail} tail verbatim, plus {shape.middle} middle "
+            f"inserted in between as {shape.summaries} scene summaries"
         )
     else:
-        lines.append(f"  {prompt.transcript_kept} messages verbatim")
-
-    for turn in prompt.messages:
-        lines.append("")
-        lines.append(f"{dim}[{turn.role}]{reset}")
-        lines.extend(_preview_body(printable(turn.body), prompt.recap))
+        lines.append(f"  {shape.kept} messages verbatim")
     return "\n".join(lines)
 
 

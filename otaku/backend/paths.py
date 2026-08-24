@@ -83,6 +83,16 @@ class Paths:
         than in the OS keychain (see `encryption.keys`)."""
         return self.configs_dir / "config.key"
 
+    # web/ — the reader's own front-end files
+
+    @property
+    def custom_web_dir(self) -> Path:
+        """User-owned: what the web frontend loads AFTER its own styles,
+        `custom.css` alone today. Never created by the app — an absent
+        directory is the normal state, and the frontend answers with an
+        empty stylesheet."""
+        return self.root / "web"
+
     # database/ — the story store
 
     @property

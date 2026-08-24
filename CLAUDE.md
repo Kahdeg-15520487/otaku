@@ -41,14 +41,15 @@ Each package may import only the packages listed after its arrow (plus the
 standard library and the declared dependencies); everything else is
 forbidden — `tests/test_architecture.py` reads the tree and holds this
 table, so an import that crosses a layer fails the suite rather than the
-review. `web` is the NOT-YET-BUILT second frontend: no such package
-exists, but its row stays — it is the standing test for what belongs in
-`backend` (anything both frontends would need) versus a frontend (only
-the medium):
+review. `web` is the second frontend: the packaged page and the local
+server that hands it over (`otaku web`), over the same open session. Its
+row is also the standing test for what belongs in `backend` (anything
+both frontends would need) versus a frontend (only the medium):
 
     cli        → terminal, web, backend (launch + log unlock), logging, update
-    terminal   → backend, formatting
-    web        → backend, formatting
+    terminal   → console, backend, formatting
+    web        → console, backend, settings (its own [web] slice), formatting
+    console    → formatting
     worker     → context, providers, store, logging, formatting
     backend    → worker, context, providers, store, settings, encryption, logging, formatting
     context    → store (reads only)
@@ -69,7 +70,7 @@ captions under the graph state the edges ASCII cannot draw cleanly.
 
     user ─► cli ─┬─► terminal ─────────┐        cli also: ─► logging (viewing) · ─► update
                  └─► web (◄─ browser) ─┤                  ─► backend (launch + unlock
-                                       ▼                      for the sealed request log)
+                     both ─► console   ▼                      for the sealed request log)
                                 ┌─────────────────────┐    schedules    ┌──────────────────────┐
                                 │       backend       │ ──────────────► │        worker        │ ◄── idle deadline
                                 │  Session · transfer │                 │ extraction · warm-up │
@@ -92,6 +93,12 @@ captions under the graph state the edges ASCII cannot draw cleanly.
              providers ─► settings (ProviderConfig and the sections live there)
     dashed, injected at composition (no import): worker status ─► frontend repaint ·
              ask_secret ─► frontend
+    web ─► settings: the [web] slice alone — where a frontend LISTENS is the
+             medium, like a key binding, and it is needed before a session exists
+    console: what a frontend draws in the terminal it was LAUNCHED from — the
+             banner both open with, the tail under the web's. Below both
+             frontends because neither may own what the other prints, and a
+             leaf because it is HANDED what it draws
 
 `context.syntax` owns the story's typed language — read by the backend
 at record time, by the assembler and the worker at wire time, and
@@ -135,6 +142,74 @@ modules are the implementation and may use them; frontends never do
 ever rely on them. UI display use (e.g. ordering the story list by recency)
 is allowed.
 
+## Two frontends
+
+`terminal` and `web` are ONE product in two media. Every feature is
+designed for both before it is built for either: "what is this in the
+other frontend?" is a question asked while deciding, not after
+shipping. Five rules hold that.
+
+1. **A command is declared once, and answered by both.**
+   `backend.commands.COMMANDS` is the only place a command exists. Each
+   frontend then answers it in its own table — the terminal's
+   `chat.bindings.OPERATIONS` and `_INTERACTIVE`, the web's
+   `api.ANSWERS` and the `SCREENS` object in
+   `web/static/js/commands.js`. A new command is one row in the shared
+   table AND one row in each frontend. `tests/test_architecture.py`
+   holds it, so a row nobody answers fails the suite instead of
+   shipping as a button that does nothing. A frontend may also answer
+   the first word of a FAMILY — the web opens a settings screen for
+   `/set`, which the table declares only as `/set think`, `/set
+   verbose` and the rest — but it may invent no other token.
+
+2. **A decision lives below both frontends; a look lives in one.**
+   Anything the two would have to agree on — how a line's argument is
+   split off, what counts as a command, what a story is called, what
+   goes in the context window — belongs to `backend`, `context` or
+   `settings`. Anything that is the medium — a key binding, a column
+   width, a menu's order, what a screen is made of — belongs to the
+   frontend, and the other must not inherit it. Where a frontend needs
+   a rule the other already has, it copies the RULE and names the
+   other's home in a comment (`web.api._argument` cites
+   `terminal.chat.bindings._argument`), so the next reader finds both.
+
+   A report obeys this twice over: one function per report in
+   `backend.api.reports`, returning an object that carries the FACTS
+   and `text()` — the same facts as a terminal pages them. A page draws
+   a table, a definition list or the window diagram from the facts; a
+   terminal prints the text. A frontend that parses a report's text
+   back into fields has taken the wrong half.
+
+3. **Sentences come from the backend, verbatim.** A frontend never
+   rewords a refusal, a notice or a report — it decides only WHERE the
+   text appears. Wording about the medium itself ("close · esc",
+   "ctrl+c to stop", a key caption, the terminal's shorter `/help`
+   spellings) is the frontend's alone. `/help` is the case in point:
+   the tokens, argument shapes, descriptions, group names
+   (`commands.GROUP_LABELS`) and the prose row (`PROSE_*`) are the
+   shared table's; each frontend lays them out for its own medium —
+   columns and a keys section in the terminal, a definition list per
+   group on the page — and neither keeps a second copy of the words.
+
+4. **The vocabulary is shared; the drawing is not.** The two cannot
+   look alike and must not try — one is a grid of character cells, the
+   other a page. What must match is what a thing MEANS: a played turn
+   is a band opened by `>`; dialogue takes one accent; a dim `[ … ]`
+   block is a report beside a turn; a loaded model is bold and an
+   unloaded one dim; a derived field is dim and refuses to be edited.
+   Change what one of those means and change it in both, or otaku is
+   two products wearing one name.
+
+5. **A frontend reads one slice and only its own.** Every setting is
+   cut into a typed slice in `settings.config`, and a frontend never
+   sees more than the one that is the medium: the terminal's looks
+   arrive as `UiSettings` from the session it is drawing, and the web
+   reads `WebSettings` itself (`web.settings`) because where it listens
+   is needed before a session exists. Anything a story depends on — a
+   window, a template, a provider — is read below both, and a frontend
+   that reaches for one of those has taken a decision that belongs
+   under it.
+
 ## Configuration files
 
 The app writes `configs/config.toml` and `configs/providers.toml` (one
@@ -151,6 +226,11 @@ the day already has one. Every setting changed from inside the app
 persists elsewhere and is rewritten wholesale: `configs/state.toml` for
 session-wide values (the resumed model and story, `/set` toggles) and
 `configs/models.toml` for per-model overrides.
+
+One state-dir file is the user's alone and the app never writes it:
+`web/custom.css`, loaded last by the web frontend so that anything in it
+wins. The custom properties it writes against are a public contract —
+`docs/web_tokens.md`, where a rename is a breaking change.
 
 ## Migrations
 
@@ -214,7 +294,11 @@ seams: `scenarios/session/` is everything inside an open session, one
 module per `otaku/backend/api` module, classes in `/help` order, with the
 screen a command opens tested beside it; `scenarios/cli/` has one module
 per top-level command (`test_main.py` — the bare invocation, driven in a
-pty — `test_logs.py`, and `test_update.py`); `test_app.py` covers getting
+pty — `test_logs.py`, and `test_update.py`); `scenarios/web/` is the page
+over a real session, its `page` fixture serving on a thread and speaking
+HTTP — the session is opened on THAT thread, because a sqlite connection
+answers only the one that opened it, and the test asserts through its own
+store connection; `test_app.py` covers getting
 a session at all (encryption, backups, resume); the live smokes live in
 `scenarios/live/`, one module per provider. `scenarios/fixtures/` holds
 the artifacts a synthetic string cannot stand in for — a real
@@ -261,6 +345,56 @@ autocompletion (the menu pops at `@` and filters while typing — see
 `otaku/terminal/prompt/completion.py`). Commands must ignore it: every handler
 that reads a path strips a leading `@` (`removeprefix("@")`) and never
 branches on it — it is a UI trigger, not part of any name or value.
+
+## Web conventions
+
+The package is four modules, one secret each — `run` (the frontend's
+life; the ONLY module that prints, into the terminal it was launched
+from), `server` (HTTP alone), `api` (what the page may ask, as tables:
+`READS`, `ACTIONS`, `FLOWS`, `ANSWERS`; cross-request state in
+`Pending`), `runner` (the thread that owns the session). The rules that
+span them, held by `scenarios/web`; the mechanics live in the module
+docstrings:
+
+- **Nothing is cached, BY DESIGN**: every asset goes out `no-store`
+  with no validator, read from disk per request — what is on disk is
+  what the browser has, always. The versioned fonts are the one
+  immutable exception. `/api/watch` finishes the rule: the page holds
+  it open and reloads itself (or swaps a stylesheet) when a file it is
+  made of changes — not a dev mode, no switch.
+- **What may be served is a CLOSED table** in `web/server.py`: a path
+  is looked up, never joined onto a directory, so no request composes
+  its way to `configs/providers.toml`.
+- **Two guards in front of every request**, both reading the bind: the
+  `Host` must name this machine (DNS rebinding → 421; skipped on a
+  wildcard bind, which IS the decision to answer everyone), and a WRITE
+  must prove it came from otaku's own page — `Sec-Fetch-Site:
+  same-origin`, or an `Origin` equal to the WHOLE origin addressed
+  (scheme and port: fetch metadata is absent on untrustworthy origins,
+  which is exactly the LAN configuration) — else 403. A request with
+  neither header is not a browser; the bind guards those.
+- **The prefix IS the lane**: `/api/read/…` only reads the session and
+  is answered in the gaps of a streaming reply (the pump drains between
+  frames; `session.set_on_idle` while the first token is awaited) —
+  which is why a screen opens mid-reply. `/api/do/…`, `/api/command`
+  and `/api/play` move the story and take the one thread in turn. A
+  handler that needs the other lane is in the wrong prefix.
+  `/api/alive` (the heartbeat) and `/api/watch` are in neither lane and
+  never touch the session; they are the only unasked-for requests, and
+  both are quiet in the terminal.
+- **A refusal is an answer**: `Refused` comes back 200 as
+  `{"notice": …, "refused": true}` — the page shows the sentence and
+  reads only the flag, never the wording.
+- **Where it listens** is the `[web]` slice of config.toml, read by the
+  web package itself (`web.settings`) — needed before a session exists.
+  `OTAKU_WEB_PORT` (unadvertised, same reader) moves a development
+  server off the configured port. No host variable: an interface is a
+  decision, and a decision belongs in the file. Port 0 is refused — the
+  address is printed before the bind and could not be named.
+- **`web/custom.css`** in the state dir is the reader's own, loaded
+  last so anything in it wins; never written by the app, served empty
+  when absent. Its custom properties are a public contract
+  (`docs/web_tokens.md`) — a rename is a breaking change.
 
 ## Copy conventions
 

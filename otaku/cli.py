@@ -1,9 +1,11 @@
 """The process entry: argv routing and nothing else. Bare `otaku` opens
-the terminal over an open session; `otaku update` self-updates
-(`update.py` is its machinery); `otaku logs …` pages the day-rotated
-logs (the sealed request bodies unlocked through `backend.launch`). The
-state-dir root is resolved HERE (the env var is entry-point business)
-and passed down as a plain path.
+the terminal over an open session and `otaku web` opens the page over
+one — each frontend's own `run` is its whole life, and this file only
+gets it a session and answers for what escapes. `otaku update`
+self-updates (`update.py` is its machinery); `otaku logs …` pages the
+day-rotated logs (the sealed request bodies unlocked through
+`backend.launch`). The state-dir root is resolved HERE (the env var is
+entry-point business) and passed down as a plain path.
 """
 
 import getpass
@@ -15,12 +17,20 @@ import click
 
 from otaku import __version__, logging
 from otaku import update as updater
+from otaku import web as web_frontend
 from otaku.backend import ConfigError, DatabaseError, EncryptionError
 from otaku.backend import launch as backend_launch
 from otaku.formatting import pretty_path
 from otaku.terminal import chat
 
 _ENV_VAR = "OTAKU_CONFIG_DIR"
+
+
+class _DeclaredOrderGroup(click.Group):
+    """Subcommands listed in declaration order, not alphabetically."""
+
+    def list_commands(self, ctx: click.Context) -> list[str]:
+        return list(self.commands)
 
 
 def resolve_root() -> Path | None:
@@ -31,6 +41,7 @@ def resolve_root() -> Path | None:
 
 
 @click.group(
+    cls=_DeclaredOrderGroup,
     invoke_without_command=True,
     # Wide help: every command's description prints in full, on one line,
     # instead of click's wrapped-and-truncated defaults.
@@ -54,18 +65,52 @@ def main(ctx: click.Context) -> None:
     try:
         chat.run(session)
     except Exception as e:
-        # The last resort: whatever escaped every inner containment. The
-        # story is safe — every store write is transactional — so say so,
-        # record the traceback, and leave quietly.
-        path = backend_launch.error_log(root).record("unhandled", e)
-        click.echo(
-            f"otaku crashed — your story is safe in the database. The crash is "
-            f"recorded in {pretty_path(path)}; please attach it to an issue.",
-            err=True,
-        )
+        _crashed(root, e)
         ctx.exit(1)
     finally:
         session.close()
+
+
+@main.command(short_help="Serve the web interface")
+def web() -> None:
+    """Serve otaku's web interface until interrupted, address and port
+    are configured in ~/.otaku/configs/config.toml."""
+    ctx = click.get_current_context()
+    root = resolve_root()
+    try:
+        session = backend_launch.open_session(root, ask_secret=getpass.getpass)
+    except ConfigError as e:
+        click.echo(f"Config error: {e}", err=True)
+        ctx.exit(2)
+    except (EncryptionError, DatabaseError) as e:
+        click.echo(str(e), err=True)
+        ctx.exit(1)
+    try:
+        web_frontend.run(session, root)
+    except web_frontend.ServeError as e:
+        # An address that cannot be listened on: another otaku already
+        # has it, the host does not name this machine, the port is the
+        # system's. All of them are one line to fix in config.toml.
+        click.echo(f"otaku: {e}", err=True)
+        ctx.exit(1)
+    except Exception as e:
+        _crashed(root, e)
+        ctx.exit(1)
+    finally:
+        session.close()
+
+
+def _crashed(root: Path | None, e: Exception) -> None:
+    """The last resort, wherever a frontend was running: whatever
+    escaped every inner containment. The story is safe — every store
+    write is transactional — so say so, record the traceback, and leave
+    quietly."""
+    path = backend_launch.error_log(root).record("unhandled", e)
+    click.echo(
+        f"otaku crashed — your story is safe in the database. The crash is "
+        f"recorded in {pretty_path(path)}; please attach it to an issue.",
+        err=True,
+    )
 
 
 @main.command(short_help="Update otaku to the latest release")
@@ -90,13 +135,6 @@ def update() -> None:
     for manual in updater.MANUAL_COMMANDS:
         click.echo(f"  {manual}", err=True)
     click.get_current_context().exit(1)
-
-
-class _DeclaredOrderGroup(click.Group):
-    """Subcommands listed in declaration order, not alphabetically."""
-
-    def list_commands(self, ctx: click.Context) -> list[str]:
-        return list(self.commands)
 
 
 @main.group(

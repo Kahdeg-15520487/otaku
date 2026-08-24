@@ -110,7 +110,8 @@ class TestBalance:
         try:
             app.play("/balance")
             out = capsys.readouterr().out
-            assert "openrouter" in out
+            # The report names a provider by its caption, not its section key.
+            assert "OpenRouter" in out
             assert "$12.34" in out  # purchased minus spent
         finally:
             app.close()

@@ -1,8 +1,10 @@
 """The machine's memory, from the platform's own numbers.
 
-The model picker's header carries a RAM gauge — loading a model is the
-one thing otaku does that can fill a machine up — and that is the whole
-need: `virtual_memory()` answers `(used, total)` in bytes, or None where
+Both pickers carry a RAM gauge — loading a model is the one thing otaku
+does that can fill a machine up — so the reading lives below them, here,
+and the sentence they draw it as is `gauge()`: one machine fact, said
+the same way in a terminal and in a page. That is the whole need:
+`virtual_memory()` answers `(used, total)` in bytes, or None where
 the platform will not say, so the caller hides the line instead of
 printing a guess. No dependency for it: the total comes from sysconf,
 and what is used from `/proc/meminfo` on Linux and a `vm_stat` parse on
@@ -48,6 +50,17 @@ _USED_PAGES = ("Anonymous pages", "Pages wired down", "Pages occupied by compres
 _DISCARDABLE_PAGES = "Pages purgeable"
 
 _cache: tuple[float, tuple[int, int] | None] | None = None
+
+
+def gauge() -> str:
+    """The gauge as both pickers print it — "RAM: 12.4 / 32.0 GB (39%)"
+    — or "" where the platform will not say, which is a line neither of
+    them draws rather than a guess either of them prints."""
+    memory = virtual_memory()
+    if memory is None:
+        return ""
+    used, total = memory
+    return f"RAM: {used / 1024**3:.1f} / {total / 1024**3:.1f} GB ({100 * used / total:.0f}%)"
 
 
 def virtual_memory() -> tuple[int, int] | None:

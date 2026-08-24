@@ -32,6 +32,18 @@ class UiSettings:
 
 
 @dataclass(frozen=True)
+class WebSettings:
+    """Where the web frontend listens — the other slice of config.toml
+    that is a frontend's business, and the only one needed before a
+    session exists. Loopback by default: this is one person's
+    application, and reaching it from another machine is a decision to
+    make on purpose."""
+
+    host: str = "127.0.0.1"
+    port: int = 9600
+
+
+@dataclass(frozen=True)
 class Encryption:
     """The [encryption] section. Provider "none" (the default) stores
     content as readable plain text."""
@@ -50,6 +62,9 @@ class Config:
     # [ui]
     dialogue_color: str = "auto"
     dialogue_bold: bool = False
+    # [web]
+    web_host: str = "127.0.0.1"
+    web_port: int = 9600
     # [context]
     head_messages: int = 20
     tail_messages: int = 150
@@ -79,6 +94,10 @@ class Config:
             "[ui]",
             row(f"dialogue_color = {toml_scalar(self.dialogue_color)}", 'spoken lines: "auto" fits the background; a color name ("cyan") or #rrggbb'),
             row(f"dialogue_bold = {toml_scalar(self.dialogue_bold)}", "also bold the spoken lines"),
+            "",
+            "[web]",
+            row(f"host = {toml_scalar(self.web_host)}", "where `otaku web` listens; anything but 127.0.0.1 opens it to the network"),
+            row(f"port = {self.web_port}", "…and on which port"),
             "",
             "[context]",
             row(f"head_messages = {self.head_messages}", "opening messages kept verbatim in the prompt"),
@@ -113,6 +132,11 @@ class Config:
         return "\n".join(lines) + "\n"
 
     @property
+    def web(self) -> WebSettings:
+        """The web frontend's slice, cut like `ui` below."""
+        return WebSettings(host=self.web_host, port=self.web_port)
+
+    @property
     def ui(self) -> UiSettings:
         """The frontend slice, cut once here."""
         return UiSettings(
@@ -142,6 +166,7 @@ def load(path: Path) -> Config:
 
     settings = _table(raw, "settings", path)
     ui = _table(raw, "ui", path)
+    web = _table(raw, "web", path)
     context = _table(raw, "context", path)
     lore = _table(raw, "lore_extraction", path)
     database = _table(raw, "database", path)
@@ -153,6 +178,13 @@ def load(path: Path) -> Config:
             notification_sound=str(settings.get("notification_sound", "default")),
             dialogue_color=str(ui.get("dialogue_color", "auto")),
             dialogue_bold=bool(ui.get("dialogue_bold", False)),
+            web_host=str(web.get("host", "127.0.0.1")),
+            # Clamped to the range a socket accepts, 0 excluded: a port
+            # of 0 asks the OS to pick one, and `otaku web` says where
+            # the page is BEFORE it binds — an address nobody can be
+            # told is no use for a page somebody has to open. A second
+            # otaku on one machine names its own port here.
+            web_port=min(65535, max(1, _int(web, "port", 9600))),
             head_messages=max(0, _int(context, "head_messages", 20)),
             tail_messages=max(1, _int(context, "tail_messages", 150)),
             lore_enabled=bool(lore.get("enabled", True)),

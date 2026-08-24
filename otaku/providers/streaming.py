@@ -19,10 +19,11 @@ cancelling the consumer still stops the server's generation promptly.
 
 from __future__ import annotations  # `Chunk` is imported for typing only
 
+import contextlib
 import threading
 import time
 from collections import deque
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -33,7 +34,11 @@ _RATE_WINDOW = 3.0  # sliding window (seconds) for the arrival-rate estimate
 _TICK = 0.02  # emit cadence
 
 
-def smoothen(chunks: Iterator[Chunk]) -> Iterator[Chunk]:
+def smoothen(chunks: Iterator[Chunk], on_idle: Callable[[], None] | None = None) -> Iterator[Chunk]:
+    """`chunks` re-timed into an even flow. `on_idle` is called on every
+    tick the wrapper spends waiting — before the first token and in every
+    gap after it — which is the one moment a caller's own thread is
+    demonstrably free while a reply is in flight."""
     from otaku.providers.base import Stats, Text, Thinking
 
     buffer: list[str] = []
@@ -104,6 +109,13 @@ def smoothen(chunks: Iterator[Chunk]) -> Iterator[Chunk]:
                 yield Text(out_text)
             if finished:
                 break
+            if on_idle is not None:
+                # The caller's thread is idle here whatever the model is
+                # doing — before the first token above all. A hook must
+                # never be the thing that breaks a reply, so what it
+                # raises stops with it.
+                with contextlib.suppress(Exception):
+                    on_idle()
             time.sleep(_TICK)
         if error[0] is not None:
             raise error[0]

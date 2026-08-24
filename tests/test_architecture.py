@@ -1,8 +1,10 @@
 """CLAUDE.md's architecture, held as a test: the import graph (each
 package may import only what its row allows), the inertness of the
-backend bridge (its re-exports are data, never behavior), and the
-privacy of the `Session` handles (the backend package is the only user
-of its underscore surface).
+backend bridge (its re-exports are data, never behavior), the privacy
+of the `Session` handles (the backend package is the only user of its
+underscore surface), the parity of the two frontends (every command the
+shared table declares is answered by both), and the web page's own
+module graph — which is JavaScript, and so is read as text.
 
 A deliberate exception to the unit suite's pure-function rule: the
 subject here IS the source tree, so the test reads it — and nothing
@@ -12,24 +14,31 @@ both in the same commit.
 
 import ast
 import dataclasses
+import re
 from pathlib import Path
 
 import otaku.backend
+from otaku.backend.commands import COMMANDS, CommandKind
+from otaku.terminal.chat import bindings
+from otaku.web import api as web_api
+from otaku.web import server as web_server
 
 PACKAGE = "otaku"
 _ROOT = Path(__file__).resolve().parent.parent
 
 # CLAUDE.md's import table. formatting is the stdlib-like leaf — anyone
 # above may use it (its arrows are not drawn in the diagram), so it is
-# listed per package here to keep the table explicit. The `web` row is
-# the NOT-YET-BUILT second frontend: no package, no edges — the row
-# stays as the standing test for what belongs in backend.
+# listed per package here to keep the table explicit.
 _ALLOWED = {
     # `python -m otaku`: the module entry, which only calls the real one.
     "__main__": {"cli"},
     "cli": {"terminal", "web", "backend", "logging", "update", "formatting"},
-    "terminal": {"backend", "formatting"},
-    "web": {"backend", "formatting"},
+    "terminal": {"console", "backend", "formatting"},
+    "web": {"console", "backend", "settings", "formatting"},
+    # What a frontend draws in the terminal it was LAUNCHED from — the
+    # banner both open with, and the tail under the web's. A leaf: it is
+    # handed what it draws.
+    "console": {"formatting"},
     "worker": {"context", "providers", "store", "logging", "formatting"},
     "backend": {
         "worker",
@@ -171,3 +180,139 @@ def _is_inert(obj: object) -> bool:
     if issubclass(obj, BaseException):
         return True
     return dataclasses.is_dataclass(obj) and obj.__dataclass_params__.frozen
+
+
+class TestFrontendParity:
+    """CLAUDE.md's first two-frontend rule: a command is declared once
+    and answered by BOTH. A row nobody wired is a button that does
+    nothing, and the terminal's own dispatch would raise a KeyError
+    where the page can only shrug — so it is caught here instead.
+
+    The web's screen table is JavaScript, so it is read from the source
+    the way this module reads everything else."""
+
+    def test_every_command_is_answered_by_the_terminal(self) -> None:
+        assert _dispatchable() - _terminal_tokens() == set()
+
+    def test_every_command_is_answered_by_the_web(self) -> None:
+        assert _dispatchable() - _web_tokens() == set()
+
+    def test_neither_frontend_answers_a_command_that_does_not_exist(self) -> None:
+        assert _terminal_tokens() - _answerable() == set()
+        assert _web_tokens() - _answerable() == set()
+
+
+def _dispatchable() -> set[str]:
+    """Every command a frontend must answer. SYNTAX rows are the story's
+    own language — they play, they do not dispatch."""
+    return {spec.token for spec in COMMANDS if spec.kind is not CommandKind.SYNTAX}
+
+
+def _answerable() -> set[str]:
+    """What a frontend is allowed to answer: a declared row, or the
+    first word of a FAMILY of them. `/set` is not a command — the table
+    declares `/set think`, `/set verbose` and the rest — but a frontend
+    may open one screen for the family, as the web does. Inventing any
+    other token is inventing a command."""
+    declared = {spec.token for spec in COMMANDS}
+    return declared | {token.split(" ")[0] for token in declared if " " in token}
+
+
+def _terminal_tokens() -> set[str]:
+    return set(bindings.OPERATIONS) | set(bindings._INTERACTIVE)
+
+
+def _web_tokens() -> set[str]:
+    """The backend half is a dict; the screen half is a JavaScript
+    object literal, read as text — the same way this module reads the
+    import graph."""
+    source = (_ROOT / "otaku" / "web" / "static" / "js" / "commands.js").read_text()
+    body = source.split("const SCREENS = {", 1)[1].split("\n};", 1)[0]
+    screens = set(re.findall(r'^\s*"(/[a-z ]+)":', body, re.M))
+    return set(web_api.ANSWERS) | screens
+
+
+class TestPageModules:
+    """The page is a set of ES modules with no build step and nothing to
+    enforce their direction but a habit. The graph below is that habit
+    written down: a module may import only what its row allows, and the
+    edges that matter are one-way — `commands` reaches the screens,
+    never the other way, or a screen could not be opened from the table
+    that routes to it; and `table` (the language) is a leaf, so the
+    composer's menu and the transcript's highlighting depend on no
+    screen."""
+
+    def test_every_module_imports_only_what_its_row_allows(self) -> None:
+        for module, imported in _page_imports().items():
+            assert imported <= _PAGE[module], f"{module} imports {imported - _PAGE[module]}"
+
+    def test_every_module_is_in_the_table(self) -> None:
+        assert set(_page_imports()) == set(_PAGE)
+
+    def test_every_module_is_served(self) -> None:
+        # A module the server does not list is a 404 at the first import.
+        served = {name.removeprefix("js/").removesuffix(".js") for name in web_server._SCRIPTS}
+        assert set(_PAGE) <= served
+
+
+# What each page module may import. `api`, `dom`, `format` and `table`
+# are the leaves; `browser` is what a screen is built from; one module
+# per screen; `commands` is the dispatch over all of them; `app` is the
+# composition root and may reach anything.
+_PAGE = {
+    "api": set(),
+    "dom": set(),
+    "format": set(),
+    "table": set(),
+    "watch": {"dom"},
+    "transcript": {"api", "dom", "table"},
+    "browser": {"dom", "transcript"},
+    "shell": {"api", "dom", "transcript"},
+    "help": {"browser", "dom", "table"},
+    "stories": {"api", "browser", "dom", "format", "shell"},
+    "lore": {"api", "browser", "dom", "format", "transcript"},
+    "models": {"api", "browser", "dom", "shell", "transcript"},
+    "settings": {"api", "browser", "dom"},
+    "reports": {"api", "browser", "dom", "format", "transcript"},
+    "system": {"api", "browser", "dom", "shell"},
+    "transfer": {"api", "browser", "dom", "shell", "transcript"},
+    "commands": {
+        "api",
+        "browser",
+        "dom",
+        "help",
+        "lore",
+        "models",
+        "reports",
+        "settings",
+        "shell",
+        "stories",
+        "system",
+        "table",
+        "transcript",
+        "transfer",
+    },
+    "composer": {"commands", "dom", "table", "transcript"},
+    "app": {
+        "api",
+        "browser",
+        "commands",
+        "composer",
+        "dom",
+        "shell",
+        "table",
+        "transcript",
+        "watch",
+    },
+}
+
+
+def _page_imports() -> dict[str, set[str]]:
+    """Every `import … from "./x.js"` in the page's own modules, read as
+    text — there is no import system here to ask."""
+    static = _ROOT / "otaku" / "web" / "static"
+    files = [static / "app.js", *sorted((static / "js").glob("*.js"))]
+    return {
+        path.stem: set(re.findall(r'from "\./(?:js/)?(\w+)\.js"', path.read_text()))
+        for path in files
+    }

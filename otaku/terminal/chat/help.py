@@ -44,20 +44,6 @@ _KEY_ROWS: tuple[tuple[str, str], ...] = (
 )
 # fmt: on
 
-# The group headings, matching the shared table's groups; "" for a
-# separated group without a heading (meta: /help and /bye explain
-# themselves).
-_GROUP_HEADINGS = {
-    "playing": "Playing:",
-    "inline": "Inside a prompt:",
-    "stories": "Stories:",
-    "lore": "Lore:",
-    "inspect": "Inspect:",
-    "transfer": "Import/export:",
-    "settings": "Model and settings:",
-    "meta": "",
-}
-
 _GAP = 5  # columns between the two columns
 _INDENT = 2
 _KEY_GAP = 2  # between the command column and the shortcut column
@@ -103,9 +89,12 @@ def _blocks(shortcuts: Mapping[str, str]) -> list[_Block]:
     for spec in commands.COMMANDS:
         if spec.group != group:
             group = spec.group
-            blocks.append((_GROUP_HEADINGS[group], []))
-            if group == "playing":
-                blocks[-1][1].append(("PROMPT", "", commands.PROSE_DESCRIPTION))
+            # The label is the shared table's; the colon is this page's,
+            # as every heading here wears one — including the keys
+            # section below, which has no group of its own.
+            blocks.append((f"{commands.GROUP_LABELS[group]}:", []))
+            if group == commands.PROSE_GROUP:
+                blocks[-1][1].append((commands.PROSE_LABEL, "", commands.PROSE_DESCRIPTION))
         args, description = spec.args, spec.description
         if spec.token in _SPELLINGS:
             args, replacement = _SPELLINGS[spec.token]

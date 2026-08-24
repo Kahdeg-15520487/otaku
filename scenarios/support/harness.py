@@ -61,20 +61,7 @@ class App:
         # raised after the launch is SAID, not collected.
         self.session.set_on_notice(self.chat.say)
         self.session.start_worker()
-        # A second connection for assertions, unlocked the way the launch
-        # unlocks (the scripted `command` KEK provider works headless), so
-        # no scenario reads the session's package-private store.
-        cfg = config_file.load(self.paths.config_file)
-        cipher = encryption.unlock(
-            cfg.encryption.provider,
-            keys_file=self.paths.keys_file,
-            kek_file=self.paths.kek_file,
-            service=self.paths.keychain_service,
-            retrieve_command=cfg.encryption.retrieve_command,
-        )
-        self.store = Store.open(
-            self.paths.database_file, cipher, backups_dir=self.paths.backups_dir, keep=0
-        )
+        self.store = read_store(root)
 
     def play(self, line: str) -> None:
         """Submit one line exactly the way the prompt does."""
@@ -83,6 +70,26 @@ class App:
     def close(self) -> None:
         self.store.close()
         self.session.close()
+
+
+def read_store(root: Path) -> Store:
+    """A second connection over the same database, for assertions —
+    unlocked the way the launch unlocks (the scripted `command` KEK
+    provider works headless), so no scenario reaches into the session's
+    package-private store. WAL makes the concurrent read safe.
+
+    A connection answers only the thread that opened it, so a scenario
+    that serves on another thread opens its own here."""
+    paths = Paths.resolve(root)
+    cfg = config_file.load(paths.config_file)
+    cipher = encryption.unlock(
+        cfg.encryption.provider,
+        keys_file=paths.keys_file,
+        kek_file=paths.kek_file,
+        service=paths.keychain_service,
+        retrieve_command=cfg.encryption.retrieve_command,
+    )
+    return Store.open(paths.database_file, cipher, backups_dir=paths.backups_dir, keep=0)
 
 
 def launch(root: Path, server: ModelServer, *, spec: str | None = SPEC) -> App:

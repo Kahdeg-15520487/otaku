@@ -65,6 +65,18 @@ _CONFIG_MIGRATIONS: list[Migration] = [
         + row("dialogue_bold = false", "also bold the spoken lines"),
         after="settings",
     ),
+    # 0.4.0 — the web frontend arrives with the address it listens on.
+    ensure_section(
+        "web",
+        "[web]\n"
+        + row(
+            'host = "127.0.0.1"',
+            "where `otaku web` listens; anything but 127.0.0.1 opens it to the network",
+        )
+        + "\n"
+        + row("port = 9600", "…and on which port"),
+        after="ui",
+    ),
     # 0.4.0 — /set notification arrives, and names the sound it plays.
     ensure_key(
         "settings",

@@ -1,0 +1,216 @@
+"""The web frontend, served over a real session.
+
+`page` is the browser's side of it: the same requests the page makes,
+against `web.serve` over a session opened for it.
+
+The session is opened ON the serving thread, because that is where the
+app opens it — a sqlite connection answers only its own thread, and the
+whole runner exists to keep every touch of the session there. So the
+test thread never holds the session: it holds `page`, and it reads the
+store through its own connection (`harness.read_store`), the way every
+other scenario asserts.
+"""
+
+import json
+import queue
+import socket
+import threading
+import time
+import urllib.error
+import urllib.request
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from otaku.backend import WebSettings
+from otaku.backend import launch as backend_launch
+from otaku.backend.api import providers as api_providers
+from otaku.backend.paths import Paths
+from otaku.store import Store
+from otaku.web import address, serve
+from scenarios.support.harness import MODEL, PROVIDER, read_store, set_config_provider
+from scenarios.support.server import ModelServer
+
+
+class Page:
+    """What the browser does, in the order it does it — plus the store,
+    for the half of every story that is not on the wire."""
+
+    def __init__(self, url: str, store: Store, stop: threading.Event) -> None:
+        self.url = url.rstrip("/")
+        self.store = store
+        self._stop = stop
+
+    def stop(self) -> None:
+        """Stop the server the way Ctrl+C does, and wait for it to be
+        over — for the stories that are about what happens next."""
+        self._stop.set()
+        time.sleep(0.5)
+
+    def get(self, path: str) -> Any:
+        with urllib.request.urlopen(self.url + path, timeout=10) as reply:
+            return self._read(reply)
+
+    def post(self, path: str, body: dict[str, Any] | None = None) -> Any:
+        request = urllib.request.Request(
+            self.url + path,
+            data=json.dumps(body or {}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=30) as reply:
+            return self._read(reply)
+
+    def status(
+        self,
+        path: str,
+        *,
+        method: str = "GET",
+        headers: dict[str, str] | None = None,
+        data: bytes | None = None,
+    ) -> int:
+        """The code alone, for the paths that are meant to be refused —
+        with the headers a page of another origin would send."""
+        request = urllib.request.Request(self.url + path, method=method)
+        if method == "POST":
+            request.data = data if data is not None else b"{}"
+            request.add_header("Content-Type", "application/json")
+        for name, value in (headers or {}).items():
+            request.add_header(name, value)
+        try:
+            with urllib.request.urlopen(request, timeout=10) as reply:
+                reply.read()
+                return int(reply.status)
+        except urllib.error.HTTPError as refused:
+            refused.read()
+            return int(refused.code)
+
+    def headers(self, path: str) -> dict[str, str]:
+        with urllib.request.urlopen(self.url + path, timeout=10) as reply:
+            reply.read()
+            return {name.lower(): value for name, value in reply.headers.items()}
+
+    def stream(self, path: str) -> Any:
+        """A response left OPEN, for the one request the page never
+        finishes reading. The caller reads what it needs and closes it —
+        reading to the end would be waiting forever, which is the point
+        of the endpoint."""
+        return urllib.request.urlopen(self.url + path, timeout=10)
+
+    def play(self, line: str, *, regenerate: bool = False) -> list[dict[str, Any]]:
+        """One story line, and every event the page would have drawn."""
+        request = urllib.request.Request(
+            f"{self.url}/api/play",
+            data=json.dumps({"line": line, "regenerate": regenerate}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=30) as reply:
+            if reply.headers.get("Content-Type", "").startswith("application/json"):
+                return [json.loads(reply.read())]
+            return [json.loads(row[5:].strip()) for row in reply if row.startswith(b"data:")]
+
+    @staticmethod
+    def _read(reply: Any) -> Any:
+        body = reply.read()
+        if reply.headers.get("Content-Type", "").startswith("application/json"):
+            return json.loads(body)
+        return body
+
+
+@pytest.fixture
+def page(server: ModelServer, tmp_path: Path) -> Iterator[Page]:
+    """`otaku web` over a fresh state dir, on a port nothing else holds.
+    The address is the configuration's, exactly as the terminal reads
+    it, and the fixture stops the server the way Ctrl+C would."""
+    yield from _serving(server, tmp_path, host="127.0.0.1")
+
+
+@pytest.fixture
+def wide(server: ModelServer, tmp_path: Path) -> Iterator[Page]:
+    """The same, bound to every interface — what `[web] host = 0.0.0.0`
+    does, and the configuration whose whole point is that other machines
+    can reach the port."""
+    yield from _serving(server, tmp_path, host="0.0.0.0")
+
+
+def _serving(server: ModelServer, tmp_path: Path, *, host: str) -> Iterator[Page]:
+    root = tmp_path / "state"
+    set_config_provider(root, server)
+    stop = threading.Event()
+    serving: queue.Queue[str] = queue.Queue()
+    failed: queue.Queue[BaseException] = queue.Queue()
+    # A port of the OS's picking, taken and given back before the server
+    # asks for it: `otaku web` serves where the configuration says, and
+    # a test that wants a free port has to find one the same way anybody
+    # writing that configuration would.
+    where = WebSettings(host=host, port=_free_port())
+
+    def run() -> None:
+        try:
+            session = backend_launch.open_session(root)
+            api_providers.switch_model(session, PROVIDER, MODEL)
+            try:
+                serving.put(address(where))
+                serve(
+                    session,
+                    where,
+                    Paths.resolve(root).custom_web_dir,
+                    stop=stop,
+                )
+            finally:
+                session.close()
+        except BaseException as e:  # carried to the test, never swallowed
+            failed.put(e)
+
+    served = threading.Thread(target=run, name="scenario-web", daemon=True)
+    served.start()
+    try:
+        url = serving.get(timeout=15)
+    except queue.Empty as never:
+        # Whatever stopped it before it could serve — the launch above
+        # all — is the test's answer, not a timeout.
+        if not failed.empty():
+            raise failed.get_nowait() from never
+        raise AssertionError("the server never started") from never
+    if host in ("0.0.0.0", "::"):
+        # The address READS as `localhost` for a wildcard bind, which is
+        # where the test reaches it; the Host header is what the stories
+        # vary.
+        url = f"http://127.0.0.1:{where.port}/"
+    _reachable(url, failed)
+    store = read_store(root)
+    try:
+        yield Page(url, store, stop)
+    finally:
+        stop.set()
+        served.join(timeout=10)
+        store.close()
+        if not failed.empty():
+            raise failed.get_nowait()
+
+
+def _free_port() -> int:
+    """A port nothing is listening on, the way a person picking one for
+    config.toml would find out — by asking the OS and letting it go."""
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return int(probe.getsockname()[1])
+
+
+def _reachable(url: str, failed: "queue.Queue[BaseException]") -> None:
+    """Wait until the socket answers. The address is known before the
+    server binds — it is the configuration's, not the socket's answer —
+    so the first request can otherwise arrive a moment early."""
+    for _ in range(150):
+        if not failed.empty():
+            raise failed.get_nowait()
+        try:
+            with urllib.request.urlopen(url, timeout=1) as reply:
+                reply.read()
+            return
+        except (urllib.error.URLError, OSError):
+            time.sleep(0.1)
+    raise AssertionError(f"the server never answered at {url}")

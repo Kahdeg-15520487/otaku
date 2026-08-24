@@ -11,10 +11,33 @@ changes.
 
 - otaku is restructured around a frontend-agnostic core: same app, same commands, same data — but
   the story machinery no longer belongs to the terminal.
+- `otaku web` opens the same session in a browser: the second frontend, over the same stories, the
+  same lore and the same commands.
 
 **Full version:**
 
 ### Added
+- `otaku web` — a web interface for the otaku on this machine. It serves one open session at the
+  address `configs/config.toml`'s new `[web]` section names (loopback and port 9600 by default, so
+  reaching it from another machine is an edit somebody made on purpose), and everything the
+  terminal does is there: the story plays in a transcript, replies stream, and every command is
+  both a button in the rail and a line you can type. The browsers — stories and their messages,
+  lore and cast, the model picker with its providers, the settings knobs — are the same screens in
+  a page's medium, and the reports keep their shapes: the context window as a diagram, usage as a
+  table, the session as a definition list. The command line is asked for and answered by the same
+  shared table both frontends read, so a command exists once.
+
+  It is a single-reader, local page by design: nothing it is made of is cached and nothing is a
+  build step, so a file that changes on disk changes what the browser has — the page replaces
+  itself when one does, and a stylesheet is swapped without losing your place. The reader's own
+  `web/custom.css` in the state dir is loaded last, against a token contract documented in
+  `docs/web_tokens.md`. While a
+  reply is streaming the page stays answerable — screens open, lists load — because reads are
+  served in the gaps of the reply rather than queued behind it.
+
+  It listens on loopback and answers only requests addressed to this machine, and a write must
+  come from otaku's own page: a page on another site cannot drive your otaku from the browser you
+  left it open in.
 - `/set notification on|off` — off by default — plays a sound when a reply lands, for when you look
   away mid-generation. Which sound is `configs/config.toml`'s `notification_sound`: `"default"` is
   the platform's own (macOS's Glass, the freedesktop theme's on Linux), or name a file of your own.
@@ -28,6 +51,9 @@ changes.
   the medium: what a message looks like, what a key does, what the screen holds. The layout is
   held by a test, so an import that would cross a layer fails the suite rather than the review.
   Nothing about running otaku changes: the same commands, the same state dir, the same database.
+- `/balance` names each provider the way the model picker does — "OpenRouter", not the `openrouter`
+  section key. A section you named yourself keeps your name, with the engine in brackets, because
+  two sections of one kind are two accounts and a balance report has to tell them apart.
 - Long story titles are cut at 50 characters instead of 40 — in the banner and in the line that
   names the story when it lands — with a fork's number kept whole, as before.
 - Launching with a remembered model whose provider is no longer configured says so before the
@@ -54,6 +80,13 @@ changes.
   parameter is required or optional — before, a command whose parameter was optional ran on the
   spot, and there was no way to pick `/fork` from the menu and then name the fork. Enter sends it
   bare from there, so a command that takes nothing still runs in one press.
+- The banner reads in the order a session is thought about: the story first, then the model, then
+  the engine and its context window. The mark, the version and the description are unchanged, and
+  `otaku web` opens with the same banner — its three lines being the address, how to open it, and
+  how to stop serving.
+- The mascot beside the banner is redrawn. Without colour it is now the same picture rather than a
+  different one: the sprite is cut into ink and paper instead of falling back to an ASCII face, so
+  a piped or `NO_COLOR` session gets the mark at the same size, in the same place.
 
 ### Fixed
 - A sealing key that cannot be read no longer ends the launch with a traceback: the provider it

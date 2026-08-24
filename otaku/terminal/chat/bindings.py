@@ -51,9 +51,9 @@ OPERATIONS: dict[str, Operation] = {
     "/fork": api_stories.fork,
     "/title": api_stories.set_title,
     "/merge": api_lore.merge,
-    "/usage": api_reports.usage,
-    "/balance": lambda session, raw: api_reports.balances(session),
-    "/info": lambda session, raw: api_reports.info(session),
+    "/usage": lambda session, raw: api_reports.usage(session, raw).text(),
+    "/balance": lambda session, raw: api_reports.balances(session).text(),
+    "/info": lambda session, raw: api_reports.info(session).text(),
     "/set think": api_settings.set_think,
     "/set parameter": api_settings.set_parameter,
     "/set verbose": api_settings.set_verbose,
@@ -310,7 +310,7 @@ def _context(chat: Chat, raw: str) -> None:
     """Page the preview (long stories run to thousands of lines), the
     role markers dimmed on the way through. `otaku logs` shows what was
     actually sent; this shows what is about to be."""
-    preview = api_reports.context(chat.session, dim=DIM, reset=RESET)
+    preview = api_reports.context(chat.session).text(dim=DIM, reset=RESET)
     # The pager holds the real stream; its output is past the ledger.
     chat.ledger.invalidate()
     # color=True keeps the dim markers through less (-R).

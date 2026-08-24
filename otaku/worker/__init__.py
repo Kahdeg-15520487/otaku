@@ -108,6 +108,12 @@ class Worker:
         self._display: threading.Thread | None = None
 
     def start(self) -> None:
+        """Start the two background threads — once. A second call is the
+        same actor asking again (a frontend attaching to a session that
+        already has one), and starting a second pair would put two
+        workers on one story."""
+        if self._thread is not None:
+            return
         self._thread = threading.Thread(target=self._loop, name="otaku-worker", daemon=True)
         self._display = threading.Thread(
             target=self._display_loop, name="otaku-status", daemon=True

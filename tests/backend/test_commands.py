@@ -8,7 +8,7 @@ a MENU — whether accepting it leaves the line open — is the frontend's
 rule, held beside the menu that acts on it.
 """
 
-from otaku.backend.commands import COMMANDS, CommandKind, find, help_text
+from otaku.backend.commands import COMMANDS, GROUP_LABELS, CommandKind, find
 
 
 class TestFind:
@@ -52,14 +52,8 @@ class TestTable:
         inliners = [spec for spec in COMMANDS if spec.token.startswith("… ")]
         assert {spec.token for spec in inliners} == {"… /ooc", "… /cue"}
 
-
-class TestHelpText:
-    def test_every_command_row_appears(self) -> None:
-        text = help_text()
-        for spec in COMMANDS:
-            assert spec.token in text, spec.token
-
-    def test_the_prose_row_opens_the_playing_group(self) -> None:
-        lines = help_text().splitlines()
-        prompt_row = next(i for i, line in enumerate(lines) if line.lstrip().startswith("PROMPT"))
-        assert prompt_row == 1  # right under the first heading
+    def test_every_group_has_a_label(self) -> None:
+        # Both frontends draw their own help page from the table, and
+        # each looks its groups up here — a group with no entry would
+        # raise in one and print nothing in the other.
+        assert {spec.group for spec in COMMANDS} <= set(GROUP_LABELS)
