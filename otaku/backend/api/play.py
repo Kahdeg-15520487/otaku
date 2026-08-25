@@ -291,6 +291,7 @@ def _land_reply(
             story_id=session.story_id,
             prompt_tokens=final.prompt_tokens,
             completion_tokens=final.completion_tokens,
+            cached_tokens=final.cached_tokens,
             duration_seconds=final.duration_seconds,
         )
     if reply is not None and session._config.lore_enabled and session.story_id is not None:
@@ -309,6 +310,10 @@ def _format_stats(stats: Stats) -> str:
     parts: list[str] = [f"total {stats.duration_seconds:.1f}s"]
     if stats.prompt_tokens is not None:
         parts.append(f"prompt {stats.prompt_tokens} tok")
+    if stats.cached_tokens is not None:
+        # Zero included: "cached 0 tok" is how a reader discovers their
+        # pacing outlives the cache TTL (see providers.toml prompt_cache).
+        parts.append(f"cached {stats.cached_tokens} tok")
     if stats.completion_tokens is not None:
         generation = stats.generation_seconds or stats.duration_seconds
         if generation > 0:

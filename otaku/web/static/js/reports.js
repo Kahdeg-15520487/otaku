@@ -72,13 +72,14 @@ export async function openUsage(argument = "") {
   for (const row of report.rows) {
     if (row.purpose !== purpose) {
       purpose = row.purpose;
-      table.append(tableRow("head", [purpose, "REQS", "PROMPT", "REPLY", "TOK/S"]));
+      table.append(tableRow("head", [purpose, "REQS", "PROMPT", "CACHED", "REPLY", "TOK/S"]));
     }
     table.append(
       tableRow("", [
         `${row.provider} · ${row.model}`,
         count(row.requests),
         count(row.prompt_tokens),
+        count(row.cached_tokens),
         count(row.completion_tokens),
         row.rate.toFixed(1),
       ]),
@@ -89,6 +90,7 @@ export async function openUsage(argument = "") {
       "total",
       count(report.requests),
       count(report.prompt_tokens),
+      count(report.cached_tokens),
       count(report.completion_tokens),
       "—",
     ]),

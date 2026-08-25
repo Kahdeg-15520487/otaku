@@ -16,6 +16,7 @@ from datetime import datetime
 import pytest
 
 from otaku import encryption
+from otaku import logging as otaku_logging
 from otaku.backend import launch as backend_launch
 from otaku.backend.paths import Paths
 from otaku.encryption import EncryptionError, PlainCipher
@@ -30,10 +31,11 @@ from otaku.store import migrations as store_migrations
 from otaku.store.database import check_value
 from otaku.store.migrations import v2 as store_v2
 from otaku.store.migrations import v3 as store_v3
+from otaku.store.migrations import v4 as store_v4
 from otaku.store.schema import SCHEMA_DDL
 from otaku.terminal.tty import BOLD, RESET
 from scenarios.support import server as scripted
-from scenarios.support.harness import App, launch, run_otaku, set_config
+from scenarios.support.harness import App, launch, run_otaku, set_config, set_config_provider
 from scenarios.support.server import ModelServer
 
 
@@ -65,10 +67,13 @@ class TestEncryption:
         assert b"I enter the hall." not in raw
         assert scripted.CHAT_REPLY.encode() not in raw
         assert is_encrypted(app.paths.database_file) is True
-        # The request log is sealed the same way.
+        # The request log is sealed the same way — the recorded answer
+        # included, which protects exactly what the database protects.
         for logfile in (app.paths.root / "logs").rglob("*"):
             if logfile.is_file():
-                assert b"I enter the hall." not in logfile.read_bytes()
+                raw_log = logfile.read_bytes()
+                assert b"I enter the hall." not in raw_log
+                assert scripted.CHAT_REPLY.encode() not in raw_log
 
     def test_provider_none_stores_readable_plain_text(self, app: App) -> None:
         app.play("I enter the hall.")
@@ -158,6 +163,47 @@ class TestBackups:
             relaunched.close()
 
 
+class TestRequestLog:
+    """The request log pairs every request with its answer: what came
+    back, how long it took, what it cost — the day's profile, readable
+    without running anything again."""
+
+    def test_an_answer_is_filed_under_its_request(self, app: App) -> None:
+        app.play("I enter the hall.")
+        log = backend_launch.request_log(app.paths.root)
+        stamp = datetime.now().astimezone().strftime("%Y%m%d")
+        entries = list(log.read(stamp))
+        request = next(e for e in entries if e.kind == "request" and e.purpose == "chat")
+        assert request.request_id
+        answer = next(
+            e for e in entries if e.kind == "answer" and e.request_id == request.request_id
+        )
+        assert answer.outcome == "ok"
+        assert answer.seconds is not None and answer.seconds >= 0
+        assert answer.first_token_seconds is not None
+        assert (answer.prompt_tokens, answer.completion_tokens) == (7, 5)  # the scripted usage
+        assert answer.body is not None
+        assert answer.body["text"] == scripted.CHAT_REPLY
+
+    def test_a_failed_stream_records_its_outcome_and_the_partial(self, app: App) -> None:
+        app.server.fail_after = 1
+        app.play("I enter the hall.")
+        log = backend_launch.request_log(app.paths.root)
+        stamp = datetime.now().astimezone().strftime("%Y%m%d")
+        answer = next(e for e in log.read(stamp) if e.kind == "answer")
+        assert answer.outcome.startswith("failed")
+        assert answer.body is not None
+        assert answer.body["text"]  # what had arrived rides the record
+
+    def test_the_rendered_day_ends_with_the_purpose_summary(self, app: App) -> None:
+        app.play("I enter the hall.")
+        log = backend_launch.request_log(app.paths.root)
+        stamp = datetime.now().astimezone().strftime("%Y%m%d")
+        page = "".join(otaku_logging.render_requests(log, stamp))
+        assert "=== summary" in page
+        assert "chat" in page.split("=== summary")[1]
+
+
 class TestDatabaseGuard:
     def test_a_foreign_file_is_refused_with_the_curated_message(
         self, server: ModelServer, tmp_path
@@ -191,7 +237,7 @@ class TestSchemaMigration:
         paths = _v1_database(tmp_path / "state")
         store = _open(paths)
         try:
-            assert any("Database migrated (v1 → v3)" in note.show for note in store.notes)
+            assert any("Database migrated (v1 → v4)" in note.show for note in store.notes)
             (message,) = store.stories.get_messages(1)
             # The v1 `framing` column reads back through the renamed one.
             assert (message.body, message.template) == ("I enter.", "TPL")
@@ -211,7 +257,7 @@ class TestSchemaMigration:
             assert store.journals.get_current(1, ids)[keeper.id].state == "at the gate"
         finally:
             store.close()
-        assert _meta_version(paths) == "3"
+        assert _meta_version(paths) == "4"
 
     def test_a_migration_that_ran_is_reported_at_launch(
         self, server: ModelServer, tmp_path
@@ -314,6 +360,9 @@ class TestSchemaMigration:
             ("characters", store_v2._V1_CHARACTERS),
             ("scenes", store_v3._V2_SCENES),
             ("journals", store_v3._V2_JOURNALS),
+            # token_usage shipped unchanged from v1 through v3, so the
+            # v4 step's precondition is checkable against the same tag.
+            ("token_usage", store_v4._V3_TOKEN_USAGE),
         ):
             start = shipped.index(f"CREATE TABLE {table}")
             end = shipped.index(");", start) + 1
@@ -328,10 +377,10 @@ class TestSchemaMigration:
         monkeypatch.setitem(store_migrations._STEPS, 3, store_v3.to_3)
         resumed = _open(paths)
         try:
-            assert any("Database migrated (v2 → v3)" in note.show for note in resumed.notes)
+            assert any("Database migrated (v2 → v4)" in note.show for note in resumed.notes)
         finally:
             resumed.close()
-        assert _meta_version(paths) == "3"
+        assert _meta_version(paths) == "4"
 
 
 class TestConfigMigration:
@@ -376,6 +425,48 @@ class TestConfigMigration:
         backups = list(app.paths.config_backups_dir.iterdir())
         assert len(backups) == 1
         assert "[ui]" not in backups[0].read_text()
+
+    def test_an_old_openrouter_section_gains_the_prompt_cache_row(
+        self, server: ModelServer, tmp_path
+    ) -> None:
+        """A providers.toml from before prompt caching comes out of the
+        launch with the key spelled in its [openrouter] section — once,
+        with its comment, and only there: how an upgrader learns the
+        setting exists. A value the user already set is never touched,
+        and a file with no such section is not edited at all."""
+        root = tmp_path / "state"
+        set_config_provider(root, server, name="openrouter")
+        paths = Paths.resolve(root)
+        # The pre-upgrade shape: the section without the key.
+        old = "\n".join(
+            line
+            for line in paths.providers_file.read_text().splitlines()
+            if not line.startswith("prompt_cache")
+        )
+        paths.providers_file.write_text(old + "\n")
+
+        load_config(paths)
+        migrated = paths.providers_file.read_text()
+        assert 'prompt_cache = "5m"' in migrated
+        assert migrated.count("prompt_cache") == 1  # [openrouter] alone
+        assert "1h suits slow-paced play" in migrated  # the comment rides it
+        # Anchored inside the section, not appended to the file.
+        assert migrated.index("[openrouter]") < migrated.index("prompt_cache")
+
+        # Converged: a second launch changes nothing and takes no backup.
+        backups = sorted(paths.config_backups_dir.iterdir())
+        load_config(paths)
+        assert paths.providers_file.read_text() == migrated
+        assert sorted(paths.config_backups_dir.iterdir()) == backups
+
+    def test_a_set_prompt_cache_value_survives_the_migration(
+        self, server: ModelServer, tmp_path
+    ) -> None:
+        root = tmp_path / "state"
+        set_config_provider(root, server, name="openrouter", prompt_cache="off")
+        paths = Paths.resolve(root)
+        load_config(paths)
+        assert 'prompt_cache = "off"' in paths.providers_file.read_text()
 
     def test_a_stale_prompt_template_follows_the_built_in(
         self, server: ModelServer, tmp_path
@@ -638,6 +729,8 @@ def _v1_database(root) -> Paths:
         # Unchanged v1 → v2, so step 3's preconditions ARE the v1 texts.
         ("scenes", store_v3._V2_SCENES),
         ("journals", store_v3._V2_JOURNALS),
+        # Unchanged v1 → v3, so step 4's precondition IS the v1 text.
+        ("token_usage", store_v4._V3_TOKEN_USAGE),
     ):
         start = v1_ddl.index(f"CREATE TABLE {table}")
         end = v1_ddl.index(");", start) + 1

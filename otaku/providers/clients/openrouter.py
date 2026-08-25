@@ -25,6 +25,10 @@ _ATTRIBUTION = {
 class OpenRouterClient(CloudClient):
     kind = "openrouter"
     label = "OpenRouter"
+    # OpenRouter forwards `cache_control` breakpoints to the providers
+    # that honour them (Anthropic above all) and drops them elsewhere —
+    # marking is safe across the whole catalog.
+    cache_markers = True
 
     @property
     def _headers(self) -> dict[str, str]:

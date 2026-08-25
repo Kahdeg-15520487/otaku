@@ -248,12 +248,14 @@ export function usage(scope) {
         requests: rows.length,
         prompt_tokens: prompt,
         completion_tokens: completion,
+        cached_tokens: 0, // the scripted model keeps no cache to read from
         rate: seconds > 0 ? completion / seconds : 0,
       },
     ],
     requests: rows.length,
     prompt_tokens: prompt,
     completion_tokens: completion,
+    cached_tokens: 0,
     total_tokens: prompt + completion,
   };
 }

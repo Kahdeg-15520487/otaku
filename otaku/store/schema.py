@@ -10,7 +10,7 @@ timestamps.
 
 from dataclasses import dataclass
 
-SCHEMA_VERSION = "3"
+SCHEMA_VERSION = "4"
 
 SCHEMA_DDL = """
 -- ---------- source: what was actually said ----------
@@ -103,7 +103,8 @@ CREATE TABLE token_usage (
     prompt_tokens     INTEGER,
     completion_tokens INTEGER,
     duration_seconds  REAL,
-    created_at        TEXT NOT NULL
+    created_at        TEXT NOT NULL,
+    cached_tokens     INTEGER             -- of prompt_tokens, served from the provider's cache
 );
 
 CREATE TABLE history (                   -- the REPL's Up/Down input history, capped

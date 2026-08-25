@@ -414,6 +414,7 @@ def usage(session: Session, raw: str = "") -> dict[str, Any]:
         "requests": report.requests,
         "prompt_tokens": report.prompt_tokens,
         "completion_tokens": report.completion_tokens,
+        "cached_tokens": report.cached_tokens,
         "total_tokens": report.total_tokens,
     }
 

@@ -18,6 +18,9 @@ class ProviderConfig:
     url: str
     api_key: str = ""
     keep_alive: str = ""  # how long an explicitly loaded model stays resident (ollama)
+    # Prompt-cache breakpoints, where the engine supports them ("" = the
+    # engine's default): "off" never marks, "5m"/"1h" mark with that TTL.
+    prompt_cache: str = ""
 
     @property
     def base_url(self) -> str:
@@ -43,11 +46,15 @@ def load(path: Path) -> dict[str, ProviderConfig]:
     for name, entry in sections.items():
         if "url" not in entry:
             raise ConfigError(f"{path}: [{name}] must have a 'url' key")
+        prompt_cache = str(entry.get("prompt_cache", ""))
+        if prompt_cache not in ("", "off", "5m", "1h"):
+            raise ConfigError(f"{path}: [{name}] prompt_cache must be 'off', '5m' or '1h'")
         providers[name] = ProviderConfig(
             name=str(name),
             url=str(entry["url"]).rstrip("/"),
             api_key=str(entry.get("api_key", "")),
             keep_alive=str(entry.get("keep_alive", "")),
+            prompt_cache=prompt_cache,
         )
     return providers
 
@@ -68,4 +75,6 @@ def render(providers: dict[str, ProviderConfig]) -> str:
         ]
         if config.keep_alive:
             lines.append(f"keep_alive = {toml_scalar(config.keep_alive)}")
+        if config.prompt_cache:
+            lines.append(f"prompt_cache = {toml_scalar(config.prompt_cache)}")
     return "\n".join(lines) + "\n"

@@ -91,7 +91,9 @@ def context(session: Session) -> ContextReport:
 @dataclass(frozen=True)
 class UsageRow:
     """One thing tokens were spent on: a purpose, on a model, at a
-    provider. `rate` is completion tokens per second, 0.0 unmeasured."""
+    provider. `rate` is completion tokens per second, 0.0 unmeasured;
+    `cached_tokens` is the slice of the prompt the provider served from
+    its cache — 0 wherever caching never engaged."""
 
     purpose: str
     provider: str
@@ -99,6 +101,7 @@ class UsageRow:
     requests: int
     prompt_tokens: int
     completion_tokens: int
+    cached_tokens: int
     rate: float
 
 
@@ -111,6 +114,7 @@ class UsageReport:
     requests: int
     prompt_tokens: int
     completion_tokens: int
+    cached_tokens: int
 
     @property
     def total_tokens(self) -> int:
@@ -127,17 +131,18 @@ class UsageReport:
         head = f"  {'':<{purpose_w}}   {'':<{provider_w}}   {'':<{model_w}}"
         out = [
             f"Token usage — {self.scope}:",
-            f"{head}  {'REQS':>5}  {'PROMPT':>10}  {'REPLY':>10}  {'TOK/S':>7}",
+            f"{head}  {'REQS':>5}  {'PROMPT':>10}  {'CACHED':>10}  {'REPLY':>10}  {'TOK/S':>7}",
         ]
         for r in self.rows:
             out.append(
                 f"  {r.purpose:<{purpose_w}} · {r.provider:<{provider_w}} · {r.model:<{model_w}}  "
-                f"{r.requests:>5,}  {r.prompt_tokens:>10,}  {r.completion_tokens:>10,}"
-                f"  {r.rate:>7.1f}"
+                f"{r.requests:>5,}  {r.prompt_tokens:>10,}  {r.cached_tokens:>10,}"
+                f"  {r.completion_tokens:>10,}  {r.rate:>7.1f}"
             )
         out.append(
             f"  {'total':<{purpose_w}}   {'':<{provider_w}}   {'':<{model_w}}"
-            f"  {self.requests:>5,}  {self.prompt_tokens:>10,}  {self.completion_tokens:>10,}"
+            f"  {self.requests:>5,}  {self.prompt_tokens:>10,}  {self.cached_tokens:>10,}"
+            f"  {self.completion_tokens:>10,}"
             f"  {'':>7}\n  ({self.total_tokens:,} tokens across "
             f"{len(self.rows)} model/purpose pairs)"
         )
@@ -176,6 +181,7 @@ def usage(session: Session, raw: str = "") -> UsageReport:
             requests=row.requests,
             prompt_tokens=row.prompt_tokens,
             completion_tokens=row.completion_tokens,
+            cached_tokens=row.cached_tokens,
             rate=row.completion_tokens / row.seconds if row.seconds > 0 else 0.0,
         )
         for row in totals
@@ -186,6 +192,7 @@ def usage(session: Session, raw: str = "") -> UsageReport:
         requests=sum(row.requests for row in rows),
         prompt_tokens=sum(row.prompt_tokens for row in rows),
         completion_tokens=sum(row.completion_tokens for row in rows),
+        cached_tokens=sum(row.cached_tokens for row in rows),
     )
 
 
@@ -333,6 +340,10 @@ def _model_rows(session: Session) -> tuple[tuple[str, str], ...]:
         out.append(("Thinking", "not supported"))
     if config.keep_alive:
         out.append(("Keep-alive", str(config.keep_alive)))
+    if client.cache_markers:
+        # Displayed here, decided in providers.toml — the keep_alive
+        # pattern: behaviour keys are read in /info, edited in the file.
+        out.append(("Prompt cache", config.prompt_cache or "5m"))
     return tuple(out)
 
 

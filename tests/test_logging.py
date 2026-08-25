@@ -1,15 +1,24 @@
 """Log-view rendering — the pure day-name handling.
 
-The contract: `resolve_day` accepts a day as the logs name their files
-(YYYYMMDD) or the dashed human form, returning the file stamp — and
-None for anything else; `dashed` prints a stamp the human way; and
-`day_rows` shapes the `--list` rows, one dashed day and its size each.
+The contract: `resolve_day` turns a `logs` DAY argument into the stamp
+the logs name their files with (YYYYMMDD) — today's when the argument
+is absent, either spelling (bare or dashed) when given, and None for
+anything else; `dashed` prints a stamp the human way; and `day_rows`
+shapes the `--list` rows, one dashed day and its size each.
 """
+
+from datetime import datetime
 
 from otaku.logging import dashed, day_rows, resolve_day
 
 
 class TestResolveDay:
+    def test_an_absent_day_is_today(self) -> None:
+        before = datetime.now().astimezone().strftime("%Y%m%d")
+        stamp = resolve_day(None)
+        after = datetime.now().astimezone().strftime("%Y%m%d")
+        assert stamp in (before, after)  # both, lest the test straddle midnight
+
     def test_the_dashed_form_becomes_the_stamp(self) -> None:
         assert resolve_day("2026-07-25") == "20260725"
 

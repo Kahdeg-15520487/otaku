@@ -29,6 +29,7 @@ class UsageTotal:
     requests: int
     prompt_tokens: int
     completion_tokens: int
+    cached_tokens: int  # of prompt_tokens, served from the provider's cache
     seconds: float
 
 
@@ -45,6 +46,7 @@ class UsageOps:
         story_id: int | None = None,
         prompt_tokens: int | None = None,
         completion_tokens: int | None = None,
+        cached_tokens: int | None = None,
         duration_seconds: float | None = None,
     ) -> None:
         """`purpose` says what the tokens were spent on ('chat', 'lore', …).
@@ -54,8 +56,8 @@ class UsageOps:
         with self._db.conn as conn:
             # fmt: off
             conn.execute(
-                "INSERT INTO token_usage (story_id, provider, model, purpose, prompt_tokens, completion_tokens, duration_seconds, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (story_id, provider, model, purpose, prompt_tokens, completion_tokens, seconds, self._db.now()),
+                "INSERT INTO token_usage (story_id, provider, model, purpose, prompt_tokens, completion_tokens, cached_tokens, duration_seconds, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (story_id, provider, model, purpose, prompt_tokens, completion_tokens, cached_tokens, seconds, self._db.now()),
             )
             # fmt: on
 
@@ -69,6 +71,7 @@ class UsageOps:
             "SELECT purpose, provider, model, COUNT(*),"
             "    COALESCE(SUM(prompt_tokens), 0),"
             "    COALESCE(SUM(completion_tokens), 0),"
+            "    COALESCE(SUM(cached_tokens), 0),"
             "    COALESCE(SUM(duration_seconds), 0.0) "
             f"FROM token_usage {where} "
             "GROUP BY purpose, provider, model "
@@ -84,9 +87,10 @@ class UsageOps:
                 requests=int(requests),
                 prompt_tokens=int(prompt),
                 completion_tokens=int(completion),
+                cached_tokens=int(cached),
                 seconds=round(float(seconds), 1),
             )
-            for purpose, provider, model, requests, prompt, completion, seconds in rows
+            for purpose, provider, model, requests, prompt, completion, cached, seconds in rows
         ]
 
 

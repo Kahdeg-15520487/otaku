@@ -43,6 +43,14 @@ changes.
   the platform's own (macOS's Glass, the freedesktop theme's on Linux), or name a file of your own.
   A machine with no player, or a path that isn't there, rings the terminal bell instead — and what
   a bell means is your terminal's business, which is where a notification belongs.
+- Prompt caching on OpenRouter, on by default: requests carry cache breakpoints, so each reply
+  re-reads the story's stable prefix at the provider's cache rate instead of full input price —
+  play against the hosted models for a fraction of the tokens. `prompt_cache` in
+  `configs/providers.toml` decides per provider (`off`, `5m`, or `1h` for slow-paced play, since a
+  cache outlived between turns is written again instead of read) — an existing `[openrouter]`
+  section gains the line on the first launch after upgrading, so the setting is there to see and
+  edit. The verbose stats line shows `cached N tok` per reply, `/usage` grows a CACHED column, and
+  `/info` reports the setting.
 
 ### Changed
 - The codebase is restructured around a frontend-agnostic core. Everything that is not the
@@ -66,6 +74,11 @@ changes.
   cold still counts as used, because reclaiming it means compressing or swapping it first. The
   Linux figure is unchanged — the kernel's `MemAvailable` already drew the line there.
 - Requests to OpenRouter now name otaku as the app that sent them.
+- The request log records each request's answer too, as its own paired line: the outcome (finished,
+  cancelled, or how it failed), total and first-token seconds, token counts cached included, and
+  the text that arrived — sealed exactly like the request bodies. `otaku logs requests` prints the
+  answers in place and closes the day with a per-purpose summary of counts, seconds and tokens: the
+  profile of where a day's model time went, read straight off the log.
 - `/new` takes an optional TITLE — `/new The Long Road` names the story as it starts — and creates
   the story at once, so it is in `/stories` with its name before its first turn, where before it
   appeared only once you had played one.

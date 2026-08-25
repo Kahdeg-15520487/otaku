@@ -10,8 +10,9 @@ entry-point business) and passed down as a plain path.
 
 import getpass
 import os
-from datetime import datetime
+from collections.abc import Callable, Iterable
 from pathlib import Path
+from typing import TypeVar
 
 import click
 
@@ -164,15 +165,7 @@ def logs_requests(day: str | None, list_days: bool) -> None:
     except EncryptionError as e:
         click.echo(str(e), err=True)
         ctx.exit(1)
-
-    if list_days:
-        _echo_days(request_log.get_days(), "no request logs yet")
-        return
-    stamp = _day_stamp(ctx, day)
-    if not request_log.get_path(stamp).exists():
-        click.echo(f"no request log for {logging.dashed(stamp)}", err=True)
-        ctx.exit(1)
-    click.echo_via_pager(logging.render_requests(request_log, stamp))
+    _page(request_log, day, list_days, "request", logging.render_requests)
 
 
 @logs.command("system", short_help="Show the background lore work")
@@ -181,7 +174,7 @@ def logs_requests(day: str | None, list_days: bool) -> None:
 def logs_system(day: str | None, list_days: bool) -> None:
     """Print one day's system log — the background worker's account of
     itself (DAY as YYYY-MM-DD, default today)."""
-    _page_plain(backend_launch.system_log(resolve_root()), day, list_days, "system")
+    _page(backend_launch.system_log(resolve_root()), day, list_days, "system", logging.render_plain)
 
 
 @logs.command("error", short_help="Show every contained crash's traceback")
@@ -190,40 +183,38 @@ def logs_system(day: str | None, list_days: bool) -> None:
 def logs_error(day: str | None, list_days: bool) -> None:
     """Print one day's error log — every contained crash's traceback
     (DAY as YYYY-MM-DD, default today)."""
-    _page_plain(backend_launch.error_log(resolve_root()), day, list_days, "error")
+    _page(backend_launch.error_log(resolve_root()), day, list_days, "error", logging.render_plain)
 
 
-def _page_plain(log: logging.DailyLog, day: str | None, list_days: bool, name: str) -> None:
-    """The plain-text logs' shared body: list the days, or page one."""
+_L = TypeVar("_L", bound=logging.DailyLog)
+
+
+def _page(
+    log: _L,
+    day: str | None,
+    list_days: bool,
+    name: str,
+    render: Callable[[_L, str], str | Iterable[str]],
+) -> None:
+    """Every `logs` subcommand's body once its log is in hand: list the
+    log's days, or page one day through the log's own renderer — the
+    rendering itself is `logging`'s; only the echoing, the paging and
+    the exit codes live here."""
     ctx = click.get_current_context()
     if list_days:
-        _echo_days(log.get_days(), f"no {name} logs yet")
+        days = log.get_days()
+        if not days:
+            click.echo(f"no {name} logs yet")
+        for row in logging.day_rows(days):
+            click.echo(row)
         return
-    stamp = _day_stamp(ctx, day)
-    path = log.get_path(stamp)
-    if not path.exists():
-        click.echo(f"no {name} log for {logging.dashed(stamp)}", err=True)
-        ctx.exit(1)
-    click.echo_via_pager(path.read_text(encoding="utf-8"))
-
-
-def _day_stamp(ctx: click.Context, day: str | None) -> str:
-    """The file stamp a subcommand pages: today when DAY is absent,
-    `logging.resolve_day`'s parse otherwise — or a usage error."""
-    if day is None:
-        return datetime.now().astimezone().strftime("%Y%m%d")
     stamp = logging.resolve_day(day)
     if stamp is None:
         click.echo(
             "DAY must be YYYY-MM-DD (or YYYYMMDD), e.g. otaku logs requests 2026-07-25", err=True
         )
         ctx.exit(2)
-    return stamp
-
-
-def _echo_days(days: list[tuple[str, int]], empty: str) -> None:
-    if not days:
-        click.echo(empty)
-        return
-    for row in logging.day_rows(days):
-        click.echo(row)
+    if not log.get_path(stamp).exists():
+        click.echo(f"no {name} log for {logging.dashed(stamp)}", err=True)
+        ctx.exit(1)
+    click.echo_via_pager(render(log, stamp))

@@ -39,6 +39,7 @@ from otaku.settings.prompts import EXTRACT_DEFAULT
 from otaku.settings.providers import ProviderConfig
 
 __all__ = [
+    "PROMPT_CACHE_ROW",
     "Migration",
     "apply_migrations",
     "ensure_key",
@@ -100,6 +101,15 @@ _PROMPT_MIGRATIONS: list[Migration] = [
 ]
 
 
+# The prompt_cache row as the file spells it — ONE rendering, shared by
+# the migration below and the picker's section founding
+# (`backend.api.providers.save_field`), so an upgraded file and a
+# freshly founded section carry the same line.
+PROMPT_CACHE_ROW = row(
+    'prompt_cache = "5m"', 'prompt caching: "off" | "5m" | "1h" — 1h suits slow-paced play'
+)
+
+
 def _provider_migrations(
     seal: Callable[[str], str], is_sealed: Callable[[str], bool]
 ) -> list[Migration]:
@@ -114,6 +124,12 @@ def _provider_migrations(
         # 0.2.2 — api keys live sealed; a plain one (hand-typed, or left
         # by a launch that could not seal) is sealed as soon as possible.
         seal_api_keys(seal, is_sealed),
+        # 0.4.0 — prompt caching arrives, on where the engine honours
+        # cache breakpoints: the key lands in the file so an upgrader
+        # SEES the setting exists; what a user already set stays. Named
+        # sections only — the section's name is what picks the marking
+        # client, so [openrouter] is exactly the section the key governs.
+        ensure_key("openrouter", "prompt_cache", PROMPT_CACHE_ROW),
     ]
 
 

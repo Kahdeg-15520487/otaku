@@ -133,6 +133,7 @@ def set_config_provider(
     name: str = PROVIDER,
     keep_alive: str = "",
     api_key: str = "scenario-key",
+    prompt_cache: str = "",
 ) -> None:
     """Point a provider at the scripted server's port — set into whatever
     files are there. `name` picks the client the registry builds (a
@@ -151,8 +152,17 @@ def set_config_provider(
         api_key = seal(api_key, key_file=paths.config_key_file, service="scenario:none")
     providers = providers_file.load(paths.providers_file) if paths.providers_file.exists() else {}
     providers = {**_dead_locals(), **providers}
+    if name == "openrouter" and not prompt_cache:
+        # The converged shape: the launch migration writes this key into
+        # every [openrouter] section, so a scenario's file carries it up
+        # front and untouched-config assertions keep holding.
+        prompt_cache = "5m"
     providers[name] = ProviderConfig(
-        name=name, url=server.url, api_key=api_key, keep_alive=keep_alive
+        name=name,
+        url=server.url,
+        api_key=api_key,
+        keep_alive=keep_alive,
+        prompt_cache=prompt_cache,
     )
     write_atomic(paths.providers_file, providers_file.render(providers))
     if not paths.config_file.exists():

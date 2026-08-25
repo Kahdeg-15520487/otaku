@@ -17,7 +17,7 @@ from otaku.backend.session import Refused, Session
 from otaku.encryption import SealedError, seal
 from otaku.formatting import printable, toml_scalar
 from otaku.providers import CLIENTS, ManagedClient, Provider, ProviderConfig
-from otaku.settings.migrations import surgery
+from otaku.settings.migrations import PROMPT_CACHE_ROW, surgery
 
 
 def switch_model(session: Session, provider: str, model: str) -> str:
@@ -139,8 +139,13 @@ def save_field(session: Session, provider: str, attr: Literal["url", "api_key"],
         line = f"api_key = {toml_scalar(sealed_value)}"
         updated = replace(config, api_key=value)
     # An engine not in providers.toml yet gets its section written
-    # first — this is how a cloud provider is added deliberately.
+    # first — this is how a cloud provider is added deliberately. An
+    # engine that honours cache breakpoints is founded with the
+    # prompt_cache row, the same line the upgrade migration writes, so
+    # the setting is visible in the file however the section got there.
     block = f"[{provider}]\nurl = {toml_scalar(config.url)}\n" + 'api_key = ""'
+    if provider in CLIENTS and CLIENTS[provider].cache_markers:
+        block += "\n" + PROMPT_CACHE_ROW
     written = surgery.update_providers(
         session._paths.providers_file,
         session._paths.config_backups_dir,

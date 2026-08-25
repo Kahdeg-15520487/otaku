@@ -22,7 +22,7 @@ The families, one subclass each:
 
 `chat_stream` yields typed chunks: `Thinking` deltas, `Text` deltas, and
 a final `Stats`. Bursty output is re-timed into an even flow when
-smoothing is on (see `providers.streaming`); calls nobody watches pass
+smoothing is on (see `providers.smoothing`); calls nobody watches pass
 watched=False and skip it.
 """
 
@@ -36,7 +36,7 @@ from typing import Any, ClassVar, Protocol
 
 import httpx
 
-from otaku.providers import streaming
+from otaku.providers import smoothing
 from otaku.settings.providers import ProviderConfig
 
 
@@ -71,6 +71,9 @@ class Stats:
     # Decode-only span: first emitted token → end of stream, excluding the
     # prefill — the honest tok/s denominator.
     generation_seconds: float | None = None
+    # Of prompt_tokens, served from the provider's cache — None where the
+    # provider reports nothing (a local engine, caching off).
+    cached_tokens: int | None = None
 
 
 Chunk = Text | Thinking | Stats
@@ -88,10 +91,27 @@ class Provider:
 
 
 class RequestSink(Protocol):
-    """Where request bodies are recorded — the injected log seam; the
-    session's request log satisfies it."""
+    """Where requests and their answers are recorded — the injected log
+    seam; the session's request log satisfies it. `record_request`
+    returns the id the answer is later filed under."""
 
-    def record(self, provider: str, purpose: str, body: dict[str, object]) -> None: ...
+    def record_request(self, provider: str, purpose: str, body: dict[str, object]) -> str: ...
+
+    def record_answer(
+        self,
+        provider: str,
+        purpose: str,
+        request_id: str,
+        *,
+        outcome: str,
+        seconds: float,
+        first_token_seconds: float | None,
+        prompt_tokens: int | None,
+        completion_tokens: int | None,
+        cached_tokens: int | None,
+        text: str,
+        thinking: str = "",
+    ) -> None: ...
 
 
 class WireMessage(Protocol):
@@ -115,6 +135,12 @@ class OpenAIClient:
     # Whether the engine runs on this machine. A cloud catalog says no,
     # and launch-time introspection never waits on the internet for it.
     local: ClassVar[bool] = True
+    # Whether the engine honours explicit prompt-cache breakpoints
+    # (`cache_control` on content parts — Anthropic's marking, forwarded
+    # by OpenRouter). Class knowledge like `supports_thinking`; the
+    # section's `prompt_cache` key modulates it ("off" | "5m" | "1h"),
+    # never enables it where the engine cannot.
+    cache_markers: ClassVar[bool] = False
 
     @classmethod
     def autoconfigure(cls) -> ProviderConfig:
@@ -199,77 +225,123 @@ class OpenAIClient:
         Stats. `watched=False` for calls nobody watches — an accumulated
         string gains nothing from pacing, and the held lag would only
         delay their cancellation."""
+        # The messages payload: plain strings — or, where the engine
+        # honours cache breakpoints and the section has not said off,
+        # the marked form (`_cache_marked`).
+        wire: list[dict[str, object]]
+        if self.cache_markers and self.config.prompt_cache != "off":
+            wire = _cache_marked(messages, self.config.prompt_cache or "5m")
+        else:
+            wire = [{"role": m.role, "content": m.body} for m in messages]
         body: dict[str, object] = {
             "model": model,
-            "messages": [{"role": m.role, "content": m.body} for m in messages],
+            "messages": wire,
             "stream": True,
             "stream_options": {"include_usage": True},
             **params,
         }
         self._apply_thinking(body, think)
+        request_id = ""
         if self._request_log is not None:
-            self._request_log.record(self.config.name, purpose, body)
-        stream = self._stream(model, body, timeout)
+            request_id = self._request_log.record_request(self.config.name, purpose, body)
+        stream = self._stream(model, body, timeout, purpose, request_id)
         if watched and self._smooth:
-            return streaming.smoothen(stream, on_idle)
+            return smoothing.smoothen(stream, on_idle)
         return stream
 
-    def _stream(self, model: str, body: dict[str, object], timeout: float) -> Iterator[Chunk]:
+    def _stream(
+        self, model: str, body: dict[str, object], timeout: float, purpose: str, request_id: str
+    ) -> Iterator[Chunk]:
         start = time.monotonic()
         first_token_at: float | None = None
         prompt_tokens: int | None = None
         completion_tokens: int | None = None
+        cached_tokens: int | None = None
+        text: list[str] = []
+        thoughts: list[str] = []
+        recorded = False
 
-        with httpx.stream(
-            "POST",
-            f"{self.config.url}/chat/completions",
-            json=body,
-            headers=self._headers,
-            timeout=_timeout(timeout, connect=5.0),
-        ) as response:
-            if response.status_code >= 400:
-                # Drain now, while the stream is open — the error body (the
-                # server's explanation) must stay readable after close.
-                with contextlib.suppress(httpx.HTTPError):
-                    response.read()
-            response.raise_for_status()
-            for raw in response.iter_lines():
-                line = raw.strip()
-                if not line.startswith("data:"):
-                    continue
-                payload = line[len("data:") :].strip()
-                if payload == "[DONE]":
-                    break
-                try:
-                    event = json.loads(payload)
-                except json.JSONDecodeError:
-                    continue
-                usage = event.get("usage")
-                if isinstance(usage, dict):
-                    prompt_tokens = usage.get("prompt_tokens")
-                    completion_tokens = usage.get("completion_tokens")
-                choices = event.get("choices") or []
-                if not choices:
-                    continue
-                delta = choices[0].get("delta") or {}
-                thinking = delta.get("reasoning_content") or delta.get("reasoning")
-                if thinking:
-                    if first_token_at is None:
-                        first_token_at = time.monotonic()
-                    yield Thinking(text=str(thinking))
-                content = delta.get("content")
-                if content:
-                    if first_token_at is None:
-                        first_token_at = time.monotonic()
-                    yield Text(text=str(content))
+        def answered(outcome: str) -> None:
+            """File the answer under the request's log id — once, however
+            the stream ends: the clean end, the consumer closing it (the
+            cancel-and-keep door), or a transport failure. What had
+            arrived rides along either way."""
+            nonlocal recorded
+            if recorded or self._request_log is None or not request_id:
+                return
+            recorded = True
+            waited = (first_token_at - start) if first_token_at is not None else None
+            self._request_log.record_answer(
+                self.config.name,
+                purpose,
+                request_id,
+                outcome=outcome,
+                seconds=time.monotonic() - start,
+                first_token_seconds=waited,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cached_tokens=cached_tokens,
+                text="".join(text),
+                thinking="".join(thoughts),
+            )
+
+        try:
+            with httpx.stream(
+                "POST",
+                f"{self.config.url}/chat/completions",
+                json=body,
+                headers=self._headers,
+                timeout=_timeout(timeout, connect=5.0),
+            ) as response:
+                if response.status_code >= 400:
+                    # Drain now, while the stream is open — the error body (the
+                    # server's explanation) must stay readable after close.
+                    with contextlib.suppress(httpx.HTTPError):
+                        response.read()
+                response.raise_for_status()
+                for event in _events(response):
+                    usage = event.get("usage")
+                    if isinstance(usage, dict):
+                        prompt_tokens = usage.get("prompt_tokens")
+                        completion_tokens = usage.get("completion_tokens")
+                        cached = _cached_count(usage)
+                        if cached is not None:
+                            cached_tokens = cached
+                    choices = event.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta") or {}
+                    thinking = delta.get("reasoning_content") or delta.get("reasoning")
+                    if thinking:
+                        if first_token_at is None:
+                            first_token_at = time.monotonic()
+                        thoughts.append(str(thinking))
+                        yield Thinking(text=str(thinking))
+                    content = delta.get("content")
+                    if content:
+                        if first_token_at is None:
+                            first_token_at = time.monotonic()
+                        text.append(str(content))
+                        yield Text(text=str(content))
+        except GeneratorExit:
+            answered("cancelled")
+            raise
+        except Exception as e:
+            answered(f"failed: {type(e).__name__}")
+            raise
 
         end = time.monotonic()
+        # Filed BEFORE the final yield: a consumer that takes the last
+        # Text and closes without pulling the stats still leaves a
+        # finished answer in the log, not a "cancelled".
+        answered("ok")
         yield Stats(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             duration_seconds=end - start,
             context_max=self.get_context_size(model),
             generation_seconds=(end - first_token_at) if first_token_at is not None else None,
+            cached_tokens=cached_tokens,
         )
 
     def _apply_thinking(self, body: dict[str, object], think: str | None) -> None:
@@ -440,6 +512,66 @@ class CloudClient(OpenAIClient):
             if row.name == model:
                 return row.context
         return None
+
+
+def _cache_marked(messages: Sequence[WireMessage], ttl: str) -> list[dict[str, object]]:
+    """The messages payload with prompt-cache breakpoints: the system row
+    and the final row become content PARTS carrying `cache_control`;
+    everything between stays a plain string. Two breakpoints are enough —
+    the provider's lookup scans block boundaries backwards from a marker
+    for the longest cached prefix, so one rolling trailing mark per
+    request finds last turn's entry on its own. `ttl` "5m" is the
+    marking's own default and is not spelled; "1h" is."""
+    marker: dict[str, object] = {"type": "ephemeral"}
+    if ttl == "1h":
+        marker["ttl"] = "1h"
+
+    def marked(m: WireMessage) -> dict[str, object]:
+        return {
+            "role": m.role,
+            "content": [{"type": "text", "text": m.body, "cache_control": dict(marker)}],
+        }
+
+    out: list[dict[str, object]] = [{"role": m.role, "content": m.body} for m in messages]
+    if out and messages[0].role == "system":
+        out[0] = marked(messages[0])
+    if len(messages) > 1 or (messages and messages[0].role != "system"):
+        out[-1] = marked(messages[-1])
+    return out
+
+
+def _events(response: httpx.Response) -> Iterator[dict[str, Any]]:
+    """The stream's data events, the SSE framing shed: one parsed object
+    per `data:` line, ending at `[DONE]`. Anything else on the wire —
+    comment lines, keepalives, a line that will not parse — is skipped,
+    never fatal."""
+    for raw in response.iter_lines():
+        line = raw.strip()
+        if not line.startswith("data:"):
+            continue
+        payload = line[len("data:") :].strip()
+        if payload == "[DONE]":
+            return
+        try:
+            event = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict):
+            yield event
+
+
+def _cached_count(usage: dict[str, Any]) -> int | None:
+    """Of a usage report's prompt tokens, how many the provider served
+    from cache — OpenAI's spelling first (OpenRouter normalizes to it),
+    Anthropic's own as the fallback; None when neither is there."""
+    details = usage.get("prompt_tokens_details")
+    if isinstance(details, dict):
+        cached = details.get("cached_tokens")
+    else:
+        cached = usage.get("cache_read_input_tokens")
+    if isinstance(cached, int):
+        return cached
+    return None
 
 
 def _timeout(total: float, *, connect: float) -> httpx.Timeout:

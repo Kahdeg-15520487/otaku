@@ -858,10 +858,12 @@ components:
               requests: { type: integer }
               prompt_tokens: { type: integer }
               completion_tokens: { type: integer }
+              cached_tokens: { type: integer, description: "Of prompt_tokens, served from the provider's cache; 0 where caching never engaged." }
               rate: { type: number, description: "Completion tokens per second; 0.0 unmeasured." }
         requests: { type: integer }
         prompt_tokens: { type: integer }
         completion_tokens: { type: integer }
+        cached_tokens: { type: integer }
         total_tokens: { type: integer }
 
     UsageRefused:

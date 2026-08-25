@@ -90,6 +90,20 @@ class TestUsage:
         assert "lore" in out
         assert "test-model" in out
 
+    def test_cached_tokens_are_recorded_and_reported(self, app: App, capsys) -> None:
+        # The provider says how much of the prompt its cache served; the
+        # store keeps it per request and /usage sums it into its column.
+        app.server.cached_tokens = 3
+        app.play("I enter the hall.")
+        app.play("I listen.")
+        (total,) = app.store.usage.get_totals(app.session.story_id)
+        assert total.cached_tokens == 6
+        capsys.readouterr()
+        app.play("/usage")
+        out = capsys.readouterr().out
+        assert "CACHED" in out
+        assert "6" in out
+
     def test_usage_covers_the_current_story_and_all_widens(self, app: App, capsys) -> None:
         app.play("The first story begins.")
         app.play("/new")

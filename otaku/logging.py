@@ -1,20 +1,25 @@
 """Day-rotated logs under one directory, handed in as a plain Path.
 
 One base and three logs, one class each in this one module: `RequestLog`
-(every model-bound request body, sealed with the cipher the caller hands
-in — the session's, so the log protects exactly what the database
-protects), `SystemLog` (the app's account of unattended work;
-CONTENT-FREE by contract: ids and counts, never prose), and `ErrorLog`
-(every contained crash's traceback; frames and messages only, NEVER
-locals — this file sits in plain text beside a possibly-encrypted
-database). All best-effort: a logging failure warns on stderr once and
-never blocks anything — the one sanctioned stderr voice below cli. The
-view functions at the bottom render the logs for `otaku logs`.
+(every model-bound request body AND, as its own paired line, the answer
+that came back with its timings — both sealed with the cipher the
+caller hands in, the session's, so the log protects exactly what the
+database protects; the timings and token counts ride the plaintext
+envelope like `provider` and `purpose`, numbers and labels being the
+class of thing the envelope already carries), `SystemLog` (the app's
+account of unattended work; CONTENT-FREE by contract: ids and counts,
+never prose), and `ErrorLog` (every contained crash's traceback; frames
+and messages only, NEVER locals — this file sits in plain text beside a
+possibly-encrypted database). All best-effort: a logging failure warns
+on stderr once and never blocks anything — the one sanctioned stderr
+voice below cli. The view functions at the bottom render the logs for
+`otaku logs`.
 """
 
 import base64
 import json
 import re
+import secrets
 import sys
 import threading
 import traceback
@@ -103,10 +108,24 @@ class SystemLog(DailyLog):
 
 @dataclass(frozen=True)
 class Entry:
+    """One line of the request log, either kind: a request (`body` is
+    the request as sent) or its answer (`body` holds `text`, and
+    `thinking` when the model reasoned; the numbers below are set). The
+    two pair by `request_id` — an answer that never arrived is a stream
+    that never finished, which is itself a fact worth reading."""
+
     ts: str
     provider: str
     purpose: str
     body: dict[str, object] | None  # None when the body cannot be read back
+    kind: str = "request"  # "request" | "answer" (absent in old lines = request)
+    request_id: str = ""  # pairs an answer to its request; "" in old lines
+    outcome: str = ""  # answers: "ok", "cancelled", or "failed: <type>"
+    seconds: float | None = None  # answers: request start → stream end
+    first_token_seconds: float | None = None  # answers: the prefill wait
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    cached_tokens: int | None = None
 
 
 class RequestLog(DailyLog):
@@ -120,13 +139,65 @@ class RequestLog(DailyLog):
         super().__init__(directory)
         self._cipher = cipher
 
-    def record(self, provider: str, purpose: str, body: dict[str, object]) -> None:
-        """Append one request. Best-effort; never fails the request."""
-        now = datetime.now().astimezone()
-        entry: dict[str, object] = {
-            "ts": now.isoformat(timespec="seconds"),
+    def record_request(self, provider: str, purpose: str, body: dict[str, object]) -> str:
+        """Append one request, BEFORE it is sent — a crash mid-stream
+        must not unrecord what left the machine. Returns the request id
+        the answer is later filed under. Best-effort; never fails the
+        request."""
+        request_id = secrets.token_hex(4)
+        self._append_entry(
+            {"provider": provider, "purpose": purpose, "request_id": request_id}, body
+        )
+        return request_id
+
+    def record_answer(
+        self,
+        provider: str,
+        purpose: str,
+        request_id: str,
+        *,
+        outcome: str,
+        seconds: float,
+        first_token_seconds: float | None,
+        prompt_tokens: int | None,
+        completion_tokens: int | None,
+        cached_tokens: int | None,
+        text: str,
+        thinking: str = "",
+    ) -> None:
+        """Append what a request's stream came to: the outcome, the
+        timings and token counts on the envelope, the answer's text (and
+        reasoning, when the model sent any) sealed like a request body.
+        Written however the stream ended — a cancelled or failed one
+        records what had arrived. Best-effort; never raises."""
+        envelope: dict[str, object] = {
             "provider": provider,
             "purpose": purpose,
+            "kind": "answer",
+            "request_id": request_id,
+            "outcome": outcome,
+            "seconds": round(seconds, 2),
+        }
+        if first_token_seconds is not None:
+            envelope["first_token_seconds"] = round(first_token_seconds, 2)
+        for name, tokens in (
+            ("prompt_tokens", prompt_tokens),
+            ("completion_tokens", completion_tokens),
+            ("cached_tokens", cached_tokens),
+        ):
+            if tokens is not None:
+                envelope[name] = tokens
+        body: dict[str, object] = {"text": text}
+        if thinking:
+            body["thinking"] = thinking
+        self._append_entry(envelope, body)
+
+    def _append_entry(self, envelope: dict[str, object], body: dict[str, object]) -> None:
+        """One line: the plaintext envelope stamped, the body riding it
+        sealed — inline JSON under the plain cipher."""
+        entry: dict[str, object] = {
+            "ts": datetime.now().astimezone().isoformat(timespec="seconds"),
+            **envelope,
         }
         if isinstance(self._cipher, PlainCipher):
             entry["body"] = body
@@ -149,6 +220,14 @@ class RequestLog(DailyLog):
                 provider=str(raw.get("provider", "?")),
                 purpose=str(raw.get("purpose", "?")),
                 body=self._get_body(raw),
+                kind=str(raw.get("kind", "request")),
+                request_id=str(raw.get("request_id", "")),
+                outcome=str(raw.get("outcome", "")),
+                seconds=_number(raw.get("seconds")),
+                first_token_seconds=_number(raw.get("first_token_seconds")),
+                prompt_tokens=_count(raw.get("prompt_tokens")),
+                completion_tokens=_count(raw.get("completion_tokens")),
+                cached_tokens=_count(raw.get("cached_tokens")),
             )
 
     def _get_body(self, raw: dict[str, object]) -> dict[str, object] | None:
@@ -168,12 +247,125 @@ class RequestLog(DailyLog):
         return parsed if isinstance(parsed, dict) else None
 
 
+def _number(value: object) -> float | None:
+    """A read-back envelope number — None for anything a hand edit or
+    corruption put there instead."""
+    return float(value) if isinstance(value, int | float) else None
+
+
+def _count(value: object) -> int | None:
+    return int(value) if isinstance(value, int) else None
+
+
 # ---------- rendering for `otaku logs` ----------
 
 
-def resolve_day(day: str) -> str | None:
-    """A DAY argument as the logs name their files (YYYYMMDD); the dashed
-    form accepted too. None when it is neither."""
+def render_plain(log: DailyLog, stamp: str) -> str:
+    """One day of a plain-text log (system, error) as its pager text —
+    those files are written display-ready, so rendering is reading."""
+    return log.get_path(stamp).read_text(encoding="utf-8")
+
+
+def render_requests(log: RequestLog, stamp: str) -> Iterator[str]:
+    """One day's request log as pager text: per request a header row,
+    the non-message fields as one JSON row, then each message; per
+    answer, its outcome-and-timings row and the text that arrived. The
+    day closes with a per-purpose summary — counts, seconds and tokens
+    summed off the answers' envelopes, which is the profile of where a
+    day's model time went. Display goes through `formatting.printable`;
+    the log itself stores every byte."""
+    asked: set[str] = set()
+    answered: set[str] = set()
+    spent: dict[str, list[float]] = {}  # purpose → [answers, seconds, prompt, cached, reply]
+    for entry in log.read(stamp):
+        if entry.kind == "answer":
+            answered.add(entry.request_id)
+            tally = spent.setdefault(entry.purpose, [0, 0.0, 0, 0, 0])
+            tally[0] += 1
+            tally[1] += entry.seconds or 0.0
+            tally[2] += entry.prompt_tokens or 0
+            tally[3] += entry.cached_tokens or 0
+            tally[4] += entry.completion_tokens or 0
+            yield from _answer_lines(entry)
+            continue
+        if entry.request_id:
+            asked.add(entry.request_id)
+        tag = f"  #{entry.request_id}" if entry.request_id else ""
+        yield f"=== {entry.ts}  {entry.provider}  [{entry.purpose}]{tag}\n"
+        if entry.body is None:
+            yield "  <unreadable: wrong key or corrupted>\n\n"
+            continue
+        meta = {k: v for k, v in entry.body.items() if k != "messages"}
+        yield f"  {printable(json.dumps(meta, ensure_ascii=False))}\n"
+        messages = entry.body.get("messages")
+        if isinstance(messages, list):
+            for message in messages:
+                if isinstance(message, dict):
+                    content = message.get("content")
+                    if isinstance(content, list):
+                        # Parts-form content (prompt-cache markers): the
+                        # text is what a reader audits; the markers show
+                        # in the meta row's own request, not per part.
+                        content = " ".join(
+                            str(part.get("text", "")) for part in content if isinstance(part, dict)
+                        )
+                    yield f"  [{message.get('role')}] {printable(str(content))}\n"
+        yield "\n"
+    yield from _summary_lines(asked, answered, spent)
+
+
+def _answer_lines(entry: Entry) -> Iterator[str]:
+    """One answer as the pager shows it: what the stream came to on the
+    header row, then the text (and reasoning) that arrived."""
+    account = [entry.outcome or "?"]
+    if entry.seconds is not None:
+        account.append(f"total {entry.seconds:.1f}s")
+    if entry.first_token_seconds is not None:
+        account.append(f"first token {entry.first_token_seconds:.1f}s")
+    if entry.prompt_tokens is not None:
+        cached = f" (cached {entry.cached_tokens:,})" if entry.cached_tokens else ""
+        account.append(f"prompt {entry.prompt_tokens:,}{cached} tok")
+    if entry.completion_tokens is not None:
+        account.append(f"reply {entry.completion_tokens:,} tok")
+    tag = f"  #{entry.request_id}" if entry.request_id else ""
+    yield f"--- {entry.ts}  answer  [{entry.purpose}]{tag}  {' · '.join(account)}\n"
+    if entry.body is None:
+        yield "  <unreadable: wrong key or corrupted>\n\n"
+        return
+    thinking = entry.body.get("thinking")
+    if thinking:
+        yield f"  [thinking] {printable(str(thinking))}\n"
+    yield f"  [assistant] {printable(str(entry.body.get('text', '')))}\n"
+    yield "\n"
+
+
+def _summary_lines(
+    asked: set[str], answered: set[str], spent: dict[str, list[float]]
+) -> Iterator[str]:
+    """The day in numbers, per purpose — nothing sealed rides here, so
+    the profile reads even without the key."""
+    if not spent and not asked:
+        return
+    yield "=== summary\n"
+    width = max((len(p) for p in spent), default=0)
+    for purpose in sorted(spent):
+        answers, seconds, prompt, cached, reply = spent[purpose]
+        cached_note = f" (cached {int(cached):,})" if cached else ""
+        yield (
+            f"  {purpose:<{width}}  {int(answers)} answered · {seconds:.1f}s"
+            f" · prompt {int(prompt):,}{cached_note} → reply {int(reply):,} tok\n"
+        )
+    unanswered = len(asked - answered)
+    if unanswered:
+        yield f"  {unanswered} request(s) without a recorded answer\n"
+
+
+def resolve_day(day: str | None) -> str | None:
+    """The file stamp (YYYYMMDD) a `logs` DAY argument names: today's
+    when it is absent, either spelling — bare or dashed — when given.
+    None for anything else."""
+    if day is None:
+        return datetime.now().astimezone().strftime("%Y%m%d")
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
         return day.replace("-", "")
     if re.fullmatch(r"\d{8}", day):
@@ -189,22 +381,3 @@ def dashed(stamp: str) -> str:
 def day_rows(days: list[tuple[str, int]]) -> list[str]:
     """The `--list` rows: one dashed day and its size per line."""
     return [f"{dashed(name)}  {size:>10,} B" for name, size in days]
-
-
-def render_requests(log: RequestLog, stamp: str) -> Iterator[str]:
-    """One day's request log as pager text: per entry a header row, the
-    non-message fields as one JSON row, then each message — display goes
-    through `formatting.printable`; the log itself stores every byte."""
-    for entry in log.read(stamp):
-        yield f"=== {entry.ts}  {entry.provider}  [{entry.purpose}]\n"
-        if entry.body is None:
-            yield "  <unreadable: wrong key or corrupted>\n\n"
-            continue
-        meta = {k: v for k, v in entry.body.items() if k != "messages"}
-        yield f"  {printable(json.dumps(meta, ensure_ascii=False))}\n"
-        messages = entry.body.get("messages")
-        if isinstance(messages, list):
-            for message in messages:
-                if isinstance(message, dict):
-                    yield f"  [{message.get('role')}] {printable(str(message.get('content')))}\n"
-        yield "\n"

@@ -359,6 +359,61 @@ class TestInliners:
         )
 
 
+class TestPromptCache:
+    """The prompt-cache breakpoints a marked provider's requests carry:
+    the system row and the final row as content parts with
+    `cache_control`, the middle plain strings — and none of it where the
+    engine cannot honour markers or the section said off. The wire is
+    the whole assertion."""
+
+    def test_an_openrouter_request_carries_the_markers(self, server, tmp_path) -> None:
+        app = _cloud(server, tmp_path)
+        try:
+            app.play("/system Be terse.")
+            app.play("I enter the hall.")
+            app.play("I listen.")
+            sent = scripted.chat_request(app.server, "I listen.")["messages"]
+            assert sent[0]["role"] == "system"
+            assert sent[0]["content"][0]["cache_control"] == {"type": "ephemeral"}
+            assert sent[-1]["content"][0]["cache_control"] == {"type": "ephemeral"}
+            assert all(isinstance(m["content"], str) for m in sent[1:-1])
+        finally:
+            app.close()
+
+    def test_the_hour_ttl_rides_the_marker(self, server, tmp_path) -> None:
+        app = _cloud(server, tmp_path, prompt_cache="1h")
+        try:
+            app.play("I enter the hall.")
+            sent = scripted.chat_request(app.server, "I enter the hall.")["messages"]
+            assert sent[-1]["content"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+        finally:
+            app.close()
+
+    def test_the_section_can_turn_it_off(self, server, tmp_path) -> None:
+        app = _cloud(server, tmp_path, prompt_cache="off")
+        try:
+            app.play("I enter the hall.")
+            sent = scripted.chat_request(app.server, "I enter the hall.")["messages"]
+            assert all(isinstance(m["content"], str) for m in sent)
+        finally:
+            app.close()
+
+    def test_a_local_engine_sends_plain_strings(self, app: App) -> None:
+        # The capability is class knowledge: no section key can make a
+        # local engine mark, and its wire stays exactly as it was.
+        app.play("I enter the hall.")
+        sent = scripted.chat_request(app.server, "I enter the hall.")["messages"]
+        assert all(isinstance(m["content"], str) for m in sent)
+
+
+def _cloud(server: scripted.ModelServer, tmp_path: Path, *, prompt_cache: str = "") -> App:
+    """The app over a provider the registry builds as the marking cloud
+    client — the section's NAME picks the class."""
+    root = tmp_path / "state"
+    set_config_provider(root, server, name="openrouter", prompt_cache=prompt_cache)
+    return launch(root, server, spec="openrouter/test-model")
+
+
 class TestLegacyTurns:
     def test_a_turn_written_before_the_syntax_sends_what_it_always_sent(
         self, app: App, tmp_path: Path

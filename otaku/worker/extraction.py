@@ -642,6 +642,7 @@ class Extractor:
                 story_id=self._story_id,
                 prompt_tokens=final.prompt_tokens,
                 completion_tokens=final.completion_tokens,
+                cached_tokens=final.cached_tokens,
                 duration_seconds=final.duration_seconds,
             )
         return "".join(buf)
