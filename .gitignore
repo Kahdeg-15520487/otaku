@@ -4,7 +4,7 @@
 .venv/
 __pycache__/
 build/
-demo/
+demo/terminal/
 dist/
 migration/
 notes/

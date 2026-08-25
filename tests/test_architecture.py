@@ -318,6 +318,19 @@ def _page_imports() -> dict[str, set[str]]:
     }
 
 
+class TestDemo:
+    """The deployable web demo (`demo/`) fakes the whole HTTP surface in
+    the visitor's browser. Its router must know every path the spec
+    lists — read as text, like everything else here — or a new endpoint
+    ships with a demo that silently cannot answer it."""
+
+    def test_the_demo_routes_every_path_the_spec_lists(self) -> None:
+        spec = re.findall(r"^ {2}(/api/\S+):", (_ROOT / "docs" / "web_api.yaml").read_text(), re.M)
+        router = (_ROOT / "demo" / "demo.js").read_text()
+        missing = [path for path in spec if path not in router]
+        assert not missing, f"paths the demo does not route: {missing}"
+
+
 class TestWebApiSpec:
     """`docs/web_api.yaml` is the HTTP surface as OpenAPI, maintained by
     hand (CLAUDE.md, Web conventions). Its path list is held against the
