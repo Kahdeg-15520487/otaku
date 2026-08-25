@@ -91,6 +91,9 @@ changes.
 ### Fixed
 - A sealing key that cannot be read no longer ends the launch with a traceback: the provider it
   belongs to runs without its key and the launch says which one.
+- The prompt warm-up after a scene closes now runs for local engines only. It exists to prefill a
+  local server's cache so the next reply starts fast; on a cloud provider the same request has no
+  cache to warm and was billed as a full context window for one token.
 
 ## [0.3.0] - 2026-08-17
 

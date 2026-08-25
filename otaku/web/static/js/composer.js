@@ -4,6 +4,7 @@
    `submit` is the one door — Enter and the Send button both call it, so
    the button never has to synthesize a keystroke to reach the logic. */
 
+import * as api from "./api.js";
 import { midReply, playLine, run } from "./commands.js";
 import { $, element, setValue, span } from "./dom.js";
 import { allSpecs, isCommand } from "./table.js";
@@ -18,9 +19,22 @@ let picked = 0;
 /* What has been sent from this box, newest last, and where the reader
    is in it. `at === null` means "not walking" — the arrows only walk
    when there is nothing half-typed to lose, so a multi-line message
-   keeps its own caret movement. */
+   keeps its own caret movement.
+
+   The lines are the STORE's — the same history the terminal prompt
+   walks: primed from it at boot, and every submission recorded back,
+   so a reload (or a session in the other frontend) starts with the
+   history it left. */
 const history = [];
 let at = null;
+
+/** The store's recent lines, most recent first — called at every boot,
+    because a restarted otaku may have played elsewhere since. */
+export function primeHistory(lines) {
+  history.length = 0;
+  history.push(...[...lines].reverse());
+  at = null;
+}
 
 /** One submitted line, wherever it came from. */
 export function submit(line) {
@@ -29,6 +43,10 @@ export function submit(line) {
   // refuses it — silence here trains the reader to press Enter twice.
   if (!said || midReply()) return;
   if (history.at(-1) !== said) history.push(said);
+  // Into the store's history too (blanks and immediate repeats are the
+  // session's to skip) — fire-and-forget: the submission itself is the
+  // event, and a lost record must not delay or fail it.
+  api.act("record-history", { line: said }).catch(() => {});
   at = null;
   setValue(composer, "");
   hideMenu();

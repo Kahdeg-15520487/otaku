@@ -52,6 +52,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
+from otaku.backend import commands
 from otaku.backend.api.play import PlayEvent
 from otaku.backend.session import Refused, Session
 from otaku.settings.config import WebSettings
@@ -173,15 +174,17 @@ _WATCH_INTERVAL = 1.0
 class Hooks:
     """What the serving reaches outside HTTP, injected at composition
     (`web.run.serve`) like every other frontend hook: where a request
-    line worth showing goes, where a contained crash is recorded, and
-    the background worker's voice for the beat — its one-line status,
-    and the sentences it has said since anybody last asked. All four are
-    callable from any thread; nothing here prints."""
+    line worth showing goes, where a contained crash is recorded, the
+    background worker's voice for the beat — its one-line status, and
+    the sentences it has said since anybody last asked — and the ring a
+    landed reply calls the reader back with. All are callable from any
+    thread; nothing here prints conversation."""
 
     show: Callable[[str], None]
     record: Callable[[str, BaseException], str]
     working: Callable[[], str]
     sayings: Callable[[], list[str]]
+    ring: Callable[[], None]
 
 
 def bind(
@@ -376,11 +379,13 @@ class _Handler(BaseHTTPRequestHandler):
     def _command(self, line: str) -> None:
         """One command line the page routed here. Which rows this
         frontend answers, and what each returns, is `api.answering`'s —
-        resolved before anything queues, so an unknown token is a 404
-        from this thread, and HTTP only carries the result."""
+        resolved before anything queues, so a line no row matches is
+        answered from this thread: with the shared unknown-command
+        sentence (`backend.commands.unknown_notice`), as the refusal it is —
+        the page shows it verbatim, exactly as the terminal does."""
         call = api.answering(line)
         if call is None:
-            self.send_error(404, f"no operation for {line.split(' ', 1)[0]}")
+            self._json({"notice": commands.unknown_notice(line), "refused": True})
             return
         self._answer(call)
 
@@ -517,7 +522,7 @@ class _Handler(BaseHTTPRequestHandler):
         produce = api.regenerate if regenerate else (lambda session: api.play(session, line))
         self._streaming = False
         try:
-            self.server.runner.run(lambda session: self._pump(produce(session)))
+            self.server.runner.run(lambda session: self._pump(produce(session), session))
         except StoppingError:
             self.send_error(503, "otaku is stopping")
         except Refused as e:
@@ -535,7 +540,7 @@ class _Handler(BaseHTTPRequestHandler):
             if not self._streaming:
                 self.send_error(500, f"{type(e).__name__}: {e}")
 
-    def _pump(self, events: Iterator[PlayEvent]) -> None:
+    def _pump(self, events: Iterator[PlayEvent], session: Session) -> None:
         """Write the stream out, on the session's thread. Whatever ends
         it — the last event, a closed tab, a failure — the generator is
         closed, which is what records a partial reply."""
@@ -568,6 +573,12 @@ class _Handler(BaseHTTPRequestHandler):
             return
         finally:
             events.close()  # type: ignore[attr-defined]
+        # The turn ran to its natural end and the reader has the whole
+        # reply — the moment the screen wants them back. Not on a Stop or
+        # a closed tab (the returns above): whoever cut it either acted
+        # or left — the terminal's own "not after a Ctrl+C" rule.
+        if session.notification:
+            self.server.hooks.ring()
 
     # ---------- the watch stream ----------
 

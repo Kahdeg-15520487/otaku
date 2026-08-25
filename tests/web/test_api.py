@@ -1,12 +1,11 @@
 """What the page asks for, where the answer is pure.
 
-Three promises `web.api` makes that running the app cannot show. An
-argument is cut the way the terminal cuts one, so an untidily typed line
-means the same thing in both frontends. A command line resolves to a
-call — or to None — without the session, so an unknown token is refused
-before anything queues. And every play event has a name on the wire,
-with the union CLOSED — a new kind must fail here rather than arrive as
-a silence.
+Two promises `web.api` makes that running the app cannot show. A
+command line resolves to a call — or to None — without the session, so
+an unknown token is refused before anything queues. And every play
+event has a name on the wire, with the union CLOSED — a new kind must
+fail here rather than arrive as a silence. (How an argument is cut is
+`backend.commands.raw_argument`'s promise, held in its own suite.)
 """
 
 from typing import get_args
@@ -14,34 +13,6 @@ from typing import get_args
 from otaku.backend.api.play import Declined, Done, Failed, PlayEvent, Recorded, Text, Thinking
 from otaku.store.schema import Message
 from otaku.web import api
-
-
-class TestArgument:
-    """`web.api._argument` — the terminal's own rule, copied and cited
-    (`terminal.chat.bindings._argument`): everything after the token,
-    verbatim from the first non-space character."""
-
-    def test_a_one_word_token_leaves_the_rest(self) -> None:
-        assert api._argument("/title The River", "/title") == "The River"
-
-    def test_a_family_token_takes_both_words(self) -> None:
-        assert api._argument("/set think medium", "/set think") == "medium"
-
-    def test_untidy_spacing_still_finds_the_argument(self) -> None:
-        # The reason this is not a fixed-width slice: that would hand the
-        # backend "k  medium".
-        assert api._argument("/set  think  medium", "/set think") == "medium"
-
-    def test_spacing_inside_the_argument_is_kept(self) -> None:
-        # Verbatim from the first non-space character — a story's title
-        # is the reader's text, not the parser's.
-        assert api._argument("/title  A  B", "/title") == "A  B"
-
-    def test_a_bare_command_has_no_argument(self) -> None:
-        assert api._argument("/fork", "/fork") == ""
-
-    def test_trailing_space_is_no_argument(self) -> None:
-        assert api._argument("/fork   ", "/fork") == ""
 
 
 class TestEvent:
@@ -119,7 +90,7 @@ class TestCommandsTable:
 
     def test_what_the_page_may_answer_is_declared(self) -> None:
         # A token the page thinks it can answer but the table does not
-        # declare is a button that would 404.
+        # declare is a button the server would refuse as unknown.
         table = api.commands_table()
         declared = {row["token"] for row in table["rows"]}
         assert set(table["answers"]) <= declared

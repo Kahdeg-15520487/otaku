@@ -170,8 +170,9 @@ shipping. Five rules hold that.
    width, a menu's order, what a screen is made of — belongs to the
    frontend, and the other must not inherit it. Where a frontend needs
    a rule the other already has, it copies the RULE and names the
-   other's home in a comment (`web.api._argument` cites
-   `terminal.chat.bindings._argument`), so the next reader finds both.
+   other's home in a comment (the page's `table.js rawArgument` cites
+   `backend.commands.raw_argument` — the language barrier is the one
+   reason that rule exists twice), so the next reader finds both.
 
    A report obeys this twice over: one function per report in
    `backend.api.reports`, returning an object that carries the FACTS
@@ -395,6 +396,14 @@ docstrings:
   last so anything in it wins; never written by the app, served empty
   when absent. Its custom properties are a public contract
   (`docs/web_tokens.md`) — a rename is a breaking change.
+- **`docs/web_api.yaml`** is the HTTP surface as OpenAPI, maintained by
+  hand as a reference: one path per table row (READS, ACTIONS, FLOWS)
+  plus the fixed endpoints, payload schemas included. The CODE is the
+  authority — a change to the surface updates the spec in the same
+  commit, and `tests/test_architecture.py` holds the spec's path list
+  against the tables, so a missing or stale path fails the suite (the
+  schemas themselves are the review's to keep true). Its `info.version`
+  is the app version the surface last changed in.
 
 ## Copy conventions
 

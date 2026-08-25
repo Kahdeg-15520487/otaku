@@ -24,7 +24,7 @@ import { openBalance, openContext, openInfo, openUsage } from "./reports.js";
 import { disconnected, landed, refresh, watchExtraction } from "./shell.js";
 import { openStories } from "./stories.js";
 import { openSystem } from "./system.js";
-import { allSpecs, answered, argumentOf, specFor } from "./table.js";
+import { allSpecs, answered, rawArgument, specFor } from "./table.js";
 import { clear, isPlaying, play, stopPlaying, tell } from "./transcript.js";
 import { exportStory, importCard, importDocument } from "./transfer.js";
 
@@ -95,7 +95,7 @@ export function checkCoverage() {
 export async function run(line) {
   try {
     const spec = specFor(line);
-    const argument = argumentOf(line, spec);
+    const argument = rawArgument(line, spec);
     /* A screen opens for the bare token; the same token WITH an argument
        goes to the backend when the backend answers it — `/model` opens
        the picker, `/model ollama/x` switches, exactly as the terminal
@@ -107,10 +107,10 @@ export async function run(line) {
       await screen(argument);
       return;
     }
-    if (!answers) {
-      tell(`Unknown command ${line.split(/\s+/)[0]}. Try /help.`, "otk-error");
-      return;
-    }
+    // Everything else — wired rows and unknown tokens alike — is the
+    // backend's to answer: an unknown line comes back as the shared
+    // sentence (`backend.commands.unknown_notice`), marked refused, so both
+    // frontends refuse a typo with the same words.
     const { notice } = await api.runCommandLine(line);
     await landed(notice);
   } catch (e) {

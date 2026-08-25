@@ -28,7 +28,7 @@ from otaku.backend.api import settings as api_settings
 from otaku.backend.api import stories as api_stories
 from otaku.backend.api import transfer as api_transfer
 from otaku.backend.api.lore import WorkerRun
-from otaku.backend.session import Refused, Session
+from otaku.backend.session import NO_STORY_HINT, Refused, Session
 from otaku.terminal.chat import help as help_page
 from otaku.terminal.chat import stream
 from otaku.terminal.chat.chat import RESUME_TURNS, Chat
@@ -99,11 +99,13 @@ def dispatch(chat: Chat, line: str) -> bool:
     with chat.ledger.command_output(manages_screen=token in _PLAYING):
         try:
             if spec is None:
-                chat.say(_unknown(line))
+                chat.say(commands.unknown_notice(line))
             elif spec.token in _INTERACTIVE:
-                _INTERACTIVE[spec.token](chat, _argument(line, spec.token))
+                _INTERACTIVE[spec.token](chat, commands.raw_argument(line, spec.token))
             else:
-                chat.say(OPERATIONS[spec.token](chat.session, _argument(line, spec.token)))
+                chat.say(
+                    OPERATIONS[spec.token](chat.session, commands.raw_argument(line, spec.token))
+                )
         except Refused as e:
             chat.say(str(e))
     return True
@@ -261,7 +263,7 @@ def _cast(chat: Chat, raw: str) -> None:
 
 def _browse_lore(chat: Chat, lens: screen_lore.Lens) -> None:
     if chat.session.story_id is None:
-        chat.say("No story yet — send a message first.")
+        chat.say(NO_STORY_HINT)
         return
     if not api_lore.exists(chat.session):
         chat.say("No lore in this story yet — it builds as scenes close (see /extract).")
@@ -471,31 +473,6 @@ _INTERACTIVE: dict[str, Callable[[Chat, str], None]] = {
 
 
 # ---------- dispatch internals ----------
-
-
-def _argument(line: str, token: str) -> str:
-    """Everything after the spec's token, verbatim from the first
-    non-space character — free-text arguments keep the user's exact
-    spacing (split-and-rejoin would collapse it)."""
-    rest = line
-    for _ in token.split():
-        _, _, rest = rest.lstrip().partition(" ")
-    return rest.lstrip()
-
-
-def _unknown(line: str) -> str:
-    """The unknown-command sentence; the /set family's is composed FROM
-    the shared table, so the usage line and the commands can never
-    disagree."""
-    word = line.split()[0]
-    if word == "/set":
-        forms = " | ".join(
-            f"{spec.token} {spec.args}".strip()
-            for spec in commands.COMMANDS
-            if spec.token.startswith("/set ")
-        )
-        return f"Usage: {forms}"
-    return f"Unknown command: {word}. Type /help."
 
 
 def _file_and_name(raw: str) -> tuple[Path, str]:

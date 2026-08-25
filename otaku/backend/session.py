@@ -58,8 +58,11 @@ KNOWN_PARAMS: dict[str, type] = {
     "stop": str,
 }
 
-# What every model-facing door says while no model is selected.
+# What every model-facing door says while no model is selected, and
+# every story-facing one while nothing has been played — each spelled
+# once, so no door (or frontend) drifts into its own wording.
 NO_MODEL_HINT = "No model selected — pick one with /model."
+NO_STORY_HINT = "No story yet — send a message first."
 
 
 class Refused(Exception):  # noqa: N818 — a refusal is an expected answer, not an error
@@ -320,7 +323,7 @@ class Session:
         else:
             self._notify(text)
 
-    def recent_inputs(self) -> list[str]:
+    def history(self) -> list[str]:
         """The prompt's Up/Down input history, most recent first —
         store-backed, so it survives sessions. Best-effort: a store
         hiccup yields an empty list, never a broken prompt."""
@@ -329,7 +332,7 @@ class Session:
         except Exception:
             return []
 
-    def record_input(self, text: str) -> None:
+    def record_history(self, text: str) -> None:
         """Remember one submitted line (blanks and immediate repeats
         are skipped). Best-effort; never raises."""
         with contextlib.suppress(Exception):

@@ -11,7 +11,7 @@ import tomllib
 from dataclasses import dataclass, replace
 from typing import Literal
 
-from otaku.backend.session import NO_MODEL_HINT, Refused, Session
+from otaku.backend.session import NO_MODEL_HINT, NO_STORY_HINT, Refused, Session
 from otaku.formatting import flatten
 from otaku.store.schema import Character, Journal, Scene
 from otaku.worker import Job
@@ -108,7 +108,7 @@ def extract(session: Session) -> WorkerRun:
     settle margin dropped, closing right up to the last message. Raises
     Refused without a story or a model."""
     if session.story_id is None:
-        raise Refused("No story yet — send a message first.")
+        raise Refused(NO_STORY_HINT)
     if session._client() is None:
         raise Refused(NO_MODEL_HINT)
     run = WorkerRun(session)
@@ -123,7 +123,7 @@ def merge(session: Session, raw: str) -> str:
     direction that would destroy an imported card's archive. Returns the
     confirmation."""
     if session.story_id is None:
-        raise Refused("No story yet — send a message first.")
+        raise Refused(NO_STORY_HINT)
     src_raw, sep, dst_raw = raw.partition(" into ")
     if not sep or not src_raw.strip() or not dst_raw.strip():
         raise Refused("Usage: /merge SOURCE into TARGET")
@@ -345,7 +345,7 @@ def view(session: Session) -> LoreView:
     """The memory loaded whole. Raises Refused without a story."""
     story_id = session.story_id
     if story_id is None:
-        raise Refused("No story yet — send a message first.")
+        raise Refused(NO_STORY_HINT)
     store = session._store
     ids = store.stories.get_messages_ids(story_id)
     scenes = tuple(store.scenes.get_current(story_id, ids))
@@ -394,7 +394,7 @@ def edit(session: Session, kind: FieldKind, target: int, text: str) -> str:
         store.journals.set_entry(target, text)
     elif kind == "state":
         if session.story_id is None:
-            raise Refused("No story yet — send a message first.")
+            raise Refused(NO_STORY_HINT)
         try:
             store.journals.set_state(
                 target, text, session._store.stories.get_messages_ids(session.story_id)

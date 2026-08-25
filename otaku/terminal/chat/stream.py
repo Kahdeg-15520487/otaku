@@ -20,11 +20,11 @@ from collections.abc import Iterator
 from typing import Any, Self
 
 from otaku.backend.api.play import Declined, Done, Failed, PlayEvent, Recorded, Text, Thinking
+from otaku.console.sound import ring
 from otaku.formatting import printable
 from otaku.terminal.chat.chat import Chat
 from otaku.terminal.tty import DIM, RESET, error_line
 from otaku.terminal.tty.render import message
-from otaku.terminal.tty.sound import ring
 from otaku.terminal.tty.spinner import Spinner
 from otaku.terminal.tty.typography import Streamer
 

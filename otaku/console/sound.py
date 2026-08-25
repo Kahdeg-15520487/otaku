@@ -2,12 +2,14 @@
 the terminal's own bell.
 
 `/set notification` decides WHETHER a landed reply rings; this is the
-how. No dependency for it: every platform ships a player, and a machine
-without one still has `BELL` — which is why this lives with the medium
-rather than beside its caller. The bell is the honest fallback rather
-than a lesser one: the emulator is what turns it into a beep, a flash,
-or a desktop notification, so the last word belongs to the terminal
-either way.
+how, for both frontends: the chat rings the terminal it is drawn in,
+and `otaku web` rings the terminal it was launched from — the same desk
+either way, which is why the sound lives HERE, in what both print
+through. No dependency for it: every platform ships a player, and a
+machine without one still has `BELL`. The bell is the honest fallback
+rather than a lesser one: the emulator is what turns it into a beep, a
+flash, or a desktop notification, so the last word belongs to the
+terminal either way.
 
 Which sound is `config.toml`'s `notification_sound`: "default" for the
 platform's own task-finished sound, or a path. A path that is not there
@@ -23,7 +25,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from otaku.terminal import tty
+from otaku.console import BELL
 
 DEFAULT = "default"  # the config value meaning "the platform's own"
 
@@ -82,7 +84,7 @@ def _macos() -> bool:
 def _bell() -> None:
     """BEL to the terminal, which decides what it means."""
     try:
-        sys.stdout.write(tty.BELL)
+        sys.stdout.write(BELL)
         sys.stdout.flush()
     except (OSError, ValueError):
         pass

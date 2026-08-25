@@ -15,7 +15,7 @@ from otaku.backend.formats import exports, imports
 from otaku.backend.paths import Paths
 from otaku.terminal.screens import lore as screen_lore
 from scenarios.support import server as scripted
-from scenarios.support.harness import App, launch, set_config
+from scenarios.support.harness import App, launch, set_config, set_config_provider
 from scenarios.support.screens import CTRL_S, DOWN, ENTER, ESC, TAB, run_screen
 from scenarios.support.server import numbered_script
 
@@ -647,6 +647,45 @@ class TestMerge:
         )
         assert "I saw the guest." in rebuild  # the union of entries...
         assert "Back again." in rebuild  # ...feeds the one memory
+
+
+class TestWarmUp:
+    """The post-close prompt warm-up exists for a LOCAL server's prefix
+    cache. A cloud provider has no per-session cache the request could
+    warm — sending it there bills a full context window for one token —
+    so the close warms local engines and never a hosted catalog."""
+
+    def test_a_local_close_warms_the_next_prompt(self, app: App) -> None:
+        remembered(app)
+        # The waiter is answered BEFORE the warm-up, so the request may
+        # still be in flight when /extract returns.
+        assert _warm_requests(app.server, within=5.0) == 1
+
+    def test_a_cloud_close_never_warms(self, server: scripted.ModelServer, tmp_path: Path) -> None:
+        # The same scripted server behind a provider the registry builds
+        # as a CLOUD client — the section's NAME picks the class.
+        root = tmp_path / "state"
+        set_config_provider(root, server, name="openrouter")
+        app = launch(root, server, spec="openrouter/test-model")
+        try:
+            remembered(app)
+            time.sleep(1.5)  # the window the local warm-up starts within
+            assert _warm_requests(app.server, within=0) == 0
+        finally:
+            app.close()
+
+
+def _warm_requests(server: scripted.ModelServer, *, within: float) -> int:
+    """How many warm-up requests the server has seen — the one-token
+    prefill is the only request the app ever caps at a single token.
+    Polls up to `within` seconds, because the warm-up runs on the
+    worker's thread after the pass's waiter is answered."""
+    deadline = time.monotonic() + within
+    while True:
+        seen = sum(1 for r in server.requests if r.get("max_tokens") == 1)
+        if seen or time.monotonic() >= deadline:
+            return seen
+        time.sleep(0.05)
 
 
 def remembered(app: App) -> int:

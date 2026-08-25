@@ -8,11 +8,13 @@ One path into a pass, so a forced close can never race an automatic
 one. The worker is the system log's owner and only writer: everything a
 pass does lands there.
 
-After a scene closes, the warm-up: the close rewrites the next
-request's shape, so the server's cached prefix is stale. The exact next
-request (rebuilt from the Job's snapshot) is sent with max_tokens=1
-while the user still reads — skipped once they moved on, because the
-prefix it would warm is one they are already past.
+After a scene closes, the warm-up — LOCAL engines only: the close
+rewrites the next request's shape, so the server's cached prefix is
+stale. The exact next request (rebuilt from the Job's snapshot) is sent
+with max_tokens=1 while the user still reads — skipped once they moved
+on, because the prefix it would warm is one they are already past, and
+never sent to a cloud provider, which has no per-session cache to warm
+and would bill the full window for the one token.
 """
 
 import contextlib
@@ -278,8 +280,17 @@ class Worker:
         """Prefill the server's cache with the request the next turn will
         send — the arguments mirror the session's `assemble_story` call
         because the prompt must match byte for byte; a warm-up of a
-        slightly different prefix caches nothing useful."""
+        slightly different prefix caches nothing useful.
+
+        LOCAL engines only: the warm-up exists for a local server's
+        prefix cache, so the close's rewrite of the window costs no
+        first-token wait. A hosted catalog keeps no per-session cache an
+        OpenAI-compatible request could warm — the same request there is
+        a full context window BILLED for one token, so it is never
+        sent."""
         assert self._deferred is not None
+        if not client.local:
+            return
         if not job.messages or self._deferred.is_set():
             return
         started = time.monotonic()

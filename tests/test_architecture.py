@@ -292,7 +292,7 @@ _PAGE = {
         "transcript",
         "transfer",
     },
-    "composer": {"commands", "dom", "table", "transcript"},
+    "composer": {"api", "commands", "dom", "table", "transcript"},
     "app": {
         "api",
         "browser",
@@ -316,3 +316,24 @@ def _page_imports() -> dict[str, set[str]]:
         path.stem: set(re.findall(r'from "\./(?:js/)?(\w+)\.js"', path.read_text()))
         for path in files
     }
+
+
+class TestWebApiSpec:
+    """`docs/web_api.yaml` is the HTTP surface as OpenAPI, maintained by
+    hand (CLAUDE.md, Web conventions). Its path list is held against the
+    code's own tables — the file read as text, like everything else this
+    module reads — so an endpoint added, renamed, or dropped without the
+    spec fails the suite. The schemas' truth stays the review's."""
+
+    def test_the_spec_lists_exactly_the_served_api(self) -> None:
+        text = (_ROOT / "docs" / "web_api.yaml").read_text()
+        spec = set(re.findall(r"^ {2}(/api/\S+):", text, re.M))
+        served = {"/api/alive", "/api/watch", "/api/play", "/api/command"}
+        # The reads: the table's rows plus the one read the server
+        # answers itself (the extraction poll never queues).
+        served |= {f"/api/read/{name}" for name in web_api.READS} | {"/api/read/extract"}
+        served |= {f"/api/do/{name}" for name in web_api.ACTIONS}
+        served |= {f"/api/do/{name}" for name in web_api.FLOWS}
+        assert spec == served, (
+            f"only in the spec: {sorted(spec - served)}; only in the code: {sorted(served - spec)}"
+        )

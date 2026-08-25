@@ -11,8 +11,7 @@ this package owns only the medium. Four rooms:
               browser, the lore browser
     tty/      the medium itself, no chat knowledge: the escape
               vocabulary, theme, typesetter, turn rendering, row math,
-              terminal queries, the pinned row, spinner, banner,
-              clipboard, the notification sound
+              terminal queries, the pinned row, spinner, clipboard
 
 Inside: tty ← {prompt, screens} ← chat — the arrows never point the
 other way.

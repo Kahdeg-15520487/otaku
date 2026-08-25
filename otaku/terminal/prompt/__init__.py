@@ -146,10 +146,10 @@ class _SessionHistory(History):
         self._session = session
 
     def load_history_strings(self) -> list[str]:
-        return self._session.recent_inputs()  # already most-recent-first
+        return self._session.history()  # already most-recent-first
 
     def store_string(self, string: str) -> None:
-        self._session.record_input(string)
+        self._session.record_history(string)
 
 
 class _CommandLexer(Lexer):

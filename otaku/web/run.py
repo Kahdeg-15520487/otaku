@@ -29,7 +29,7 @@ from typing import Any
 from otaku import __version__
 from otaku.backend.paths import Paths
 from otaku.backend.session import Session
-from otaku.console import banner, ticker
+from otaku.console import banner, sound, ticker
 from otaku.settings import config as config_file
 from otaku.settings.config import WebSettings
 from otaku.web import api
@@ -197,6 +197,11 @@ def serve(
                 record=session.record_crash,
                 working=session.status,
                 sayings=sayings.drain,
+                # A landed reply rings the terminal this server was
+                # launched from — one user, one desk: the browser and
+                # this shell sit in front of the same reader, and the
+                # sound machinery is the one the chat already rings.
+                ring=lambda: sound.ring(session.ui.notification_sound),
             ),
         )
     except OSError as e:

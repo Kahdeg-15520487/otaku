@@ -70,6 +70,7 @@ export const alive = () => get("/api/alive");
    object, not the ask.) */
 export const facts = () => get("/api/read/session");
 export const turns = () => get("/api/read/turns");
+export const history = () => get("/api/read/history");
 export const commands = () => get("/api/read/commands");
 export const stories = () => get("/api/read/stories");
 export const storyMessages = (id) => get(`/api/read/story?id=${id}`);

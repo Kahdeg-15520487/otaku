@@ -80,9 +80,10 @@ export function isToken(word) {
 }
 
 /** Everything after the token, verbatim from the first non-space
-    character — the same rule `backend.commands` follows on the other
-    side, so a screen and an operation read a line the same way. */
-export function argumentOf(line, spec) {
+    character — the page's copy of `backend.commands.raw_argument`,
+    cited: a screen and an operation must read a line the same way, and
+    this is the one rule the language barrier forces us to write twice. */
+export function rawArgument(line, spec) {
   if (!spec) return "";
   let rest = line;
   for (const _ of spec.token.split(" ")) {

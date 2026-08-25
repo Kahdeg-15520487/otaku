@@ -33,6 +33,8 @@ __all__ = [
     "CommandSpec",
     "find",
     "is_command",
+    "raw_argument",
+    "unknown_notice",
 ]
 
 # The explainer /help opens the playing group with — prose is the
@@ -148,9 +150,9 @@ COMMANDS: tuple[CommandSpec, ...] = (
 def find(token: str) -> CommandSpec | None:
     """The spec a typed line's head names — the longest match wins, so
     "/set think medium" finds the "/set think" row; None for an unknown
-    command (bare "/set" included: the family's usage line is composed
-    by the frontend FROM this table, never freehand). Inliner rows
-    (`… /ooc`) never match — they close a line, they do not open one."""
+    command (bare "/set" included: the family's usage line is `unknown_notice`'s
+    to compose, below). Inliner rows (`… /ooc`) never match — they close
+    a line, they do not open one."""
     words = token.split()
     for depth in (2, 1):
         head = " ".join(words[:depth])
@@ -158,3 +160,33 @@ def find(token: str) -> CommandSpec | None:
             if spec.token == head:
                 return spec
     return None
+
+
+def raw_argument(line: str, token: str) -> str:
+    """Everything after the spec's token, verbatim from the first
+    non-space character — free-text arguments keep the user's exact
+    spacing (split-and-rejoin would collapse it), and a fixed-width
+    slice disagrees the moment a line is typed untidily: "/set  think
+    medium" would hand an operation "k  medium". The ONE splitting rule
+    for both frontends' Python; the page keeps a cited copy in its own
+    language (`web/static/js/table.js`)."""
+    rest = line
+    for _ in token.split():
+        _, _, rest = rest.lstrip().partition(" ")
+    return rest.lstrip()
+
+
+def unknown_notice(line: str) -> str:
+    """The sentence for a line no row answers, shown by both frontends
+    verbatim — total over ANY string, because the web hands it whatever
+    arrived on the socket. The /set family's is a usage line composed
+    FROM the table, so it and the commands can never disagree."""
+    word, _, _ = line.strip().partition(" ")
+    if word == "/set":
+        forms = " | ".join(
+            f"{spec.token} {spec.args}".strip()
+            for spec in COMMANDS
+            if spec.token.startswith("/set ")
+        )
+        return f"Usage: {forms}"
+    return f"Unknown command: {word}. Type /help."

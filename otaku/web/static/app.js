@@ -17,7 +17,7 @@
 import * as api from "./js/api.js";
 import { closeAll } from "./js/browser.js";
 import { asksFirst, checkCoverage, run as runCommand } from "./js/commands.js";
-import { wire as wireComposer } from "./js/composer.js";
+import { primeHistory, wire as wireComposer } from "./js/composer.js";
 import { $, $$, watchTextareas } from "./js/dom.js";
 import { disconnected, showFacts, watchServer } from "./js/shell.js";
 import { load as loadTable } from "./js/table.js";
@@ -26,11 +26,17 @@ import { watchForChanges } from "./js/watch.js";
 
 async function boot() {
   try {
-    const [facts, table, turns] = await Promise.all([api.facts(), api.commands(), api.turns()]);
+    const [facts, table, turns, history] = await Promise.all([
+      api.facts(),
+      api.commands(),
+      api.turns(),
+      api.history(),
+    ]);
     loadTable(table);
     checkCoverage();
     showFacts(facts);
     showTurns(turns);
+    primeHistory(history);
     disconnected(false);
   } catch {
     disconnected();

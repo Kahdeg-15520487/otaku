@@ -69,6 +69,7 @@ __all__ = [
     "event",
     "export_document",
     "facts",
+    "history",
     "import_document",
     "info",
     "lore",
@@ -123,28 +124,17 @@ ANSWERS: dict[str, _Operation] = {
 def answering(line: str) -> Callable[[Session], dict[str, str]] | None:
     """The call a command line names — resolved WITHOUT the session, so
     the server answers an unknown token on its own thread, before
-    anything queues. None for a line no wired row matches; what the call
-    itself raises (Refused above all — a refusal IS the answer) stays
-    the caller's to answer."""
+    anything queues. None for a line no wired row matches — and the
+    sentence for that is `commands.unknown_notice(line)`, said by the server
+    as a refusal; what the call itself raises (Refused above all — a
+    refusal IS the answer) stays the caller's to answer."""
     spec = commands.find(line)
     operation = ANSWERS.get(spec.token) if spec else None
     if spec is None or operation is None:
         return None
-    argument = _argument(line, spec.token)
+    argument = commands.raw_argument(line, spec.token)
     call = operation
     return lambda session: {"notice": call(session, argument)}
-
-
-def _argument(line: str, token: str) -> str:
-    """Everything after the spec's token, verbatim from the first
-    non-space character — the terminal's own rule
-    (`terminal.chat.bindings._argument`), because a fixed-width slice
-    disagrees with it the moment a line is typed untidily: "/set  think
-    medium" would hand the backend "k  medium"."""
-    rest = line
-    for _ in token.split():
-        _, _, rest = rest.lstrip().partition(" ")
-    return rest.lstrip()
 
 
 def _undo(session: Session) -> str:
@@ -186,6 +176,13 @@ def facts(session: Session) -> dict[str, Any]:
 def turns(session: Session) -> list[dict[str, Any]]:
     """The open story, one row per stored turn, oldest first."""
     return [_turn(message) for message in session.messages]
+
+
+def history(session: Session) -> list[str]:
+    """The composer's ↑/↓ history, most recent first — the same
+    store-backed lines the terminal prompt walks, so a reload (or a
+    session on the other frontend) starts with the history it left."""
+    return session.history()
 
 
 def commands_table() -> dict[str, Any]:
@@ -460,6 +457,7 @@ _Read = Callable[[Session, Mapping[str, str]], Any]
 READS: dict[str, _Read] = {
     "session": lambda session, query: facts(session),
     "turns": lambda session, query: turns(session),
+    "history": lambda session, query: history(session),
     "commands": lambda session, query: commands_table(),
     "stories": lambda session, query: stories(session),
     "search": lambda session, query: search(session, query.get("q", "")),
@@ -542,6 +540,15 @@ def _save_field(session: Session, body: dict[str, Any]) -> str:
     return warning or f"Saved {attr.replace('_', ' ')} for {body['provider']}."
 
 
+def _record_history(session: Session, body: dict[str, Any]) -> str:
+    """One submitted composer line into the ↑/↓ history — what the
+    terminal prompt does at its own door, fired by the page beside every
+    submission (blanks and immediate repeats are the session's to skip).
+    Nothing to say back: the submission itself is the event."""
+    session.record_history(str(body.get("line", "")))
+    return ""
+
+
 ACTIONS: dict[str, _Action] = {
     "land": _land,
     "set-system": _set_system,
@@ -552,6 +559,7 @@ ACTIONS: dict[str, _Action] = {
     "switch-model": _switch_model,
     "load-model": _load_model,
     "save-field": _save_field,
+    "record-history": _record_history,
 }
 
 

@@ -13,6 +13,7 @@ from http.client import HTTPConnection
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from otaku.backend import commands
 from otaku.backend.session import THINK_MENU
 from scenarios.support.server import ModelServer
 from scenarios.web.conftest import Page
@@ -180,6 +181,25 @@ class TestCommands:
         answer = page.post("/api/command", {"line": "/undo"})
         assert answer["refused"] is True
         assert answer["notice"]
+
+    def test_an_unknown_command_is_refused_with_the_shared_sentence(self, page: Page) -> None:
+        # Both frontends refuse a typo with the same words: the wire
+        # carries exactly what the terminal composes — the /set family's
+        # answer being the usage line built from the table.
+        answer = page.post("/api/command", {"line": "/frobnicate"})
+        assert answer["refused"] is True
+        assert answer["notice"] == commands.unknown_notice("/frobnicate")
+        family = page.post("/api/command", {"line": "/set bogus on"})
+        assert family["notice"] == commands.unknown_notice("/set bogus on")
+
+    def test_the_composer_history_is_the_store_s(self, page: Page) -> None:
+        # The page records what was submitted and reads it back most
+        # recent first — the same lines the terminal prompt walks, so a
+        # reload starts with the history it left.
+        page.post("/api/do/record-history", {"line": "I listen at the culvert mouth."})
+        page.post("/api/do/record-history", {"line": "/stories"})
+        recent = page.get("/api/read/history")
+        assert recent[:2] == ["/stories", "I listen at the culvert mouth."]
 
 
 class TestTheFlows:

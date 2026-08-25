@@ -175,17 +175,26 @@ async function askPersona(card, token) {
   await landed(notice, { redraw: "always" });
 }
 
-export async function exportStory() {
+export async function exportStory(argument = "") {
   const answer = await api.exportDocument();
   if (!answer.text) {
     // Whatever it refused with, in its own words.
     tell(answer.notice, "otk-error");
     return;
   }
+  /* The table declares `/export [FILE]`: a typed name becomes the
+     download's filename — the `@` sigil stripped as every handler
+     strips it, and the document's suffix supplied when the name
+     carries none (the backend's own rule; `.md` is
+     `backend.api.transfer.EXPORT_SUFFIX`, which a page cannot import).
+     Bare `/export` keeps the name the backend composed. */
+  let named = argument.trim().replace(/^@/, "");
+  if (named && !/\.[^./\\]+$/.test(named)) named += ".md";
+  const filename = named || answer.name;
   const url = URL.createObjectURL(new Blob([answer.text], { type: "text/markdown" }));
   const link = document.createElement("a");
   link.href = url;
-  link.download = answer.name;
+  link.download = filename;
   // Connected before the click and revoked after the turn of the event
   // loop: a detached link is ignored by some browsers, and revoking in
   // the same tick cancels a download that has not started.
@@ -193,5 +202,5 @@ export async function exportStory() {
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 0);
-  tell(`Exported ${answer.name}.`);
+  tell(`Exported ${filename}.`);
 }
