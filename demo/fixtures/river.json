@@ -92,7 +92,7 @@
   "story_so_far": "The traveling cartographer Maren came down into the Meade valley to update her survey and found the river gone from its bed — dry as old bone, the ferry up on chocks. Tallis, the old ferryman and the only soul who stayed, told her the water left three nights ago and that it went uphill, and the scour marks along the empty channel bear him out. On the ferry deck he pointed to the weir at Harrow Lock as the place the river always fought, and under his finger the inked river on Maren's own map moved. She has drawn the true course in red and set out for the lock as dusk comes down.",
   "first_user": "I follow the post road down into the Meade valley, checking the hills against my survey as I go.",
   "model": "",
-  "updated_at": "2026-08-24T19:41:20+02:00",
+  "updated_at": "2026-08-26T11:28:39+02:00",
   "messages": 14,
   "open": true
  },
@@ -367,18 +367,21 @@
  "context": {
   "shape": {
    "head": 14,
-   "tail": 0,
    "middle": 0,
-   "kept": 14,
-   "summaries": 0,
+   "history": false,
    "rolled_up": 0,
-   "total_tokens": 1332,
+   "summaries": 0,
+   "tail": 0,
+   "tail_target": 150,
+   "tail_setting": 150,
    "system_tokens": 73,
    "transcript_tokens": 1259,
-   "context_max": 8192,
-   "used": 16
+   "limit": 7998,
+   "kept": 14,
+   "total_tokens": 1332,
+   "used": 17
   },
-  "lede": "Context preview — the exact request to be sent. Context summary:\n\n  ~1,332 tokens · 16% of the 8,192 window\n  system 73 · transcript 1,259\n  14 messages verbatim",
+  "lede": "Context preview — the exact request to be sent. Context summary:\n\n  ~1,332 tokens · 17% of the 7,998 limit\n  system 73 · transcript 1,259\n  14 messages verbatim",
   "parts": [
    {
     "role": "system",

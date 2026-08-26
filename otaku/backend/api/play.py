@@ -21,6 +21,7 @@ from otaku.backend.api.cards import drop_unplayed_card
 from otaku.backend.api.lore import build_job
 from otaku.backend.session import NO_MODEL_HINT, Refused, Session
 from otaku.context import syntax
+from otaku.context.assembler import ContextOverflowError
 from otaku.formatting import format_context, printable
 from otaku.providers import ProviderConfig, Stats
 from otaku.providers import Text as Text
@@ -199,7 +200,13 @@ def _reply_events(
         # once a model exists.
         yield Declined(NO_MODEL_HINT)
         return
-    wire = session._assemble(client.get_context_size(session.model)).messages
+    try:
+        wire = session.assemble(client.get_context_size(session.model)).messages
+    except ContextOverflowError as e:
+        # The turn is recorded — it is story — and plays once the limit
+        # is raised or more scenes close. The sentence is the assembler's.
+        yield Declined(str(e))
+        return
     content: list[str] = []
     held = ""  # a whitespace run the stream has not yet earned sending
     final: Stats | None = None

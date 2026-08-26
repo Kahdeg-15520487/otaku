@@ -238,6 +238,13 @@ class Session:
         return self._state.notification
 
     @property
+    def max_context(self) -> int:
+        """Tokens the prompt may use at most — config.toml's [context]
+        value, which /set max_context edits in place; 0 means the
+        model's whole window."""
+        return self._config.max_context
+
+    @property
     def full_model_name(self) -> str:
         """ "provider/model" as remembered, for display; "" without a
         model, a half-written spec included."""
@@ -338,6 +345,21 @@ class Session:
         with contextlib.suppress(Exception):
             self._store.history.add(text)
 
+    def assemble(self, context_max: int | None) -> AssembledPrompt:
+        """The next request — the one binding of the session's fields to
+        `assembler.assemble_story`, so the turn, the preview, and every
+        other call site can never disagree on what is sent. Raises
+        `ContextOverflowError` when the story cannot fit the limit even
+        fully degraded."""
+        return assembler.assemble_story(
+            self._store,
+            self._story_id,
+            system=self._system,
+            messages=list(self._messages),
+            shape=self._shape(),
+            context_max=context_max,
+        )
+
     # ---------- state primitives (backend package internal) ----------
 
     def _provider_config(self) -> ProviderConfig | None:
@@ -363,22 +385,10 @@ class Session:
         recap header and card template, read fresh each call."""
         return ContextShape(
             head_messages=self._config.head_messages,
-            tail_messages=self._config.tail_messages,
+            min_tail_messages=self._config.min_tail_messages,
+            max_context=self.max_context,
             recap_header=self._prompts.recap_header,
             card_framing=self._prompts.card_framing,
-        )
-
-    def _assemble(self, context_max: int | None) -> AssembledPrompt:
-        """The next request — the one binding of the session's fields to
-        `assembler.assemble_story`, so the turn, the preview, and every
-        other call site can never disagree on what is sent."""
-        return assembler.assemble_story(
-            self._store,
-            self._story_id,
-            system=self._system,
-            messages=list(self._messages),
-            shape=self._shape(),
-            context_max=context_max,
         )
 
     def _switch_to(self, story_id: int, messages: list[Message] | None = None) -> None:

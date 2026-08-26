@@ -140,6 +140,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("/set verbose", "on|off", "Show the stats line after each reply", "settings", CommandKind.OPERATION),
     CommandSpec("/set autocorrect", "on|off", "Settle a character name you type in /you and /me commands to the cast's own spelling", "settings", CommandKind.OPERATION),
     CommandSpec("/set notification", "on|off", "Play a sound when a reply lands (the sound is configs/config.toml's notification_sound)", "settings", CommandKind.OPERATION),
+    CommandSpec("/set max_context", "<tokens>", "Cap the prompt at this many tokens; 0 = the model's whole window", "settings", CommandKind.OPERATION),
     # Meta
     CommandSpec("/help", "", "Show this help", "meta", CommandKind.INTERACTIVE),
     CommandSpec("/bye", "", "Exit", "meta", CommandKind.INTERACTIVE),

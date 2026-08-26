@@ -1,11 +1,12 @@
 """The model and the knobs: /model, /set think, /set verbose,
-/set parameter, /set notification — and what each remembers across a
-relaunch.
+/set parameter, /set notification, /set max_context — and what each
+remembers across a relaunch.
 
 The design: `/set think`, `/set verbose` and `/set notification` are
-session-wide and persist in the app's own state; `/set parameter`
-follows the MODEL it was set on; a model switch keeps the story context
-and is remembered as last used.
+session-wide and persist in the app's own state; `/set max_context`
+edits config.toml's [context] value surgically — its one home; `/set
+parameter` follows the MODEL it was set on; a model switch keeps the
+story context and is remembered as last used.
 """
 
 import contextlib
@@ -251,6 +252,39 @@ class TestNotification:
         app.play("/set notification on")
         app.play("I enter the hall.")
         assert rung == ["default"]
+
+
+class TestMaxContext:
+    """The prompt-size cap: ONE home, config.toml's [context] — /set
+    max_context edits the file surgically (backed up, comment intact)
+    and the session takes the value in the same call."""
+
+    def test_the_set_value_lands_in_config_toml_and_is_remembered(self, app: App) -> None:
+        app.play("/set max_context 32000")
+        migrated = app.paths.config_file.read_text()
+        assert "max_context = 32000" in migrated
+        assert migrated.count("max_context") == 1  # edited in place, not appended
+        assert "0 = the model's whole window" in migrated  # the comment rides it
+        assert any(app.paths.config_backups_dir.iterdir())  # the pre-edit file waits
+        relaunched = launch(app.paths.root, app.server)
+        assert relaunched.session.max_context == 32000
+        relaunched.close()
+
+    def test_a_bare_set_reports_and_changes_nothing(self, app: App, capsys) -> None:
+        capsys.readouterr()
+        app.play("/set max_context")
+        assert "65,536 tokens" in capsys.readouterr().out
+        assert "max_context = 65536" in app.paths.config_file.read_text()
+
+    def test_a_story_over_the_cap_declines_with_the_sentence(self, app: App, capsys) -> None:
+        for i in range(8):
+            app.play(f"Turn number {i}. " + "x" * 8000)
+        app.play("/set max_context 2000")
+        before = len(app.server.requests)
+        capsys.readouterr()
+        app.play("We continue.")
+        assert len(app.server.requests) == before  # nothing was sent
+        assert "does not fit the context limit" in capsys.readouterr().out
 
 
 class TestManagedPicker:

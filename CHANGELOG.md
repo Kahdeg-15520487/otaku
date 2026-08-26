@@ -9,10 +9,14 @@ changes.
 
 **TL;DR**
 
+- Added web UI: `otaku web` opens the same session in a browser — the second frontend, over the
+  same stories, the same lore and the same commands.
+- The context builder is reworked from the ground up, after `docs/context_design.md`; the new
+  `max_context` setting keeps the prompt inside the window models still handle well for roleplay.
 - otaku is restructured around a frontend-agnostic core: same app, same commands, same data — but
   the story machinery no longer belongs to the terminal.
-- `otaku web` opens the same session in a browser: the second frontend, over the same stories, the
-  same lore and the same commands.
+- Prompt caching for OpenRouter.
+- Sound notifications.
 
 **Full version:**
 
@@ -38,6 +42,15 @@ changes.
   It listens on loopback and answers only requests addressed to this machine, and a write must
   come from otaku's own page: a page on another site cannot drive your otaku from the browser you
   left it open in.
+- New `max_context` setting (`[context]` in config.toml, 65,536 tokens by default, 0 = the
+  model's whole window) caps the prompt whatever the model's window advertises — the effective
+  context for roleplay falls far short of the advertised one. Also settable as `/set max_context`
+  — in the web settings panel too — which edits that one config.toml line surgically, the
+  pre-edit file backed up. When the story outgrows the limit, the oldest scene summaries fold
+  into the story-so-far; when even that is not enough, the verbatim tail steps down (never below
+  50 messages); a story that cannot fit even then is declined with directions instead of silently
+  trimmed. The context preview shows each stage: the story-so-far as its own cell before the
+  scene summaries, and a tail aiming below the configured count says the window forced it.
 - `/set notification on|off` — off by default — plays a sound when a reply lands, for when you look
   away mid-generation. Which sound is `configs/config.toml`'s `notification_sound`: `"default"` is
   the platform's own (macOS's Glass, the freedesktop theme's on Linux), or name a file of your own.
@@ -100,6 +113,9 @@ changes.
 - The mascot beside the banner is redrawn. Without colour it is now the same picture rather than a
   different one: the sprite is cut into ink and paper instead of falling back to an ASCII face, so
   a piped or `NO_COLOR` session gets the mark at the same size, in the same place.
+- `[context] tail_messages` is now `min_tail_messages`, saying what it always meant: the tail
+  never holds fewer than it — a scene ending exactly at the tail's first message stays verbatim,
+  its whole span riding with the tail. Config.toml renames the key itself, the set value kept.
 
 ### Fixed
 - A sealing key that cannot be read no longer ends the launch with a traceback: the provider it

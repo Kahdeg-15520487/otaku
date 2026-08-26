@@ -22,15 +22,17 @@ export async function openContext() {
     "context",
     "Context preview",
     out,
-    `~${count(shape.total_tokens)} tokens · ${shape.used}% of ${count(shape.context_max)}`,
+    `~${count(shape.total_tokens)} tokens · ${shape.used}% of ${count(shape.limit)}`,
   );
 }
 
 function drawWindow(shape) {
   /* What the request is MADE of, at a glance: the verbatim head and
-     tail with the summarized middle standing between them. A story
-     short enough to be sent whole has no middle and no diagram to
-     draw — one segment says the whole truth. */
+     tail, and between them the story so far (only when old summaries
+     were replaced by it) and the scene summaries. A story short enough
+     to be sent whole has no middle and no diagram to draw — one segment
+     says the whole truth. A tail aiming below the configured target
+     says so in its caption: the window forced it. */
   const box = element("div", "otk-window");
   box.setAttribute("aria-label", "Context window shape");
   const segment = (modifier, n, caption) => {
@@ -42,14 +44,28 @@ function drawWindow(shape) {
     box.append(segment("verbatim", String(shape.kept), "verbatim"));
     return box;
   }
-  const summaries = shape.rolled_up
-    ? `${shape.summaries} scene summaries + a rollup`
-    : `${shape.summaries} scene summaries`;
-  box.append(
-    segment("verbatim", String(shape.head), "verbatim"),
-    segment("summarized", summaries, `${count(shape.middle)} messages in between`),
-    segment("verbatim", String(shape.tail), "verbatim"),
-  );
+  const tailCaption =
+    shape.tail_target < shape.tail_setting
+      ? `verbatim · reduced from ${shape.tail_setting} to fit`
+      : "verbatim";
+  box.append(segment("verbatim", String(shape.head), "verbatim"));
+  if (shape.history) {
+    const scenes = shape.rolled_up === 1 ? "scene" : "scenes";
+    const caption = shape.summaries
+      ? `${shape.rolled_up} ${scenes} rolled up`
+      : `${shape.rolled_up} ${scenes} · ${count(shape.middle)} messages in between`;
+    box.append(segment("summarized", "story so far", caption));
+  }
+  if (shape.summaries || !shape.history) {
+    box.append(
+      segment(
+        "summarized",
+        `${shape.summaries} scene summaries`,
+        `${count(shape.middle)} messages in between`,
+      ),
+    );
+  }
+  box.append(segment("verbatim", String(shape.tail), tailCaption));
   return box;
 }
 

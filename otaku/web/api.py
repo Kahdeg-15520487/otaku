@@ -112,6 +112,7 @@ ANSWERS: dict[str, _Operation] = {
     "/set verbose": api_settings.set_verbose,
     "/set autocorrect": api_settings.set_autocorrect,
     "/set notification": api_settings.set_notification,
+    "/set max_context": api_settings.set_max_context,
     # INTERACTIVE rows whose TYPED form is a plain call, answered here
     # while the bare token opens a screen — exactly as the terminal's
     # `/model PROVIDER/MODEL` switches and its bare `/model` opens the
@@ -372,6 +373,8 @@ def settings(session: Session) -> dict[str, Any]:
         "verbose": session.verbose,
         "autocorrect": session.autocorrect,
         "notification": session.notification,
+        # Tokens the prompt may use at most; 0 = the model's whole window.
+        "max_context": session.max_context,
         "model": session.model,
         "parameters": [
             {"name": name, "value": str(session.params.get(name, "")), "type": kind.__name__}
@@ -386,8 +389,12 @@ def context(session: Session) -> dict[str, Any]:
     draws the role markers as the design draws them, around the report's
     own text."""
     report = reports.context(session)
+    shape = report.shape
     return {
-        "shape": asdict(report.shape),
+        # The derived numbers ride along: `asdict` sees fields only, and
+        # the page draws kept/total/used exactly as the terminal says them.
+        "shape": asdict(shape)
+        | {"kept": shape.kept, "total_tokens": shape.total_tokens, "used": shape.used},
         "lede": report.summary,
         "parts": [asdict(part) for part in report.parts],
     }

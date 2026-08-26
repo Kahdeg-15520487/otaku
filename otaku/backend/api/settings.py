@@ -1,14 +1,22 @@
 """The session's knobs: the /set family.
 
 Values persist where they belong — state.toml for session-wide toggles,
-models.toml per model — and never in the user-owned config. Every
-operation takes the raw argument text and parses it itself; every one
-returns the confirmation to show and raises Refused for what it
-declines.
+models.toml per model, and never in the user-owned config, with ONE
+exception: `max_context` LIVES in config.toml's [context] beside
+head_messages and min_tail_messages (docs/context_design.md's home for it),
+so /set max_context edits that file surgically — the picker's
+provider-field saves are the precedent — rather than shadowing it from
+a second file. Every operation takes the raw argument text and parses
+it itself; every one returns the confirmation to show and raises
+Refused for what it declines.
 """
+
+from dataclasses import replace
 
 from otaku.backend.session import KNOWN_PARAMS, NO_MODEL_HINT, Refused, Session
 from otaku.settings import models as models_file
+from otaku.settings import row
+from otaku.settings.migrations import surgery
 from otaku.settings.state import THINK_DEFAULT, THINK_LEVELS
 
 _ON = ("on", "true", "yes")
@@ -80,6 +88,49 @@ def set_notification(session: Session, raw: str) -> str:
         else:
             raise Refused("Usage: /set notification on|off")
     return f"Notification: {'on' if session.notification else 'off'}."
+
+
+def set_max_context(session: Session, raw: str) -> str:
+    """Tokens the prompt may use at most: a number, 0 = the model's
+    whole window; "" reports where it stands. The one /set that edits
+    config.toml — [context] is the setting's single home — surgically,
+    the pre-edit file backed up, the session updated in the same call;
+    a write that could not land is SAID, not swallowed."""
+    value = raw.strip().replace(",", "").replace("_", "")
+    if value:
+        try:
+            tokens = int(value)
+        except ValueError:
+            raise Refused(
+                "Usage: /set max_context <tokens> — 0 = the model's whole window"
+            ) from None
+        if tokens < 0:
+            raise Refused("Max context cannot be negative — 0 means the model's whole window.")
+        changed = tokens != session.max_context
+        session._config = replace(session._config, max_context=tokens)
+        # fmt: off
+        if changed and not surgery.update_config(
+            session._paths.config_file,
+            session._paths.config_backups_dir,
+            [
+                surgery.set_key("context", "max_context", row(
+                    f"max_context = {tokens}",
+                    "the prompt may use at most this many tokens; 0 = the model's whole window",
+                ))
+            ],
+        ):
+            return (
+                f"Max context: {_stands(tokens)} — this session only, "
+                f"config.toml could not be written."
+            )
+        # fmt: on
+    return f"Max context: {_stands(session.max_context)}."
+
+
+def _stands(tokens: int) -> str:
+    if tokens == 0:
+        return "0 (the model's whole window)"
+    return f"{tokens:,} tokens"
 
 
 def set_parameter(session: Session, raw: str) -> str:

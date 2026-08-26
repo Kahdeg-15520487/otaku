@@ -31,6 +31,7 @@ _SPELLINGS: dict[str, tuple[str, str]] = {
     "/set verbose": ("", ""),
     "/set autocorrect": ("", ""),
     "/set notification": ("", ""),
+    "/set max_context": ("", ""),
 }
 
 # The keys the prompt itself answers to — no command of their own, so

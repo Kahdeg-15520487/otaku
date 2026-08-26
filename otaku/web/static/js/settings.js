@@ -50,6 +50,16 @@ export async function openSettings(answered = "") {
     toggles.append(toggle);
   }
 
+  const context = formSection("Context", "config.toml's [context]");
+  // One number, edited in place like a parameter row; an emptied field
+  // just cancels — 0 is the spelled form of "the model's whole window".
+  const limitRow = fieldRow("max_context", contextLabel(knobs.max_context));
+  limitRow.onclick = () =>
+    editField(limitRow, "max_context", String(knobs.max_context), (value) =>
+      value ? runSet(`/set max_context ${value}`) : openSettings(),
+    );
+  context.append(limitRow);
+
   const params = formSection("Parameters", `per model · ${knobs.model || "no model"}`);
   /* The same box the lore browser's fields sit in, in the shape a column
      of numbers wants: tighter rows and a fixed value cell on the right.
@@ -71,7 +81,7 @@ export async function openSettings(answered = "") {
   const form = element("form", "otk-form");
   const left = element("div", "otk-form__col");
   const right = element("div", "otk-form__col");
-  left.append(think, toggles);
+  left.append(think, toggles, context);
   right.append(params);
   form.append(left, right);
   $(".otk-popup__body", popup).replaceChildren(form);
@@ -82,6 +92,32 @@ export async function openSettings(answered = "") {
   footnote(popup, "");
   formKeys(popup);
   popup.showModal();
+}
+
+function contextLabel(tokens) {
+  // 0 is a real value — the model's whole window — and reads as one.
+  return tokens === 0 ? "0 (model window)" : String(tokens);
+}
+
+function editField(row, name, value, save) {
+  /* A parameter row's edit-in-place, for a field that is not a model
+     parameter: same field, same keys, its own /set line. */
+  const editing = element("div", "otk-field-row is-editing");
+  const input = element("input", "otk-input");
+  input.type = "text";
+  input.value = value;
+  editing.append(span("otk-field-row__name", name), input);
+  row.replaceWith(editing);
+  input.focus();
+  input.select();
+  editingKeys(input, {
+    saves: (event) => event.key === "Enter",
+    save: () => guard(save)(input.value.trim()),
+    cancel: () => {
+      editing.replaceWith(row);
+      row.focus();
+    },
+  });
 }
 
 function editParameter(row, parameter) {

@@ -426,6 +426,59 @@ class TestConfigMigration:
         assert len(backups) == 1
         assert "[ui]" not in backups[0].read_text()
 
+    def test_an_old_context_section_gains_the_max_context_row(
+        self, server: ModelServer, tmp_path
+    ) -> None:
+        """A config.toml from before the context budget comes out of the
+        launch with `max_context` spelled in its [context] section — how
+        an upgrader learns the setting exists — and a second launch
+        changes nothing."""
+        app = launch(tmp_path / "state", server)
+        app.close()
+        config_file = app.paths.config_file
+        old = "\n".join(
+            line
+            for line in config_file.read_text().splitlines()
+            if not line.startswith("max_context")
+        )
+        config_file.write_text(old + "\n")
+
+        cfg, _providers = load_config(app.paths)
+        migrated = config_file.read_text()
+        assert "max_context = 65536" in migrated
+        assert "0 = the model's whole window" in migrated  # the comment rides it
+        assert migrated.index("[context]") < migrated.index("max_context")
+        assert cfg.max_context == 65536
+        backups = sorted(app.paths.config_backups_dir.iterdir())
+        load_config(app.paths)
+        assert config_file.read_text() == migrated
+        assert sorted(app.paths.config_backups_dir.iterdir()) == backups
+
+    def test_tail_messages_renames_to_min_tail_and_keeps_its_value(
+        self, server: ModelServer, tmp_path
+    ) -> None:
+        """A config.toml still spelling `tail_messages` comes out of the
+        launch with the key renamed in place — the user's own value
+        carried over, the new comment riding it, the old key gone."""
+        app = launch(tmp_path / "state", server)
+        app.close()
+        config_file = app.paths.config_file
+        old = "\n".join(
+            "tail_messages = 77" if line.startswith("min_tail_messages") else line
+            for line in config_file.read_text().splitlines()
+        )
+        assert "tail_messages = 77" in old
+        config_file.write_text(old + "\n")
+
+        cfg, _providers = load_config(app.paths)
+        migrated = config_file.read_text()
+        assert "min_tail_messages = 77" in migrated
+        assert "tail_messages = 77\n" not in migrated  # the old spelling is gone
+        assert "at least this many recent messages" in migrated  # the comment rides it
+        assert cfg.min_tail_messages == 77
+        load_config(app.paths)  # converged: a second launch changes nothing
+        assert config_file.read_text() == migrated
+
     def test_an_old_openrouter_section_gains_the_prompt_cache_row(
         self, server: ModelServer, tmp_path
     ) -> None:

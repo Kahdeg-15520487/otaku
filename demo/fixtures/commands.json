@@ -20,6 +20,7 @@
   "/model",
   "/new",
   "/set autocorrect",
+  "/set max_context",
   "/set notification",
   "/set parameter",
   "/set think",
@@ -243,6 +244,13 @@
    "token": "/set notification",
    "args": "on|off",
    "description": "Play a sound when a reply lands (the sound is configs/config.toml's notification_sound)",
+   "group": "settings",
+   "kind": "operation"
+  },
+  {
+   "token": "/set max_context",
+   "args": "<tokens>",
+   "description": "Cap the prompt at this many tokens; 0 = the model's whole window",
    "group": "settings",
    "kind": "operation"
   },

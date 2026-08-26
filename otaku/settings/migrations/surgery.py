@@ -106,6 +106,32 @@ def set_key(section: str, key: str, line: str) -> Migration:
     return apply
 
 
+def rename_key(section: str, old: str, new: str, render: Callable[[object], str]) -> Migration:
+    """A migration renaming `[section]`'s `old = value` key to `new`, the
+    value carried over: the old line is replaced in place by
+    `render(value)` — the freshly rendered `new = value` row, comment
+    included — so a hand-set value survives its setting's rename. A file
+    already holding `new`, or without `old`, is untouched; a render that
+    produces invalid TOML is discarded by `apply_migrations`' parse
+    check, never written."""
+
+    def apply(text: str) -> str:
+        parsed = parse(text)
+        table = _table(parsed, section) if parsed is not None else None
+        if not isinstance(table, dict) or old not in table or new in table:
+            return text
+        lines = text.splitlines()
+        span = _section_span(lines, section)
+        if span is None:
+            return text
+        at = _key_index(lines, span, old)
+        if at is None:
+            return text
+        return joined([*lines[:at], render(table[old]), *lines[at + 1 :]])
+
+    return apply
+
+
 def drop_key_everywhere(key: str) -> Migration:
     """A migration removing a retired `key = value` line from every
     top-level section — the sweep a homogeneous file needs

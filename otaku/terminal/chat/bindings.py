@@ -59,6 +59,7 @@ OPERATIONS: dict[str, Operation] = {
     "/set verbose": api_settings.set_verbose,
     "/set autocorrect": api_settings.set_autocorrect,
     "/set notification": api_settings.set_notification,
+    "/set max_context": api_settings.set_max_context,
 }
 
 

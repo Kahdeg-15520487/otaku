@@ -67,7 +67,8 @@ class Config:
     web_port: int = 9600
     # [context]
     head_messages: int = 20
-    tail_messages: int = 150
+    min_tail_messages: int = 150
+    max_context: int = 65536
     # [lore_extraction]
     lore_enabled: bool = True
     idle_seconds: float = 300.0
@@ -101,7 +102,8 @@ class Config:
             "",
             "[context]",
             row(f"head_messages = {self.head_messages}", "opening messages kept verbatim in the prompt"),
-            row(f"tail_messages = {self.tail_messages}", "recent messages kept verbatim"),
+            row(f"min_tail_messages = {self.min_tail_messages}", "at least this many recent messages kept verbatim"),
+            row(f"max_context = {self.max_context}", "the prompt may use at most this many tokens; 0 = the model's whole window"),
             "",
             "[lore_extraction]",
             row(f"enabled = {toml_scalar(self.lore_enabled)}", "extract lore on idle (/extract always works)"),
@@ -186,7 +188,8 @@ def load(path: Path) -> Config:
             # otaku on one machine names its own port here.
             web_port=min(65535, max(1, _int(web, "port", 9600))),
             head_messages=max(0, _int(context, "head_messages", 20)),
-            tail_messages=max(1, _int(context, "tail_messages", 150)),
+            min_tail_messages=max(1, _int(context, "min_tail_messages", 150)),
+            max_context=max(0, _int(context, "max_context", 65536)),
             lore_enabled=bool(lore.get("enabled", True)),
             idle_seconds=max(0.0, _float(lore, "idle_seconds", 300.0)),
             scene_min_chars=max(1, _int(lore, "scene_min_chars", 6000)),

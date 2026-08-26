@@ -458,14 +458,18 @@ class TestRecap:
     def test_the_recap_reaches_the_wire_after_a_scene_closes(self, server, tmp_path) -> None:
         # A window of head 1 + tail 1, so even a short story outgrows it
         # and the closed scene must stand in as the recap.
-        set_config(tmp_path / "state", head_messages=1, tail_messages=1)
+        set_config(tmp_path / "state", head_messages=1, min_tail_messages=1)
         app = launch(tmp_path / "state", server)
         try:
             for i in range(6):
                 app.play(f"Turn number {i}.")
             app.play("/extract")
+            # Two turns past the close: the tail is a MINIMUM, so the
+            # scene must end strictly before its first message to be
+            # summarized — one turn of clearance puts it there.
             app.play("We continue.")
-            wire = scripted.chat_request(app.server, "We continue.")
+            app.play("We walk on.")
+            wire = scripted.chat_request(app.server, "We walk on.")
             sent = "\n".join(m["content"] for m in wire["messages"])
             assert "[The story so far — the scenes between these moments:]" in sent
             assert "A guest came in and met the Keeper." in sent
@@ -479,7 +483,7 @@ class TestRecap:
             scene_min_chars=40,
             scene_min_messages=4,
             head_messages=2,
-            tail_messages=3,
+            min_tail_messages=3,
         )
         app = launch(tmp_path / "state", server)
         server.script = numbered_script()
@@ -506,45 +510,53 @@ class TestRecap:
 
     def test_an_overgrown_recap_leads_with_the_story_so_far(self, server, tmp_path) -> None:
         # Summaries too big for the recap's budget share: the oldest fall
-        # out and the story-so-far rollup stands in for them — the story
-        # never outgrows its own recap.
+        # out and the story-so-far THROUGH the last dropped scene stands
+        # in for them — the story never outgrows its own recap, and the
+        # summaries still riding verbatim are not retold inside it.
         set_config(
             tmp_path / "state",
             settle_messages=0,
             scene_min_chars=40,
             scene_min_messages=4,
             head_messages=2,
-            tail_messages=3,
+            min_tail_messages=3,
+            max_context=3000,
         )
         app = launch(tmp_path / "state", server)
         server.script = numbered_script(summary_chars=4000)
         try:
-            played_chapters(app, 6)
+            played_chapters(app, 8)
             app.play("/extract")
             app.play("We walk on.")
 
             wire = scripted.chat_request(app.server, "We walk on.")
             sent = "\n".join(m["content"] for m in wire["messages"])
-            assert scripted.STORY_SO_FAR in sent  # the rollup, standing in
-            assert "Scene summary 2." in sent  # the newest covered summary stays
-            assert "Scene summary 1." not in sent  # the oldest fell out
+            assert scripted.STORY_SO_FAR in sent  # the last dropped scene's rollup
+            assert "Scene summary 3." in sent  # the newest covered summary stays
+            assert "Scene summary 1." not in sent  # covered by the rollup instead
+            assert "Scene summary 2." not in sent  # covered by the rollup instead
         finally:
             app.close()
 
-    def test_the_verbatim_head_survives_overflow_without_scenes(self, server, tmp_path) -> None:
-        # No scene has closed, and the story outgrows the window: the
-        # opening stays verbatim — the middle is what overflows.
+    def test_over_the_limit_without_scenes_the_turn_is_declined(
+        self, server, tmp_path, capsys
+    ) -> None:
+        # No scene has closed and the story outgrows the limit: nothing
+        # can degrade, so the turn records and the reply is declined with
+        # the sentence naming the remedies — never a silently dropped
+        # middle.
         set_config(tmp_path / "state", head_messages=2)
         app = launch(tmp_path / "state", server)
         try:
             for i in range(8):
                 app.play(f"Turn number {i}. " + "x" * 8000)
+            before = len(app.server.requests)
+            capsys.readouterr()
             app.play("We continue.")
-            wire = scripted.chat_request(app.server, "We continue.")
-            sent = "\n".join(m["content"] for m in wire["messages"])
-            assert "Turn number 0." in sent  # the opening, verbatim
-            assert "Turn number 3." not in sent  # the middle overflowed
-            assert "Turn number 7." in sent  # the recent tail stays
+            assert len(app.server.requests) == before  # nothing was sent
+            assert "does not fit the context limit" in capsys.readouterr().out
+            chain = app.store.stories.get_messages(app.session.story_id)
+            assert chain[-1].body == "We continue."  # the turn is story and stands
         finally:
             app.close()
 

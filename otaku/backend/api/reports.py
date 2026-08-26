@@ -12,31 +12,46 @@ from dataclasses import dataclass
 
 from otaku.backend.api import stories
 from otaku.backend.session import NO_MODEL_HINT, Refused, Session
-from otaku.context.assembler import AssembledPrompt
+from otaku.context.assembler import AssembledPrompt, ContextOverflowError
 from otaku.formatting import format_context, format_size, pretty_path, printable, truncate_label
 from otaku.providers import CLIENTS, CloudClient, ProviderConfig
 
 
 @dataclass(frozen=True)
 class WindowShape:
-    """What the next request is MADE of — the counts a diagram is drawn
-    from and the summary line is written from. `middle` is the messages
-    the summaries stand in for, never a third slice of what is sent.
+    """What the next request is MADE of — the facts the diagram and the
+    summary line are drawn from, in the window's own order: the verbatim
+    head, the middle and how the recap tells it, the verbatim tail, and
+    what it all costs against the limit.
 
     Not the assembler's `ContextShape`, which is the SETTING (how many
     to keep); this is what came of it."""
 
-    head: int
-    tail: int
-    middle: int
-    kept: int  # messages sent verbatim, head and tail together
-    summaries: int
-    rolled_up: int  # older scenes folded into the rollup, 0 without one
-    total_tokens: int
+    head: int  # opening messages, verbatim
+    middle: int  # messages the recap stands in for — never a third slice of what is sent
+    history: bool  # a story-so-far opens the recap (old summaries folded into it)
+    rolled_up: int  # the scenes it covers; 0 without one
+    summaries: int  # scene summaries riding after it
+    tail: int  # recent messages, verbatim
+    tail_target: int  # the tail aimed for — below tail_setting, the limit forced it
+    tail_setting: int  # the configured min_tail_messages
     system_tokens: int
     transcript_tokens: int
-    context_max: int
-    used: int  # percent of the window
+    limit: int  # what the prompt measured against: min(window, max_context) - reply reserve
+
+    @property
+    def kept(self) -> int:
+        """Messages sent verbatim — head and tail together."""
+        return self.head + self.tail
+
+    @property
+    def total_tokens(self) -> int:
+        return self.system_tokens + self.transcript_tokens
+
+    @property
+    def used(self) -> int:
+        """Percent of the limit."""
+        return round(100 * self.total_tokens / self.limit) if self.limit else 0
 
 
 @dataclass(frozen=True)
@@ -76,7 +91,11 @@ def context(session: Session) -> ContextReport:
     a question that needs no server."""
     client = session._client()
     window = client.get_context_size(session.model) if client is not None else None
-    prompt = session._assemble(window)
+    try:
+        prompt = session.assemble(window)
+    except ContextOverflowError as e:
+        # The preview of a request that would not be sent is its refusal.
+        raise Refused(str(e)) from e
     shape = _shape(prompt)
     return ContextReport(
         shape=shape,
@@ -365,16 +384,16 @@ def _shape(prompt: AssembledPrompt) -> WindowShape:
     the summary line stand on, done once."""
     return WindowShape(
         head=prompt.head_count,
-        tail=prompt.transcript_kept - prompt.head_count,
         middle=prompt.transcript_total - prompt.transcript_kept,
-        kept=prompt.transcript_kept,
-        summaries=prompt.scenes_summarized,
+        history=bool(prompt.history),
         rolled_up=prompt.scenes_rolled_up,
-        total_tokens=prompt.total_tokens,
+        summaries=prompt.scenes_summarized,
+        tail=prompt.transcript_kept - prompt.head_count,
+        tail_target=prompt.tail_target,
+        tail_setting=prompt.tail_setting,
         system_tokens=prompt.system_tokens,
         transcript_tokens=prompt.transcript_tokens,
-        context_max=prompt.context_max,
-        used=round(100 * prompt.total_tokens / prompt.context_max) if prompt.context_max else 0,
+        limit=prompt.limit,
     )
 
 
@@ -382,31 +401,41 @@ def _summary(shape: WindowShape) -> str:
     """What the request is made of, in words — the same arithmetic the
     diagram is drawn from, said in the report's own sentences."""
     lines = ["Context preview — the exact request to be sent. Context summary:", ""]
-    lines.append(
-        f"  ~{shape.total_tokens:,} tokens · {shape.used}% of the {shape.context_max:,} window"
-    )
+    lines.append(f"  ~{shape.total_tokens:,} tokens · {shape.used}% of the {shape.limit:,} limit")
     if shape.system_tokens:
         lines.append(f"  system {shape.system_tokens:,} · transcript {shape.transcript_tokens:,}")
     # The summaries are not a third slice of the transcript: they STAND IN
     # for the messages between head and tail. Naming that count is what
     # makes the line add up to the story's length instead of to nothing.
-    if shape.rolled_up:
-        # Displaced summaries are named, not folded in: the rollup covers
-        # the dropped scenes, and the line says so or the count would
+    if shape.history:
+        # Case 4: old summaries folded into the story so far. Displaced
+        # summaries are named, not folded in: the story so far covers
+        # the replaced scenes, and the line says so or the count would
         # claim the kept summaries cover the whole middle.
         plural = "s" if shape.rolled_up != 1 else ""
         lines.append(
             f"  {shape.head} head + {shape.tail} tail verbatim, plus {shape.middle} middle "
-            f"inserted in between as a rollup and {shape.summaries} last scene "
-            f"summaries. the rollup includes {shape.rolled_up} older scene{plural}"
+            f"inserted in between as the story so far ({shape.rolled_up} "
+            f"scene{plural}) and {shape.summaries} scene summaries"
         )
     elif shape.summaries:
+        # Case 3: the covered middle rides as its scene summaries.
         lines.append(
             f"  {shape.head} head + {shape.tail} tail verbatim, plus {shape.middle} middle "
             f"inserted in between as {shape.summaries} scene summaries"
         )
     else:
+        # Cases 1-2: a short story, or nothing covering the middle —
+        # everything verbatim.
         lines.append(f"  {shape.kept} messages verbatim")
+    if shape.tail_target < shape.tail_setting:
+        # Case 5: the tail stepped down so the context could fit (a
+        # case-6 refusal never reaches this report — the preview refuses
+        # with the same sentence the turn would).
+        lines.append(
+            f"  the tail aims at {shape.tail_target} messages instead of the configured "
+            f"{shape.tail_setting}, so the context fits the limit"
+        )
     return "\n".join(lines)
 
 

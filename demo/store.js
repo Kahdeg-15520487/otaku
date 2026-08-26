@@ -16,6 +16,7 @@ const MODELS = [
   { name: "scripted-model-mini", loaded: false, can_load_unload: true, size: "1.9 GB", context: "32K" },
 ];
 const WINDOW = 8192;
+const LIMIT = WINDOW - 1024; // approximates the real assembler's adaptive reply reserve
 
 export const INSTALL = "install otaku from otaku.sh to do this for real";
 
@@ -178,6 +179,7 @@ export function settings() {
     verbose: s.verbose,
     autocorrect: s.autocorrect,
     notification: s.notification,
+    max_context: s.max_context ?? 65536,
     model: state.model,
     parameters: s.parameters.map((p) => ({ ...p })),
   };
@@ -193,10 +195,10 @@ export function context() {
   const systemTokens = estimate(system);
   const transcript = bodies.reduce((n, t) => n + estimate(t.body), 0);
   const total = systemTokens + transcript;
-  const used = Math.round((100 * total) / WINDOW);
+  const used = Math.round((100 * total) / LIMIT);
   const lede =
     "Context preview — the exact request to be sent. Context summary:\n\n" +
-    `  ~${total.toLocaleString("en-US")} tokens · ${used}% of the ${WINDOW.toLocaleString("en-US")} window\n` +
+    `  ~${total.toLocaleString("en-US")} tokens · ${used}% of the ${LIMIT.toLocaleString("en-US")} limit\n` +
     (systemTokens ? `  system ${systemTokens.toLocaleString("en-US")} · transcript ${transcript.toLocaleString("en-US")}\n` : "") +
     `  ${bodies.length} messages verbatim`;
   return {
@@ -206,11 +208,14 @@ export function context() {
       middle: 0,
       kept: bodies.length,
       summaries: 0,
+      history: false,
       rolled_up: 0,
+      tail_target: 150,
+      tail_setting: 150,
       total_tokens: total,
       system_tokens: systemTokens,
       transcript_tokens: transcript,
-      context_max: WINDOW,
+      limit: LIMIT,
       used,
     },
     lede,

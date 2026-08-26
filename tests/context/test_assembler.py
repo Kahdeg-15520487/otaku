@@ -1,17 +1,19 @@
-"""The prompt assembler.
+"""The prompt assembler, tested case by case after docs/context_design.md.
 
-Its contract is the wire promise: the model sees the stored messages and
-nothing the code invented but the recap. Framing joins its body at wire
-time, consecutive same-role rows become one turn, and an overlong
-transcript loses its oldest messages rather than its shape. A long story
-goes out as HEAD + RECAP + TAIL: the opening verbatim, the covered scenes
-as their summaries (capped, the story-so-far standing in for dropped
-ones), and the recent tail verbatim starting right after the last
-summarized scene.
+Cases 1-2: a story below the verbatim threshold, or one without covering
+summaries, goes out whole. Case 3: HEAD verbatim, the covered scenes as
+summaries, the TAIL verbatim and scene-aligned; a card is never
+summarized away. Case 4: over the limit — the smaller of the window and
+`max_context` — the oldest summaries are replaced by the story-so-far
+through the last replaced scene. Case 5: still over, the tail target
+steps down to its floor; past the floor the assembly refuses. Across all
+of them the wire promise holds: the model sees the stored messages and
+nothing the code invented but the recap.
 """
 
-from otaku.context.assembler import ContextShape
-from otaku.context.assembler import assemble as _assemble
+import pytest
+
+from otaku.context.assembler import ContextOverflowError, ContextShape, _assemble
 from otaku.store.schema import Message, Scene
 
 
@@ -23,20 +25,291 @@ def assemble(
     scenes: tuple = (),
     recap_header: str = "",
     head_messages: int = 20,
-    tail_messages: int = 150,
+    min_tail_messages: int = 150,
+    max_context: int = 0,
 ):
-    """The old signature over the new `shape` — every case below keeps
-    its original spelling, so the assertions stay the ported contract."""
+    """The doc's vocabulary over the `shape` argument, so every case
+    below reads like its section."""
     shape = ContextShape(
         head_messages=head_messages,
-        tail_messages=tail_messages,
+        min_tail_messages=min_tail_messages,
+        max_context=max_context,
         recap_header=recap_header,
         card_framing="",
     )
     return _assemble(system, messages, context_max, scenes=scenes, shape=shape)
 
 
-class TestAssemble:
+class TestShortStory:
+    """Case 1: fewer messages than the verbatim threshold."""
+
+    def test_everything_is_sent_verbatim(self) -> None:
+        prompt = assemble("", turns(40), 8192, head_messages=20, min_tail_messages=150)
+        sent = "\n".join(m.body for m in prompt.messages)
+        assert all(f"turn {i}." in sent for i in range(1, 41))
+        assert prompt.scenes_summarized == 0
+        assert prompt.recap == ""
+
+    def test_even_with_summaries_extracted(self) -> None:
+        # The threshold governs, not the summaries' existence.
+        prompt = assemble(
+            "",
+            turns(40),
+            8192,
+            scenes=(scene(20, "The heist unfolded."),),
+            head_messages=20,
+            min_tail_messages=150,
+        )
+        assert prompt.scenes_summarized == 0
+        assert "The heist unfolded." not in "\n".join(m.body for m in prompt.messages)
+
+
+class TestNoSummaries:
+    """Case 2: at least the threshold of messages, nothing to cover the
+    middle with."""
+
+    def test_everything_is_sent_verbatim(self) -> None:
+        prompt = assemble("", turns(40), 8192, head_messages=5, min_tail_messages=10)
+        assert prompt.transcript_kept == 40
+        assert prompt.scenes_summarized == 0
+
+    def test_a_scene_ending_in_head_or_tail_does_not_count(self) -> None:
+        prompt = assemble(
+            "",
+            turns(40),
+            8192,
+            scenes=(scene(3, "opening"), scene(38, "finale")),
+            head_messages=5,
+            min_tail_messages=10,
+        )
+        assert prompt.scenes_summarized == 0
+        assert prompt.transcript_kept == 40
+
+
+class TestScenesCoverTheMiddle:
+    """Case 3: the covered scenes ride as summaries between the verbatim
+    head and the scene-aligned tail — the doc's options A and B."""
+
+    def test_option_a_the_tail_starts_after_the_last_covered_scene(self) -> None:
+        # 220 messages, scenes ending at 25/42/64/95; 220 - 150 = 70
+        # lands inside scene 4, so scenes 1-3 are summarized and the
+        # tail runs from message 65.
+        scenes = (
+            scene(25, "sum one"),
+            scene(42, "sum two"),
+            scene(64, "sum three"),
+            scene(95, "sum four"),
+        )
+        prompt = assemble("", turns(220), 65536, scenes=scenes, min_tail_messages=150)
+        sent = "\n".join(m.body for m in prompt.messages)
+        assert prompt.scenes_summarized == 3
+        assert "sum three" in sent
+        assert "sum four" not in sent  # its scene rides verbatim in the tail
+        assert "turn 65." in sent  # the tail starts right after scene 3
+        assert "turn 64." not in sent  # summarized away
+        assert "turn 20." in sent and "turn 21." not in sent  # the head's edge
+        assert prompt.head_count == 20
+
+    def test_option_b_fewer_scenes_move_the_boundary_earlier(self) -> None:
+        scenes = (scene(25, "sum one"), scene(42, "sum two"))
+        prompt = assemble("", turns(220), 65536, scenes=scenes, min_tail_messages=150)
+        sent = "\n".join(m.body for m in prompt.messages)
+        assert prompt.scenes_summarized == 2
+        assert "turn 43." in sent
+        assert "turn 42." not in sent
+
+    def test_the_recap_header_opens_the_recap(self) -> None:
+        prompt = assemble(
+            "",
+            turns(220),
+            65536,
+            scenes=(scene(64, "sum"),),
+            recap_header="[So far:]",
+        )
+        sent = "\n".join(m.body for m in prompt.messages)
+        assert sent.index("[So far:]") < sent.index("sum")
+
+    def test_a_scene_ending_at_the_tails_first_message_stays_verbatim(self) -> None:
+        # min_tail_messages is a MINIMUM: with 220 messages and a floor
+        # of 150 the tail's first message is 70, so a scene ending
+        # exactly there is not summarized — its whole span rides
+        # verbatim and the tail grows past the minimum.
+        at_boundary = assemble("", turns(220), 65536, scenes=(scene(70, "sum"),))
+        assert at_boundary.scenes_summarized == 0
+        assert at_boundary.transcript_kept == 220
+        before_boundary = assemble("", turns(220), 65536, scenes=(scene(69, "sum"),))
+        sent = "\n".join(m.body for m in before_boundary.messages)
+        assert before_boundary.scenes_summarized == 1
+        assert "turn 70." in sent  # the tail holds min_tail plus the boundary message
+        assert "turn 69." not in sent
+
+    def test_no_history_and_the_full_tail_in_the_plain_case(self) -> None:
+        prompt = assemble("", turns(220), 65536, scenes=(scene(64, "sum"),))
+        assert prompt.history == ""
+        assert prompt.tail_target == prompt.tail_setting == 150
+
+
+class TestCharacterCards:
+    """Case 3's special case: a card is never summarized away — it rides
+    verbatim in front of its scene's summary."""
+
+    def test_a_card_rides_in_front_of_its_scenes_summary(self) -> None:
+        rows = turns(220)
+        rows[46] = card(47, "((OOC: Elara joins.))")  # inside scene 3's span
+        scenes = (scene(42, "sum two"), scene(64, "sum three"))
+        prompt = assemble("", rows, 65536, scenes=scenes, min_tail_messages=150)
+        sent = "\n".join(m.body for m in prompt.messages)
+        assert sent.index("sum two") < sent.index("((OOC: Elara joins.))")
+        assert sent.index("((OOC: Elara joins.))") < sent.index("sum three")
+
+    def test_a_card_body_is_never_read_as_syntax(self) -> None:
+        prompt = assemble("", [card(1, "Speech example: hi /cue whisper"), user("I wave.")], 8192)
+        assert prompt.messages[0].body.startswith("Speech example: hi /cue whisper")
+
+    def test_a_card_in_the_recap_is_never_read_as_syntax(self) -> None:
+        rows = turns(220)
+        rows[46] = card(47, "Example: breathe /cue whisper softly")
+        prompt = assemble("", rows, 65536, scenes=(scene(64, "sum"),))
+        assert "breathe /cue whisper softly" in "\n".join(m.body for m in prompt.messages)
+
+
+class TestRecapDegrades:
+    """Case 4: over the limit, the oldest summaries are replaced by the
+    story-so-far through the last replaced scene — never a kept scene's
+    rung, which would retell the summaries still riding behind it."""
+
+    # Three covered scenes of ~1000 tokens each; the budget in each test
+    # decides how many survive (the reply reserve is 1024).
+    def _scenes(self) -> tuple[Scene, ...]:
+        return (
+            scene(10, "alpha " * 700, history="Arc through one."),
+            scene(20, "bravo " * 700, history="Arc through two."),
+            scene(25, "delta " * 700, history="Arc through three."),
+        )
+
+    def test_the_last_replaced_scenes_history_stands_in(self) -> None:
+        # Budget ~1500: the history through scene 2 plus scene 3's
+        # summary fit; anything more does not.
+        prompt = assemble(
+            "",
+            turns(40),
+            2524,
+            scenes=self._scenes(),
+            head_messages=5,
+            min_tail_messages=10,
+        )
+        sent = "\n".join(m.body for m in prompt.messages)
+        assert prompt.history == "Arc through two."
+        assert prompt.scenes_rolled_up == 2
+        assert prompt.scenes_summarized == 1
+        assert "delta delta" in sent  # the kept summary
+        assert "bravo bravo" not in sent  # replaced by the history
+        assert "Arc through three." not in sent  # a kept scene's rung never rides
+
+    def test_a_replaced_scene_without_a_rung_falls_back_to_an_older_one(self) -> None:
+        one, two, three = self._scenes()
+        scenes = (one, replace_history(two, ""), three)
+        prompt = assemble("", turns(40), 2524, scenes=scenes, head_messages=5, min_tail_messages=10)
+        assert prompt.history == "Arc through one."
+        assert prompt.scenes_rolled_up == 1
+
+    def test_without_any_rung_the_dropped_scenes_go_uncovered(self) -> None:
+        scenes = tuple(replace_history(s, "") for s in self._scenes())
+        prompt = assemble("", turns(40), 2524, scenes=scenes, head_messages=5, min_tail_messages=10)
+        assert prompt.history == ""
+        assert prompt.scenes_rolled_up == 0
+        assert prompt.scenes_summarized == 1
+
+    def test_a_replaced_scenes_card_floats_in_front_of_the_history(self) -> None:
+        rows = turns(40)
+        rows[7] = card(8, "((OOC: Elara joins.))")  # inside scene 1's span
+        prompt = assemble(
+            "", rows, 2524, scenes=self._scenes(), head_messages=5, min_tail_messages=10
+        )
+        sent = "\n".join(m.body for m in prompt.messages)
+        assert sent.index("((OOC: Elara joins.))") < sent.index("Arc through two.")
+
+    def test_max_context_caps_a_larger_window(self) -> None:
+        # The window would hold everything; the setting caps it, the
+        # reply reserve coming off the capped value.
+        prompt = assemble(
+            "",
+            turns(40),
+            131072,
+            scenes=self._scenes(),
+            head_messages=5,
+            min_tail_messages=10,
+            max_context=2524,
+        )
+        assert prompt.history == "Arc through two."
+        assert prompt.limit == 1500  # the cap minus the reserve
+        assert prompt.context_max == 131072
+
+    def test_max_context_zero_means_the_whole_window(self) -> None:
+        prompt = assemble(
+            "",
+            turns(40),
+            65536,
+            scenes=self._scenes(),
+            head_messages=5,
+            min_tail_messages=10,
+            max_context=0,
+        )
+        assert prompt.history == ""  # everything fits — case 4 never fires
+        assert prompt.scenes_summarized == 3
+        assert prompt.limit == 65536 - 1024  # the window minus the reserve (no replies yet)
+
+
+class TestTailDegrades:
+    """Case 5: degrading summaries is not enough — the tail target steps
+    down 50 at a time to the 50-message floor, the context rebuilt at
+    each rung; past the floor the assembly refuses."""
+
+    def test_the_tail_steps_down_until_the_context_fits(self) -> None:
+        # 400 messages of ~15 tokens: the configured 150-message tail
+        # alone overflows the budget. A scene ending at message 320 is
+        # coverable only once the target drops to 50 — the rebuild then
+        # summarizes it and the tail shrinks to 80 messages.
+        rows = [user(f"turn {i}. " + "x" * 55, message_id=i) for i in range(1, 401)]
+        scenes = (
+            scene(100, "sum one", history="Arc through one."),
+            scene(200, "sum two", history="Arc through two."),
+            scene(240, "sum three", history="Arc through three."),
+            scene(320, "sum four", history="Arc through four."),
+        )
+        prompt = assemble("", rows, 3024, scenes=scenes, head_messages=5, min_tail_messages=150)
+        assert prompt.tail_setting == 150
+        assert prompt.tail_target == 50
+        assert prompt.transcript_kept - prompt.head_count == 80  # messages 321-400
+        assert prompt.transcript_tokens <= 3024 - 1024
+
+
+class TestRejected:
+    """Case 6: nothing left to degrade — the assembly refuses with the
+    sentence naming the remedies."""
+
+    def test_past_the_floor_the_assembly_refuses(self) -> None:
+        # No scene near the end: no rung of the ladder can shrink the
+        # scene-aligned tail, and even the floor does not fit.
+        rows = [user(f"turn {i}. " + "x" * 55, message_id=i) for i in range(1, 401)]
+        scenes = (scene(100, "sum one", history="Arc through one."),)
+        with pytest.raises(ContextOverflowError) as caught:
+            assemble("", rows, 3024, scenes=scenes, head_messages=5, min_tail_messages=150)
+        assert "max_context" in str(caught.value)
+        assert "/extract" in str(caught.value)
+
+    def test_a_story_without_scenes_over_the_limit_refuses_too(self) -> None:
+        # Cases 1-2 have nothing to degrade: verbatim either fits or the
+        # assembly refuses rather than silently dropping story.
+        rows = [user(f"turn {i}. " + "x" * 400, message_id=i) for i in range(1, 41)]
+        with pytest.raises(ContextOverflowError):
+            assemble("", rows, 2048, head_messages=5, min_tail_messages=10)
+
+
+class TestWirePromise:
+    """Cross-case: the model sees the stored messages and nothing the
+    code invented but the recap."""
+
     def test_sends_a_single_turn_verbatim(self) -> None:
         prompt = assemble("", [user("I open the door.")], 8192)
         assert [(m.role, m.body) for m in prompt.messages] == [("user", "I open the door.")]
@@ -48,253 +321,50 @@ class TestAssemble:
 
     def test_omits_an_empty_system_prompt(self) -> None:
         prompt = assemble("", [user("Hi.")], 8192)
-        assert all(m.role != "system" for m in prompt.messages)
+        assert prompt.messages[0].role == "user"
 
-    def test_keeps_roles_as_stored(self) -> None:
-        prompt = assemble("", [user("a"), assistant("b"), user("c")], 8192)
-        assert [m.role for m in prompt.messages] == ["user", "assistant", "user"]
+    def test_consecutive_same_role_rows_merge_into_one_turn(self) -> None:
+        rows = [user("One."), user("Two."), assistant("Three.")]
+        prompt = assemble("", rows, 8192)
+        assert [m.role for m in prompt.messages] == ["user", "assistant"]
+        assert prompt.messages[0].body == "One.\n\nTwo."
 
-    def test_merges_consecutive_same_role_turns(self) -> None:
-        prompt = assemble("", [user("first"), user("second"), assistant("reply")], 8192)
-        assert [(m.role, m.body) for m in prompt.messages] == [
-            ("user", "first\n\nsecond"),
-            ("assistant", "reply"),
-        ]
-
-    def test_joins_framing_to_its_body_on_the_wire(self) -> None:
-        prompt = assemble("", [user("I wait.", "((OOC: as Ryn.))\n{body}")], 8192)
-        assert prompt.messages[0].body == "((OOC: as Ryn.))\nI wait."
-
-    def test_adds_nothing_of_its_own(self) -> None:
-        messages = [user("I open the door."), assistant("It creaks.")]
-        prompt = assemble("Be terse.", messages, 8192)
-        sent = "".join(m.body for m in prompt.messages)
-        assert sent == "Be terse.I open the door.It creaks."
-
-    def test_reports_what_it_kept(self) -> None:
-        prompt = assemble("", [user("a"), assistant("b")], 8192)
-        assert prompt.transcript_total == 2
-        assert prompt.transcript_kept == 2
-
-    def test_defaults_the_window_when_unknown(self) -> None:
-        assert assemble("", [user("a")], None).context_max > 0
+    def test_roles_stay_as_stored(self) -> None:
+        rows = [assistant("It begins."), user("I nod.")]
+        prompt = assemble("", rows, 8192)
+        assert [m.role for m in prompt.messages] == ["assistant", "user"]
 
 
-class TestBudget:
-    LONG = "word " * 500  # ~2500 chars, ~625 tokens
-
-    def test_drops_the_oldest_messages_when_over_budget(self) -> None:
-        messages = [user(f"{i} {self.LONG}") for i in range(10)]
-        prompt = assemble("", messages, 1024)
-        assert prompt.transcript_kept < prompt.transcript_total
-
-    def test_keeps_the_newest_message(self) -> None:
-        messages = [user(f"{i} {self.LONG}") for i in range(10)]
-        prompt = assemble("", messages, 1024)
-        assert "9 " in prompt.messages[-1].body
-
-    def test_never_trims_below_two_messages(self) -> None:
-        messages = [user(self.LONG), assistant(self.LONG), user(self.LONG)]
-        prompt = assemble("", messages, 64)
-        assert prompt.transcript_kept >= 2
-
-    def test_keeps_everything_that_fits(self) -> None:
-        messages = [user("short"), assistant("also short")]
-        prompt = assemble("", messages, 8192)
-        assert prompt.transcript_kept == 2
+# ---------- fixtures ----------
 
 
-class TestShaping:
-    """40 turns, head 5 / tail 10: a covering scene turns the middle into a
-    recap; without one everything goes verbatim."""
-
-    def test_short_transcripts_go_out_whole(self) -> None:
-        prompt = assemble(
-            "", turns(10), 8192, scenes=[scene(8, "sum")], head_messages=5, tail_messages=10
-        )
-        assert prompt.transcript_kept == 10
-        assert prompt.scenes_summarized == 0
-
-    def test_a_covering_scene_becomes_the_recap(self) -> None:
-        prompt = assemble(
-            "",
-            turns(40),
-            8192,
-            scenes=[scene(20, "The heist unfolded.")],
-            recap_header="[So far:]",
-            head_messages=5,
-            tail_messages=10,
-        )
-        assert prompt.scenes_summarized == 1
-        assert prompt.scenes_rolled_up == 0  # nothing dropped, nothing rolled up
-        sent = "\n".join(m.body for m in prompt.messages)
-        assert "[So far:]" in sent
-        assert "The heist unfolded." in sent
-
-    def test_the_tail_starts_right_after_the_last_summarized_scene(self) -> None:
-        prompt = assemble(
-            "",
-            turns(40),
-            8192,
-            scenes=[scene(20, "sum")],
-            head_messages=5,
-            tail_messages=10,
-        )
-        sent = "\n".join(m.body for m in prompt.messages)
-        assert "turn 21" in sent  # first after the boundary
-        assert "turn 20" not in sent  # summarized away
-        assert prompt.head_count == 5
-
-    def test_a_scene_ending_in_head_or_tail_is_not_summarized(self) -> None:
-        prompt = assemble(
-            "",
-            turns(40),
-            8192,
-            scenes=[scene(3, "opening"), scene(38, "finale")],
-            head_messages=5,
-            tail_messages=10,
-        )
-        assert prompt.scenes_summarized == 0
-        assert prompt.transcript_kept == 40
-
-    def test_no_covering_scene_falls_back_to_verbatim(self) -> None:
-        prompt = assemble("", turns(40), 8192, head_messages=5, tail_messages=10)
-        assert prompt.scenes_summarized == 0
-        assert prompt.transcript_kept == 40
-
-    def test_an_oversized_recap_drops_oldest_and_leads_with_the_story_so_far(self) -> None:
-        big = "s " * 8000  # ~4000 tokens — alone above the recap's budget share
-        scenes = [
-            scene(15, big, history="Arc so far."),
-            scene(20, "Recent scene summary.", history="Newest arc."),
-        ]
-        prompt = assemble("", turns(40), 8192, scenes=scenes, head_messages=5, tail_messages=10)
-        assert prompt.scenes_summarized == 1
-        assert prompt.scenes_rolled_up == 1  # the dropped scene, covered by the rollup
-        sent = "\n".join(m.body for m in prompt.messages)
-        assert "Newest arc." in sent  # the rollup stands in for dropped summaries
-        assert "Recent scene summary." in sent
-
-
-class TestCards:
-    """The card promise: never summarized, never evicted, never composed.
-    A card in the replaced middle rides the recap verbatim in front of its
-    scene's summary; its tokens charge the whole budget, not the recap's
-    fraction; the trim passes over it; and its body is already wire text,
-    so an inliner spelling inside card prose is never read as syntax."""
-
-    def test_a_card_body_is_never_read_as_syntax(self) -> None:
-        prompt = assemble("", [card(1, "Speech example: hi /cue whisper"), user("I wave.")], 8192)
-        assert prompt.messages[0].body.startswith("Speech example: hi /cue whisper")
-
-    def test_a_card_in_the_recap_is_never_read_as_syntax(self) -> None:
-        # The recap path too: relocated into the recap, the body must ride
-        # as a row of its own — merged into one turn as a STRING, the old
-        # recap went through `prompt_to_wire`, which ate the "cue".
-        rows = turns(40)
-        rows[9] = card(10, "Example: breathe /cue whisper softly")
-        prompt = assemble(
-            "",
-            rows,
-            8192,
-            scenes=[scene(20, "The heist unfolded.")],
-            head_messages=5,
-            tail_messages=10,
-        )
-        sent = "\n".join(m.body for m in prompt.messages)
-        assert "breathe /cue whisper softly" in sent
-
-    def test_a_card_in_the_middle_survives_before_its_scenes_summary(self) -> None:
-        rows = turns(40)
-        rows[9] = card(10, "((OOC: Elara joins.))")  # inside the covered scene
-        prompt = assemble(
-            "",
-            rows,
-            8192,
-            scenes=[scene(20, "The heist unfolded.")],
-            head_messages=5,
-            tail_messages=10,
-        )
-        sent = "\n".join(m.body for m in prompt.messages)
-        assert "turn 12" not in sent  # its neighbours were summarized away
-        position = sent.index("((OOC: Elara joins.))")
-        assert position < sent.index("The heist unfolded.")
-
-    def test_a_card_lands_in_front_of_the_scene_it_sat_in(self) -> None:
-        rows = turns(60)
-        rows[24] = card(25, "((OOC: Elara joins.))")  # inside the SECOND scene
-        prompt = assemble(
-            "",
-            rows,
-            8192,
-            scenes=[scene(20, "First scene."), scene(40, "Second scene.")],
-            head_messages=5,
-            tail_messages=10,
-        )
-        sent = "\n".join(m.body for m in prompt.messages)
-        assert sent.index("First scene.") < sent.index("((OOC: Elara joins.))")
-        assert sent.index("((OOC: Elara joins.))") < sent.index("Second scene.")
-
-    def test_a_card_of_a_dropped_summary_floats_above_the_rollup(self) -> None:
-        big = "s " * 8000  # pushes the first summary out of the recap's share
-        rows = turns(40)
-        rows[9] = card(10, "((OOC: Elara joins.))")  # inside the DROPPED scene
-        scenes = [scene(15, big, history="Arc so far."), scene(20, "Recent.", history="Newest.")]
-        prompt = assemble("", rows, 8192, scenes=scenes, head_messages=5, tail_messages=10)
-        sent = "\n".join(m.body for m in prompt.messages)
-        assert "((OOC: Elara joins.))" in sent  # never evicted with its summary
-        assert sent.index("((OOC: Elara joins.))") < sent.index("Newest.")
-
-    def test_a_card_never_charges_the_recaps_fraction(self) -> None:
-        # A card bigger than the whole recap share; both summaries must
-        # still fit the cap, because the card is not counted against it.
-        rows = turns(60)
-        rows[24] = card(25, "c " * 8000)
-        prompt = assemble(
-            "",
-            rows,
-            32768,
-            scenes=[scene(20, "First scene."), scene(40, "Second scene.")],
-            head_messages=5,
-            tail_messages=10,
-        )
-        assert prompt.scenes_summarized == 2
-
-    def test_the_trim_passes_over_a_card_in_the_tail(self) -> None:
-        # A window so tight the tail's oldest must go — the card among
-        # them stays, its plain neighbours drop.
-        rows = [card(1, "((OOC: Elara joins.))" + "c " * 200)] + [
-            Message(role="user" if i % 2 else "assistant", body="x " * 300, id=i)
-            for i in range(2, 12)
-        ]
-        prompt = assemble("", rows, 1600, head_messages=0, tail_messages=150)
-        sent = "\n".join(m.body for m in prompt.messages)
-        assert "((OOC: Elara joins.))" in sent
-        assert prompt.transcript_kept < len(rows)
-
-
-def user(body: str, template: str | None = None) -> Message:
-    return Message(role="user", body=body, template=template)
+def user(body: str, message_id: int = 0) -> Message:
+    return Message(id=message_id, role="user", body=body)
 
 
 def assistant(body: str) -> Message:
     return Message(role="assistant", body=body)
 
 
+def card(message_id: int, body: str) -> Message:
+    return Message(id=message_id, role="user", body=body, kind="card")
+
+
 def turns(n: int) -> list[Message]:
-    """n alternating turns with stable ids 1..n."""
-    out = []
-    for i in range(1, n + 1):
-        role = "user" if i % 2 else "assistant"
-        out.append(Message(role=role, body=f"turn {i}", id=i))
-    return out
-
-
-def card(mid: int, body: str) -> Message:
-    return Message(role="user", body=body, kind="card", id=mid)
+    return [user(f"turn {i}.", message_id=i) for i in range(1, n + 1)]
 
 
 def scene(end_id: int, summary: str = "", history: str = "") -> Scene:
     return Scene(
         id=end_id, start_message_id=1, end_message_id=end_id, summary=summary, history=history
+    )
+
+
+def replace_history(s: Scene, history: str) -> Scene:
+    return Scene(
+        id=s.id,
+        start_message_id=s.start_message_id,
+        end_message_id=s.end_message_id,
+        summary=s.summary,
+        history=history,
     )

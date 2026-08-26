@@ -31,6 +31,7 @@ from otaku.settings.migrations.surgery import (
     drop_key_everywhere,
     ensure_key,
     ensure_section,
+    rename_key,
     set_key,
     update_config,
     update_providers,
@@ -85,6 +86,26 @@ _CONFIG_MIGRATIONS: list[Migration] = [
         row(
             'notification_sound = "default"',
             'what /set notification plays: "default" is the platform\'s own, else a path',
+        ),
+    ),
+    # 0.4.0 — the context budget arrives: the prompt stops growing to
+    # the model's whole window by default.
+    ensure_key(
+        "context",
+        "max_context",
+        row(
+            "max_context = 65536",
+            "the prompt may use at most this many tokens; 0 = the model's whole window",
+        ),
+    ),
+    # 0.4.0 — tail_messages says what it always meant: a MINIMUM. The
+    # value the user set carries over under the new name.
+    rename_key(
+        "context",
+        "tail_messages",
+        "min_tail_messages",
+        lambda value: row(
+            f"min_tail_messages = {value}", "at least this many recent messages kept verbatim"
         ),
     ),
 ]

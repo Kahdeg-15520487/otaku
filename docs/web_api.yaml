@@ -804,6 +804,7 @@ components:
         verbose: { type: boolean }
         autocorrect: { type: boolean }
         notification: { type: boolean }
+        max_context: { type: integer, description: "Tokens the prompt may use at most; 0 = the model's whole window." }
         model: { type: string }
         parameters:
           type: array
@@ -821,17 +822,20 @@ components:
           type: object
           description: What the next request is MADE of — the diagram's arithmetic.
           properties:
-            head: { type: integer }
-            tail: { type: integer }
-            middle: { type: integer, description: "Messages the summaries stand in for." }
-            kept: { type: integer }
-            summaries: { type: integer }
-            rolled_up: { type: integer }
-            total_tokens: { type: integer }
+            head: { type: integer, description: "Opening messages, verbatim." }
+            middle: { type: integer, description: "Messages the recap stands in for." }
+            history: { type: boolean, description: "A story-so-far opens the recap (old summaries folded into it)." }
+            rolled_up: { type: integer, description: "The scenes that story-so-far covers; 0 without one." }
+            summaries: { type: integer, description: "Scene summaries riding after it." }
+            tail: { type: integer, description: "Recent messages, verbatim." }
+            tail_target: { type: integer, description: "The tail aimed for — below tail_setting, the limit forced it." }
+            tail_setting: { type: integer, description: "The configured min_tail_messages." }
             system_tokens: { type: integer }
             transcript_tokens: { type: integer }
-            context_max: { type: integer }
-            used: { type: integer, description: "Percent of the window." }
+            limit: { type: integer, description: "What the prompt measured against — the smaller of the model's window and max_context, minus the reply reserve." }
+            kept: { type: integer, description: "Derived: head + tail." }
+            total_tokens: { type: integer, description: "Derived: system + transcript." }
+            used: { type: integer, description: "Derived: percent of the limit." }
         lede: { type: string, description: "The summary said in words." }
         parts:
           type: array

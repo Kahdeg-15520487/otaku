@@ -300,14 +300,19 @@ class Worker:
             context = client.get_context_size(job.model)
         except Exception:
             context = None
-        wire = assembler.assemble_story(
-            store,
-            job.story_id,
-            system=job.system,
-            messages=job.messages,
-            shape=job.shape,
-            context_max=context,
-        ).messages
+        try:
+            wire = assembler.assemble_story(
+                store,
+                job.story_id,
+                system=job.system,
+                messages=job.messages,
+                shape=job.shape,
+                context_max=context,
+            ).messages
+        except assembler.ContextOverflowError:
+            # Nothing sendable to warm with — the next turn will say so.
+            self._log.record(f"warm-up skipped (story {job.story_id}): context over the limit")
+            return
         # One token: the point is the prefill, not the answer. The cancel
         # here is the SOFT flag: the user typing makes the prefill stale,
         # not just the shutdown.

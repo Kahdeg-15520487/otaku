@@ -51,7 +51,7 @@ class TestContext:
             capsys.readouterr()
             app.play("/context")
             out = capsys.readouterr().out
-            assert "8,192 window" in out
+            assert "of the" in out and "limit" in out  # measured against the default window
             assert "You're late, mapmaker." in out
         finally:
             app.close()
@@ -59,7 +59,7 @@ class TestContext:
     def test_the_preview_shows_the_recap_where_the_middle_was(
         self, server, tmp_path, capsys
     ) -> None:
-        set_config(tmp_path / "state", head_messages=1, tail_messages=1)
+        set_config(tmp_path / "state", head_messages=1, min_tail_messages=1)
         app = launch(tmp_path / "state", server)
         try:
             for i in range(6):
