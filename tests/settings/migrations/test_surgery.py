@@ -61,11 +61,32 @@ class TestEnsureSection:
 
 class TestEnsureKey:
     """A setting that arrived after the file was written: added so the
-    surface stays discoverable, never imposed over what is there."""
+    surface stays discoverable, never imposed over what is there, and
+    placed where the rendered file would have put it — `after` names the
+    key it belongs behind, so a migrated file reads the same way down as
+    a fresh one."""
 
-    def test_an_absent_key_is_added_at_the_sections_end(self) -> None:
+    def test_no_neighbour_named_puts_it_under_the_header(self) -> None:
+        text = '[ui]\ndialogue_color = "auto"\ndialogue_bold = false\n'
+        migrated = ensure_key("ui", "theme", 'theme = "auto"')(text)
+        assert migrated == (
+            '[ui]\ntheme = "auto"\ndialogue_color = "auto"\ndialogue_bold = false\n'
+        )
+
+    def test_a_named_neighbour_puts_it_directly_after(self) -> None:
+        text = "[settings]\nshow_banner = true\nsmooth_streaming = true\n\n[context]\nhead = 20\n"
+        migrated = ensure_key("settings", "sound", 'sound = "default"', after="show_banner")(text)
+        assert migrated == (
+            "[settings]\nshow_banner = true\n"
+            'sound = "default"\nsmooth_streaming = true\n\n[context]\nhead = 20\n'
+        )
+
+    def test_a_neighbour_the_file_lacks_puts_it_at_the_sections_end(self) -> None:
+        # Which is where a key rendered after an optional one belongs:
+        # prompt_cache follows keep_alive, and a section without a
+        # keep_alive still wants it last.
         text = "[settings]\nshow_banner = true\n\n[context]\nhead_messages = 20\n"
-        migrated = ensure_key("settings", "sound", 'sound = "default"')(text)
+        migrated = ensure_key("settings", "sound", 'sound = "default"', after="gone")(text)
         assert migrated == (
             '[settings]\nshow_banner = true\nsound = "default"\n\n[context]\nhead_messages = 20\n'
         )
@@ -78,7 +99,7 @@ class TestEnsureKey:
 
     def test_a_commented_out_key_counts_as_absent(self) -> None:
         text = '[settings]\n# sound = "off"\nshow_banner = true\n'
-        migrated = ensure_key("settings", "sound", 'sound = "default"')(text)
+        migrated = ensure_key("settings", "sound", 'sound = "default"', after="show_banner")(text)
         assert migrated.endswith('show_banner = true\nsound = "default"\n')
 
     def test_no_such_section_is_untouched(self) -> None:

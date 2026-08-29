@@ -34,9 +34,13 @@ def load(path: Path) -> dict[str, ProviderConfig]:
     Raises ConfigError — the file is hand-edited, so errors must be
     human."""
     try:
-        raw = tomllib.loads(path.read_text())
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as e:
         raise ConfigError(f"{path} does not exist") from e
+    except UnicodeDecodeError as e:
+        # As config.toml: TOML is UTF-8, this file is hand-edited, and an
+        # editor that saved the machine's own codepage is the likely cause.
+        raise ConfigError(f"{path}: not valid UTF-8 — save the file as UTF-8") from e
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"{path}: invalid TOML — {e}") from e
     sections = {name: entry for name, entry in raw.items() if isinstance(entry, dict)}

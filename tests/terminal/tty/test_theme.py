@@ -24,7 +24,17 @@ from dataclasses import fields
 import pytest
 
 from otaku.settings.config import UiSettings
-from otaku.terminal.tty.theme import _CURRENT, DARK, LIGHT, Color, Theme, color, theme, use
+from otaku.terminal.tty.theme import (
+    _BACKGROUND,
+    _CURRENT,
+    DARK,
+    LIGHT,
+    Color,
+    Theme,
+    color,
+    theme,
+    use,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -36,6 +46,19 @@ def unsettled() -> Iterator[None]:
     _CURRENT.clear()
     yield
     _CURRENT[:] = saved
+
+
+@pytest.fixture
+def asked() -> Iterator[list[bool | None]]:
+    """The terminal's answer, stood in for. `_BACKGROUND` is the
+    one-per-session cache of what the ask returned, so filling it is how
+    a case says what the terminal replied — including None, "it would not
+    say", which is the only answer Windows can ever produce and the one
+    no test machine can arrange for real."""
+    saved = list(_BACKGROUND)
+    _BACKGROUND.clear()
+    yield _BACKGROUND
+    _BACKGROUND[:] = saved
 
 
 class TestColor:
@@ -113,5 +136,49 @@ class TestUse:
             assert theme().dialogue in (LIGHT.dialogue, DARK.dialogue), spec
 
 
-def _config(*, dialogue_color: str = "auto", dialogue_bold: bool = False) -> UiSettings:
-    return UiSettings(dialogue_color=dialogue_color, dialogue_bold=dialogue_bold, show_banner=True)
+class TestThemeSetting:
+    """`theme`'s contract: "light" and "dark" are the reader saying so
+    and win over whatever the terminal answers — a setting named for the
+    theme has to set it. "auto", and anything else, asks; a terminal that
+    will not answer reads as dark, which is the case Windows is always
+    in, since there is no way to ask there at all."""
+
+    def test_the_reader_outranks_the_terminal(self, asked: list[bool | None]) -> None:
+        for answer in (True, False, None):
+            asked[:] = [answer]
+            use(_config(theme="light"))
+            assert theme().band == LIGHT.band, answer
+            use(_config(theme="dark"))
+            assert theme().band == DARK.band, answer
+
+    def test_auto_takes_the_terminal_at_its_word(self, asked: list[bool | None]) -> None:
+        asked[:] = [True]
+        use(_config(theme="auto"))
+        assert theme().band == DARK.band
+        asked[:] = [False]
+        use(_config(theme="auto"))
+        assert theme().band == LIGHT.band
+
+    def test_a_terminal_that_will_not_say_reads_as_dark(self, asked: list[bool | None]) -> None:
+        # The whole Windows case: nothing to ask, so nothing answers.
+        asked[:] = [None]
+        use(_config(theme="auto"))
+        assert theme().band == DARK.band
+
+    def test_an_unreadable_setting_is_auto(self, asked: list[bool | None]) -> None:
+        # A hand-edited file costs the reader nothing, as everywhere else.
+        asked[:] = [False]
+        for spec in ("", "Light", "eldritch"):
+            use(_config(theme=spec))
+            assert theme().band == LIGHT.band, spec
+
+
+def _config(
+    *, dialogue_color: str = "auto", dialogue_bold: bool = False, theme: str = "auto"
+) -> UiSettings:
+    return UiSettings(
+        dialogue_color=dialogue_color,
+        dialogue_bold=dialogue_bold,
+        show_banner=True,
+        theme=theme,
+    )

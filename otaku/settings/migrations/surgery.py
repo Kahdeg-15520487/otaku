@@ -54,14 +54,25 @@ def ensure_section(name: str, block: str, after: str = "") -> Migration:
     return apply
 
 
-def ensure_key(section: str, key: str, line: str) -> Migration:
+def ensure_key(section: str, key: str, line: str, *, after: str | None = None) -> Migration:
     """A migration adding `line` — a freshly rendered `key = value` row —
-    at the end of `[section]`, for a file that has the section but not
-    the key: a setting that arrived after this config was written, so the
-    whole surface stays discoverable in the file. `ensure_section`'s
-    posture one level down — what EXISTS is never touched, whatever its
-    value, which is what separates a new default from `set_key`'s
-    imposed one."""
+    to `[section]`, for a file that has the section but not the key: a
+    setting that arrived after this config was written, so the whole
+    surface stays discoverable in the file.
+
+    `after` names the key it belongs behind, which is how a migrated file
+    comes to read the same way down as a freshly rendered one — so it is
+    the neighbour `to_toml` puts above it, and a step that skips it is a
+    step that shuffles somebody's config. None means the section's head.
+    A named key the file does not have puts the row at the section's end,
+    which is where a key rendered after an optional one belongs anyway.
+
+    `ensure_section`'s posture one level down — what EXISTS is never
+    touched, whatever its value, which is what separates a new default
+    from `set_key`'s imposed one. Its `after` names a section and falls
+    back to the file's end; this one names a key and falls back to the
+    section's head, because a section is appended to a file while a key
+    has a place in an order."""
 
     def apply(text: str) -> str:
         parsed = parse(text)
@@ -71,7 +82,12 @@ def ensure_key(section: str, key: str, line: str) -> Migration:
         span = _section_span(lines, section)
         if span is None or _key_index(lines, span, key) is not None:
             return text
-        return joined(_inserted_at_span_end(lines, span, [line]))
+        if after is None:
+            return joined(_inserted_at_span_start(lines, span, [line]))
+        neighbour = _key_index(lines, span, after)
+        if neighbour is None:
+            return joined(_inserted_at_span_end(lines, span, [line]))
+        return joined([*lines[: neighbour + 1], line, *lines[neighbour + 1 :]])
 
     return apply
 
@@ -179,7 +195,7 @@ def update_providers(providers_path: Path, backups_dir: Path, changes: list[Migr
 
 def _update(path: Path, backups_dir: Path, stem: str, changes: list[Migration]) -> bool:
     try:
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
     except OSError:
         return False
     migrated = apply_migrations(text, changes)
@@ -215,7 +231,7 @@ def commit(file: Path, backup: Path, text: str, migrated: str) -> bool:
         os.chmod(backup.parent, 0o700)
         # Born 0600: never a moment (or a crash residue) at umask perms.
         fd = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
         write_atomic(file, migrated)
     except OSError:
@@ -304,6 +320,12 @@ def _key_index(lines: list[str], span: tuple[int, int], key: str) -> int | None:
         if pattern.match(lines[i]):
             return i
     return None
+
+
+def _inserted_at_span_start(lines: list[str], span: tuple[int, int], new: list[str]) -> list[str]:
+    """`new` placed directly under the section's header."""
+    header, _ = span
+    return lines[: header + 1] + new + lines[header + 1 :]
 
 
 def _inserted_at_span_end(lines: list[str], span: tuple[int, int], new: list[str]) -> list[str]:

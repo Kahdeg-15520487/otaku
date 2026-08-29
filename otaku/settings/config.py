@@ -22,6 +22,10 @@ class UiSettings:
     slice, hence a settings type; run-time bundles live beside their
     consumers instead)."""
 
+    # Which of the shipped themes to paint in: "light" or "dark" says so
+    # outright, and anything else — "auto", or a hand-edited typo, which
+    # should cost the reader nothing — asks the terminal.
+    theme: str
     dialogue_color: str
     dialogue_bold: bool
     show_banner: bool
@@ -60,6 +64,7 @@ class Config:
     smooth_streaming: bool = True
     notification_sound: str = "default"  # "default" = the platform's own; else a path
     # [ui]
+    theme: str = "auto"  # "auto" asks the terminal; else "light" or "dark"
     dialogue_color: str = "auto"
     dialogue_bold: bool = False
     # [web]
@@ -93,6 +98,7 @@ class Config:
             row(f"notification_sound = {toml_scalar(self.notification_sound)}", 'what /set notification plays: "default" is the platform\'s own, else a path'),
             "",
             "[ui]",
+            row(f"theme = {toml_scalar(self.theme)}", '"auto" asks the terminal and takes dark when it will not say; or "light"/"dark"'),
             row(f"dialogue_color = {toml_scalar(self.dialogue_color)}", 'spoken lines: "auto" fits the background; a color name ("cyan") or #rrggbb'),
             row(f"dialogue_bold = {toml_scalar(self.dialogue_bold)}", "also bold the spoken lines"),
             "",
@@ -142,6 +148,7 @@ class Config:
     def ui(self) -> UiSettings:
         """The frontend slice, cut once here."""
         return UiSettings(
+            theme=self.theme,
             dialogue_color=self.dialogue_color,
             dialogue_bold=self.dialogue_bold,
             show_banner=self.show_banner,
@@ -153,9 +160,14 @@ def load(path: Path) -> Config:
     """Read and validate config.toml. Raises ConfigError with a message
     that names the file — it is hand-edited, so errors must be human."""
     try:
-        raw = tomllib.loads(path.read_text())
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as e:
         raise ConfigError(f"{path} does not exist") from e
+    except UnicodeDecodeError as e:
+        # TOML is UTF-8 by specification, and this file is hand-edited:
+        # an editor that saved it in the machine's own codepage is the
+        # likely cause, and is something the reader can act on.
+        raise ConfigError(f"{path}: not valid UTF-8 — save the file as UTF-8") from e
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"{path}: invalid TOML — {e}") from e
 

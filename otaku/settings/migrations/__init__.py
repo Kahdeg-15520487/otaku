@@ -79,6 +79,19 @@ _CONFIG_MIGRATIONS: list[Migration] = [
         + row("port = 9600", "…and on which port"),
         after="ui",
     ),
+    # 0.4.0 — the background stops being guessed in silence. The ask
+    # cannot work everywhere (Windows has no terminal to interrogate),
+    # so the reader gets the say, at the head of [ui] where the rendered
+    # file puts it.
+    ensure_key(
+        "ui",
+        "theme",
+        row(
+            'theme = "auto"',
+            '"auto" asks the terminal and takes dark when it will not say; or "light"/"dark"',
+        ),
+        # No `after`: it heads [ui] in the rendered file.
+    ),
     # 0.4.0 — /set notification arrives, and names the sound it plays.
     ensure_key(
         "settings",
@@ -87,6 +100,7 @@ _CONFIG_MIGRATIONS: list[Migration] = [
             'notification_sound = "default"',
             'what /set notification plays: "default" is the platform\'s own, else a path',
         ),
+        after="smooth_streaming",
     ),
     # 0.4.0 — the context budget arrives. Founded at 0: the window a
     # model advertises is the one it can use, and a reader who wants the
@@ -98,6 +112,7 @@ _CONFIG_MIGRATIONS: list[Migration] = [
             "max_context = 0",
             "the prompt may use at most this many tokens; 0 = the model's whole window",
         ),
+        after="min_tail_messages",
     ),
     # 0.4.0 — tail_messages says what it always meant: a MINIMUM. The
     # value the user set carries over under the new name.
@@ -151,7 +166,10 @@ def _provider_migrations(
         # SEES the setting exists; what a user already set stays. Named
         # sections only — the section's name is what picks the marking
         # client, so [openrouter] is exactly the section the key governs.
-        ensure_key("openrouter", "prompt_cache", PROMPT_CACHE_ROW),
+        # After keep_alive, which is the last key a provider section
+        # renders before this one — and optional, so a section without it
+        # falls through to the section's end, which is the same place.
+        ensure_key("openrouter", "prompt_cache", PROMPT_CACHE_ROW, after="keep_alive"),
     ]
 
 

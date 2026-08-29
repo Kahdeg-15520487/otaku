@@ -15,7 +15,7 @@ requires-python = ">=3.11"
 # vocabulary, whichever index a reader arrives from. `omlx`, `story` and `lore`
 # are the three additions: otaku's own words for things, which no topic carries.
 keywords = [
-    "llm", "local-llm", "cli", "terminal", "tui",
+    "llm", "local-llm", "cli", "terminal", "tui", "web-ui",
     "ollama", "mlx", "omlx", "koboldcpp", "llamacpp", "lmstudio", "openrouter", "nanogpt",
     "roleplay", "ai-roleplay", "storytelling", "story", "lore",
     "interactive-fiction", "creative-writing", "sillytavern", "sillytavern-alternative",
@@ -23,8 +23,10 @@ keywords = [
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
+    "Environment :: Web Environment",
     "Intended Audience :: End Users/Desktop",
     "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.11",

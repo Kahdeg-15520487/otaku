@@ -19,8 +19,8 @@ def load(path: Path) -> dict[str, dict[str, object]]:
     if not path.exists():
         return {}
     try:
-        raw = tomllib.loads(path.read_text())
-    except (OSError, tomllib.TOMLDecodeError):
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
         return {}
     return {str(name): dict(entry) for name, entry in raw.items() if isinstance(entry, dict)}
 
@@ -32,8 +32,8 @@ def save_parameters(path: Path, model: str, parameters: dict[str, object]) -> No
     data: dict[str, dict[str, object]] = {}
     if path.exists():
         try:
-            raw = tomllib.loads(path.read_text())
-        except (OSError, tomllib.TOMLDecodeError) as e:
+            raw = tomllib.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as e:
             raise ValueError(f"{path} is unreadable ({e}); fix or move it") from e
         data = {str(name): dict(entry) for name, entry in raw.items() if isinstance(entry, dict)}
     if parameters:

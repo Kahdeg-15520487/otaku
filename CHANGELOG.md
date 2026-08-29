@@ -11,10 +11,9 @@ changes.
 
 - Added web UI: `otaku web` opens the same session in a browser — the second frontend, over the
   same stories, the same lore and the same commands.
+- Added native Windows support (10 and 11, 64-bit only).
 - The context builder is reworked from the ground up, after `docs/context_design.md`; the new
   `max_context` setting keeps the prompt inside the window models still handle well for roleplay.
-- otaku is restructured around a frontend-agnostic core: same app, same commands, same data — but
-  the story machinery no longer belongs to the terminal.
 - Prompt caching for OpenRouter.
 - Sound notifications.
 
@@ -31,8 +30,8 @@ changes.
   usage as a table, the session as a definition list. A reply is typeset as it arrives — spoken
   lines take their own colour in both conventions writers use (paired quotes, and the dash that
   opens a line and hands over to the attribution), and the model's `*emphasis*`, `**weight**` and
-  `` `code` `` are rendered rather than shown as characters. The prompt takes prose alone: `/me`, `/you`,
-  `/ooc` and `/cue` are the story's own framing and go to the model inside the line, while
+  `` `code` `` are rendered rather than shown as characters. The prompt takes prose alone: `/me`,
+  `/you`, `/ooc` and `/cue` are the story's own framing and go to the model inside the line, while
   everything a command used to do is a thing on the page to press.
 
   It is a single-reader, local page by design: nothing it is made of is cached and nothing is a
@@ -46,9 +45,17 @@ changes.
   It listens on loopback and answers only requests addressed to this machine, and a write must
   come from otaku's own page: a page on another site cannot drive your otaku from the browser you
   left it open in.
-- New `max_context` setting (`[context]` in config.toml, 0 by default — the model's whole
-  window — and any number of tokens to cap it) caps the prompt whatever the model advertises — the effective
-  context for roleplay falls far short of the advertised one. Also settable as `/set max_context`
+- Windows is a supported platform, with an installer of its own: `install.ps1`, run as
+  `powershell -ExecutionPolicy Bypass -c "irm https://otaku.sh/install.ps1 | iex"`. It is
+  `install.sh` in PowerShell and makes the same promises — it fetches uv, installs otaku with it,
+  never asks for administrator, and reports an otaku that uv, pipx, Scoop or Chocolatey already
+  owns instead of installing a second one alongside. The one thing it edits that is yours is the
+  user PATH, and only when uv's directory is missing from it. 64-bit only: on an ARM64 machine
+  otaku is installed on an emulated x64 CPython, because `cryptography` publishes no ARM64 Windows
+  wheel, and 32-bit Windows is refused with the reason rather than a failing build.
+- New `max_context` setting (`[context]` in config.toml, 0 by default — the model's whole window —
+  or any number of tokens) caps the prompt whatever the model advertises: the effective context for
+  roleplay falls far short of the claimed one. Also settable as `/set max_context`
   — in the web settings panel too — which edits that one config.toml line surgically, the
   pre-edit file backed up. When the story outgrows the limit, the oldest scene summaries fold
   into the story-so-far; when even that is not enough, the verbatim tail steps down (never below
@@ -57,9 +64,10 @@ changes.
   scene summaries, and a tail aiming below the configured count says the window forced it.
 - `/set notification on|off` — off by default — plays a sound when a reply lands, for when you look
   away mid-generation. Which sound is `configs/config.toml`'s `notification_sound`: `"default"` is
-  the platform's own (macOS's Glass, the freedesktop theme's on Linux), or name a file of your own.
-  A machine with no player, or a path that isn't there, rings the terminal bell instead — and what
-  a bell means is your terminal's business, which is where a notification belongs.
+  the platform's own (Glass on macOS, the freedesktop theme's on Linux, Ding on Windows), or name a
+  file of your own — WAV on Windows, which plays it through `winsound` and reads nothing else. A
+  machine with no player, or a path that isn't there, rings the terminal bell instead — and what a
+  bell means is your terminal's business, which is where a notification belongs.
 - Prompt caching on OpenRouter, on by default: requests carry cache breakpoints, so each reply
   re-reads the story's stable prefix at the provider's cache rate instead of full input price —
   play against the hosted models for a fraction of the tokens. `prompt_cache` in
@@ -68,6 +76,12 @@ changes.
   section gains the line on the first launch after upgrading, so the setting is there to see and
   edit. The verbose stats line shows `cached N tok` per reply, `/usage` grows a CACHED column, and
   `/info` reports the setting.
+- `[ui]`'s new `theme` setting decides which shades otaku paints in: `"light"` or `"dark"` settles
+  it, and `"auto"` — the default — asks the terminal as before. What changed underneath is the
+  answer when the terminal will not say: it used to read as light, and now reads as dark, which is
+  the likelier background and the only outcome Windows can reach, since there is nothing to ask
+  there. A config from an earlier version gains the line at the head of `[ui]` on the first launch
+  after upgrading, so the setting is there to see and edit.
 
 ### Changed
 - The codebase is restructured around a frontend-agnostic core. Everything that is not the
@@ -117,11 +131,22 @@ changes.
 - The mascot beside the banner is redrawn. Without colour it is now the same picture rather than a
   different one: the sprite is cut into ink and paper instead of falling back to an ASCII face, so
   a piped or `NO_COLOR` session gets the mark at the same size, in the same place.
+- Spoken lines and slash commands are painted in otaku's own colours rather than the terminal's
+  palette slots: they used to be "blue" and "magenta", which every terminal shades to taste, and
+  they are now exact shades that come out the same everywhere. `dialogue_color` still takes a
+  palette name if you would rather your own scheme decided.
 - `[context] tail_messages` is now `min_tail_messages`, saying what it always meant: the tail
   never holds fewer than it — a scene ending exactly at the tail's first message stays verbatim,
   its whole span riding with the tail. Config.toml renames the key itself, the set value kept.
 
 ### Fixed
+- The settings files are read and written as UTF-8, whatever the machine's locale says. They
+  always held characters beyond ASCII — the comments otaku renders into config.toml alone have two
+  dozen — and Python had been leaving the encoding to the platform, which is UTF-8 on macOS and
+  Linux and a legacy codepage on Windows. A file otaku wrote there was not the UTF-8 that TOML
+  requires, and one saved back by an editor that does write UTF-8 could no longer be read. A file
+  that is not UTF-8 now says so in a sentence naming the file, rather than ending the launch with
+  a traceback.
 - A sealing key that cannot be read no longer ends the launch with a traceback: the provider it
   belongs to runs without its key and the launch says which one.
 - The prompt warm-up after a scene closes now runs for local engines only. It exists to prefill a

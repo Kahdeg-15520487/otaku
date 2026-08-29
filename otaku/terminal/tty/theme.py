@@ -11,9 +11,10 @@ and a caller should not have to make it again to paint with it.
 Two kinds of spec go in, and the difference is deliberate:
 
 - A **name** ("blue") compiles to one of the 16 palette slots, which the
-  reader's own terminal theme shades. Used where text sits on the
-  terminal's own background — the chat, the prompt — so otaku's colors
-  belong to their theme rather than fighting it.
+  reader's own terminal theme shades. No shipped slot is one: otaku's
+  colors are its own, the same in every terminal. It is what a reader
+  spells in `dialogue_color` when they would rather their scheme decided
+  the color of speech than otaku did.
 - A **#rrggbb** is exact everywhere. Used only where otaku must PAINT:
   the played block's band, the selected row's, and a dialog floating
   over a list it would otherwise show through. A slot the reader's theme
@@ -22,8 +23,12 @@ Two kinds of spec go in, and the difference is deliberate:
   makes a surface transparent. A picker is the terminal with a list on
   it, not a card laid over one.
 
-An unanswered background reads as light: that is the shipped look, and a
-pipe has no colors to clash with.
+Which theme is `[ui]`'s `theme`: "light" or "dark" is the reader saying
+so and settles it, and "auto" asks the terminal. An unanswered
+background reads as DARK — the ask cannot happen at all on Windows and
+fails quietly enough elsewhere (a pipe, an ssh, a silent emulator) that
+the fallback has to be the likelier terminal rather than the tidier
+default.
 """
 
 import os
@@ -155,9 +160,9 @@ LIGHT = Theme(
     ok=color("#2f9e44"),
     band=color("#f0f0f0"),
     placeholder=color("#8a8a8a"),
-    dialogue=color("blue"),
+    dialogue=color("#427AB2"),
     dialogue_bold=False,
-    command=color("magenta"),
+    command=color("#8A648E"),
 )
 
 DARK = Theme(
@@ -174,9 +179,9 @@ DARK = Theme(
     # A mid grey reads as a hint against either background, so the hint is
     # the one slot that does not turn over.
     placeholder=color("#8a8a8a"),
-    dialogue=color("bright blue"),
+    dialogue=color("#A4A8EE"),
     dialogue_bold=False,
-    command=color("bright magenta"),
+    command=color("#E17DE1"),
 )
 
 
@@ -190,8 +195,8 @@ def use(ui: UiSettings) -> None:
 
     A setting that is not a color resolves to the empty one and leaves
     the slot alone, so "auto" needs no special case and a typo costs
-    nothing. This is where a whole theme read from a file will land."""
-    base = DARK if _background_is_dark() else LIGHT
+    nothing."""
+    base = _theme_for(ui.theme)
     _CURRENT[:] = [
         replace(
             base,
@@ -209,7 +214,30 @@ def theme() -> Theme:
     session sees."""
     if _CURRENT:
         return _CURRENT[0]
-    return DARK if _background_is_dark() else LIGHT
+    return _theme_for("auto")
+
+
+def _theme_for(setting: str) -> Theme:
+    """The theme `setting` asks for: "light" and "dark" are the reader
+    saying so and win outright — a setting named for the theme has to set
+    it, or the name is a lie — and anything else, "auto" and a typo
+    alike, asks the terminal.
+
+    A terminal that will not say reads as DARK. The ask fails in two
+    quite different ways and one answer has to serve both: on Windows
+    there is no way to ask at all, and everywhere else it is a pipe, an
+    ssh, or an emulator keeping quiet. Dark is the better guess for each
+    — every console Windows ships is dark, and so is the common terminal
+    everywhere else — and a reader it guesses wrong for has the setting
+    to say so, which is the part that was missing."""
+    if setting == "light":
+        return LIGHT
+    if setting == "dark":
+        return DARK
+    answered = _background_is_dark()
+    if answered is None:
+        return DARK
+    return DARK if answered else LIGHT
 
 
 def _background_is_dark() -> bool | None:

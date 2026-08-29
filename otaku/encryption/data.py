@@ -60,7 +60,7 @@ class Keystore:
 
     def slots(self) -> list[dict[str, Any]]:
         """Raises OSError/ValueError on an unreadable file."""
-        raw = tomllib.loads(self._path.read_text())
+        raw = tomllib.loads(self._path.read_text(encoding="utf-8"))
         slots = raw.get("slots", [])
         return list(slots) if isinstance(slots, list) else []
 
@@ -72,7 +72,7 @@ class Keystore:
             fd = os.open(self._path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         except FileExistsError as e:
             raise EncryptionError(f"{self._path} already exists; refusing to overwrite") from e
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(self._toml(slots))
 
     def _toml(self, slots: list[dict[str, Any]]) -> str:

@@ -56,8 +56,8 @@ def load(path: Path) -> tuple[State, list[str]]:
     if not path.exists():
         return State(), []
     try:
-        raw = tomllib.loads(path.read_text())
-    except (OSError, tomllib.TOMLDecodeError) as e:
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as e:
         return State(), [f"Ignoring {path.name} ({e})."]
     story = raw.get("story")
     return State(

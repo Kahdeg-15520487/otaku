@@ -86,7 +86,7 @@ def update_prompts(prompts_path: Path, backups_dir: Path, changes: list[Migratio
     """One committed edit of prompts.toml — same machinery, same
     guarantees as the config edits. Returns whether the file changed."""
     try:
-        text = prompts_path.read_text()
+        text = prompts_path.read_text(encoding="utf-8")
     except OSError:
         return False
     migrated = apply_migrations(text, changes)

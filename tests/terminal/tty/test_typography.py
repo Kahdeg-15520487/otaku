@@ -47,7 +47,11 @@ def settled() -> Iterator[None]:
     from the theme now, so without this the tests would read whatever
     background the terminal running them reports."""
     saved = list(_CURRENT)
-    use(UiSettings(dialogue_color=_SPEECH_SPEC, dialogue_bold=False, show_banner=True))
+    use(
+        UiSettings(
+            theme="auto", dialogue_color=_SPEECH_SPEC, dialogue_bold=False, show_banner=True
+        )
+    )
     yield
     _CURRENT[:] = saved
 
@@ -210,7 +214,11 @@ class TestDialogue:
 
     def test_speech_is_not_bold_unless_the_theme_says_so(self) -> None:
         assert _SPEECH + _BOLD not in typeset('"hi"\n')
-        use(UiSettings(dialogue_color=_SPEECH_SPEC, dialogue_bold=True, show_banner=True))
+        use(
+            UiSettings(
+                theme="auto", dialogue_color=_SPEECH_SPEC, dialogue_bold=True, show_banner=True
+            )
+        )
         assert _SPEECH + _BOLD in typeset('"hi"\n')
 
 

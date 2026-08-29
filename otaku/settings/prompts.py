@@ -191,8 +191,8 @@ def load(path: Path) -> tuple[Prompts, list[str]]:
         return Prompts(), []
     warnings: list[str] = []
     try:
-        raw = tomllib.loads(path.read_text())
-    except (OSError, tomllib.TOMLDecodeError) as e:
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as e:
         return Prompts(), [f"Ignoring {path.name} ({e})."]
     known = {f.name for f in fields(Prompts)}
     unknown = sorted(set(raw) - known)
