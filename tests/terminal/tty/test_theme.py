@@ -9,7 +9,7 @@ form the app paints with at once — the foreground escape, the background
 escape, and the name prompt_toolkit wants — because they are one decision.
 
 `use` settles the session's theme: the background's own with the user's
-`[ui]` colors laid over it, and a setting that is not a color leaving its
+`[terminal]` colors laid over it, and a setting that is not a color leaving its
 slot alone.
 
 The shipped themes' contract is that they are COMPLETE and correctly
@@ -23,7 +23,7 @@ from dataclasses import fields
 
 import pytest
 
-from otaku.settings.config import UiSettings
+from otaku.settings.config import TerminalSettings
 from otaku.terminal.tty.theme import (
     _BACKGROUND,
     _CURRENT,
@@ -175,8 +175,8 @@ class TestThemeSetting:
 
 def _config(
     *, dialogue_color: str = "auto", dialogue_bold: bool = False, theme: str = "auto"
-) -> UiSettings:
-    return UiSettings(
+) -> TerminalSettings:
+    return TerminalSettings(
         dialogue_color=dialogue_color,
         dialogue_bold=dialogue_bold,
         show_banner=True,

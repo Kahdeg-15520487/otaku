@@ -32,6 +32,7 @@ from otaku.settings.migrations.surgery import (
     ensure_key,
     ensure_section,
     rename_key,
+    rename_section,
     set_key,
     update_config,
     update_providers,
@@ -55,10 +56,17 @@ __all__ = [
 # change across app versions, each safe to re-run on any config the app
 # ever wrote.
 _CONFIG_MIGRATIONS: list[Migration] = [
-    # 0.2.2 — dialogue coloring arrives with the [ui] section.
+    # 0.4.0 — [ui] becomes [terminal], which is what it always held: one
+    # frontend's looks. It ran FIRST so every step below names the new
+    # section and finds it — including the one that would otherwise add
+    # a second copy beside the old one.
+    rename_section("ui", "terminal"),
+    # 0.2.2 — dialogue coloring arrives with the section, under the name
+    # it has now: a config old enough to lack it never had the old one
+    # either, so there is nothing for the rename above to have caught.
     ensure_section(
-        "ui",
-        "[ui]\n"
+        "terminal",
+        "[terminal]\n"
         + row(
             'dialogue_color = "auto"',
             'spoken lines: "auto" fits the background; a color name ("cyan") or #rrggbb',
@@ -77,20 +85,20 @@ _CONFIG_MIGRATIONS: list[Migration] = [
         )
         + "\n"
         + row("port = 9600", "…and on which port"),
-        after="ui",
+        after="terminal",
     ),
     # 0.4.0 — the background stops being guessed in silence. The ask
     # cannot work everywhere (Windows has no terminal to interrogate),
-    # so the reader gets the say, at the head of [ui] where the rendered
+    # so the reader gets the say, at the head of [terminal] where the rendered
     # file puts it.
     ensure_key(
-        "ui",
+        "terminal",
         "theme",
         row(
             'theme = "auto"',
             '"auto" asks the terminal and takes dark when it will not say; or "light"/"dark"',
         ),
-        # No `after`: it heads [ui] in the rendered file.
+        # No `after`: it heads [terminal] in the rendered file.
     ),
     # 0.4.0 — /set notification arrives, and names the sound it plays.
     ensure_key(

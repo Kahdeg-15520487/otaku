@@ -58,6 +58,7 @@ GROUP_LABELS: dict[str, str] = {
     "inspect": "Inspect",
     "transfer": "Import/export",
     "settings": "Models and settings",
+    "web": "Web UI",
     "meta": "Meta",
 }
 
@@ -142,6 +143,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("/set notification", "on|off", "Play a sound when a reply lands (the sound is configs/config.toml's notification_sound)", "settings", CommandKind.OPERATION),
     CommandSpec("/set max_context", "<tokens>", "Cap the prompt at this many tokens; 0 = the model's whole window", "settings", CommandKind.OPERATION),
     # Meta
+    CommandSpec("/web", "", "Open this session in a browser", "web", CommandKind.INTERACTIVE),
     CommandSpec("/help", "", "Show this help", "meta", CommandKind.INTERACTIVE),
     CommandSpec("/bye", "", "Exit", "meta", CommandKind.INTERACTIVE),
 )

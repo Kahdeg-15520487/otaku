@@ -18,7 +18,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from otaku.settings.config import UiSettings
+from otaku.settings.config import TerminalSettings
 from otaku.terminal.tty.theme import _CURRENT, color, theme, use
 from otaku.terminal.tty.typography import Streamer, highlight_commands, highlight_toml
 
@@ -48,7 +48,7 @@ def settled() -> Iterator[None]:
     background the terminal running them reports."""
     saved = list(_CURRENT)
     use(
-        UiSettings(
+        TerminalSettings(
             theme="auto", dialogue_color=_SPEECH_SPEC, dialogue_bold=False, show_banner=True
         )
     )
@@ -215,7 +215,7 @@ class TestDialogue:
     def test_speech_is_not_bold_unless_the_theme_says_so(self) -> None:
         assert _SPEECH + _BOLD not in typeset('"hi"\n')
         use(
-            UiSettings(
+            TerminalSettings(
                 theme="auto", dialogue_color=_SPEECH_SPEC, dialogue_bold=True, show_banner=True
             )
         )

@@ -30,3 +30,9 @@ BELL = "\a"
 # Erasing and cursor motion
 ERASE_BELOW = "\x1b[J"  # clear from the cursor to the end of the screen
 UP = "\x1b[{}A"  # CUU: up N rows, the column unchanged
+
+# The left margin everything drawn here stands in — the banner's mark
+# and its rule, the address a served session prints, the request tail's
+# rows. One number rather than one per drawing, because the whole point
+# of it is that they line up.
+MARGIN = 2

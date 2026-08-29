@@ -410,21 +410,22 @@ class TestConfigMigration:
         old = "\n".join(
             line
             for line in config_file.read_text().splitlines()
-            if not line.startswith(("[ui]", "dialogue_color =", "dialogue_bold ="))
+            if not line.startswith(("[terminal]", "dialogue_color =", "dialogue_bold ="))
         )
         config_file.write_text(old + "\n# my note\n")
 
         cfg, _providers = load_config(app.paths)
         migrated = config_file.read_text()
-        assert "[ui]" in migrated
+        assert "[terminal]" in migrated
         assert 'dialogue_color = "auto"' in migrated
         # Anchored below [settings], where a fresh config renders it.
-        assert migrated.index("[settings]") < migrated.index("[ui]") < migrated.index("[context]")
+        index = migrated.index
+        assert index("[settings]") < index("[terminal]") < index("[context]")
         assert "# my note" in migrated  # the user's own line survived
         assert cfg.dialogue_color == "auto"
         backups = list(app.paths.config_backups_dir.iterdir())
         assert len(backups) == 1
-        assert "[ui]" not in backups[0].read_text()
+        assert "[terminal]" not in backups[0].read_text()
 
     def test_an_old_context_section_gains_the_max_context_row(
         self, server: ModelServer, tmp_path

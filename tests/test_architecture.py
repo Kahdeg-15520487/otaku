@@ -33,8 +33,12 @@ _ALLOWED = {
     # `python -m otaku`: the module entry, which only calls the real one.
     "__main__": {"cli"},
     "cli": {"terminal", "web", "backend", "logging", "update", "formatting"},
-    "terminal": {"console", "backend", "formatting"},
-    "web": {"console", "backend", "settings", "formatting"},
+    # `web` because `/web` serves this session to a browser and waits: a
+    # frontend that can hand the reader to the other one calls it, and
+    # the arrow only points this way — the page has nowhere to send
+    # anybody, so `web` still knows nothing of `terminal`.
+    "terminal": {"console", "backend", "web", "formatting"},
+    "web": {"console", "backend", "formatting"},
     # What a frontend draws in the terminal it was LAUNCHED from — the
     # banner both open with, and the tail under the web's. A leaf: it is
     # handed what it draws.
@@ -225,6 +229,9 @@ _ON_THE_PAGE = {
     "/set notification": "screen:/set",
     "/set max_context": "screen:/set",
     "/help": "screen:/help",
+    # The one gap that can never be filled: this command's whole purpose
+    # is to reach the page, and the reader of the page is already there.
+    "/web": "none:the page IS this — there is nowhere for it to send anyone",
     "/bye": "screen:/bye",
 }
 

@@ -462,8 +462,10 @@ def _session_rows(session: Session) -> tuple[tuple[str, str], ...]:
     if label := stories.headline(session):
         out.append(("Story", truncate_label(label, stories.LABEL_WIDTH)))
     out.append(("Messages", str(len(session.messages))))
-    if session.system:
-        out.append(("System", f'"{session.system}"'))
+    # No premise row: a premise is a DOCUMENT, not a fact about the
+    # session — it is as long as a reader made it, and `/system` reports
+    # it on its own, at whatever length that is. A report of one-line
+    # facts is the wrong place to print an imported lorebook.
     if session.params:
         out.append(("Parameters", ", ".join(f"{k} = {v}" for k, v in session.params.items())))
     return tuple(out)

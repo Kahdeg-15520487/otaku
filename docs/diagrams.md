@@ -44,8 +44,9 @@ under the graph state the edges ASCII cannot draw cleanly.
              providers ─► settings (ProviderConfig and the sections live there)
     dashed, injected at composition (no import): worker status ─► frontend repaint ·
              ask_secret ─► frontend
-    web ─► settings: the [web] slice alone — where a frontend LISTENS is the
-             medium, like a key binding, and it is needed before a session exists
+    terminal ─► web: /web serves the open session to a browser and waits. The one
+             arrow between the frontends, and it points only this way — a page has
+             nowhere to send anybody back to
     console: what a frontend draws in the terminal it was LAUNCHED from — the
              banner both open with, the tail under the web's. Below both
              frontends because neither may own what the other prints, and a

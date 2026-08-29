@@ -239,11 +239,11 @@ export async function openInfo() {
     if (section.note) blocks.push(element("p", "otk-note", section.note));
     for (const [label, value] of section.rows) {
       const name = label.toLowerCase();
-      // The subject takes the title, the open story closes the slip,
-      // and the premise is not a fact about the session — it has a tab
-      // of its own, at reading measure, where it can be corrected.
+      // The subject takes the title and the open story closes the slip.
+      // No premise arrives to skip: the report stopped carrying one,
+      // for the reason this used to give — it is a document, not a
+      // fact, and it has a tab of its own at reading measure.
       if (name === "model" && !title) title = value;
-      else if (name === "system") continue;
       else if (name === "story") closing.push(element("span", "otk-docket__story", value));
       else if (name === "messages") closing.push(span("otk-index__sub", `${value} messages`));
       // The endpoint belongs UNDER the backend it addresses, not beside

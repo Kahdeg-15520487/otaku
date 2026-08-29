@@ -47,7 +47,7 @@ def run(session: Session) -> None:
     pick is THIS loop's, not the backend's), echo the resumed scene into
     the ledger, start the worker with the repaint hook, then prompt →
     submit. `session.close()` stays the caller's (cli's)."""
-    theme.use(session.ui)
+    theme.use(session.terminal)
     # Some terminals (Ghostty) need the explicit blink opt-in on top of
     # the DECSCUSR shape escape prompt_toolkit emits.
     sys.stdout.write(CURSOR_BLINK_ON)
@@ -65,7 +65,7 @@ def run(session: Session) -> None:
     # leaves behind).
     if not session.model:
         screen_models.pick(session)
-    if session.ui.show_banner:
+    if session.terminal.show_banner:
         # Each field a public read; the no-model fallback is this
         # frontend's own wording, and the story is cut to the same width
         # as the landed line printed under it.

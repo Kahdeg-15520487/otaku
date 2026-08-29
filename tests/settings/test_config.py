@@ -15,7 +15,7 @@ class TestToToml:
 
     def test_every_section_is_present(self) -> None:
         parsed = tomllib.loads(Config().to_toml())
-        sections = ("settings", "ui", "context", "lore_extraction", "database", "encryption")
+        sections = ("settings", "terminal", "context", "lore_extraction", "database", "encryption")
         for section in sections:
             assert section in parsed, section
 
@@ -23,5 +23,5 @@ class TestToToml:
         parsed = tomllib.loads(Config().to_toml())
         assert parsed["lore_extraction"]["enabled"] is True
         assert parsed["lore_extraction"]["scene_min_chars"] == 6000
-        assert parsed["ui"]["dialogue_color"] == "auto"
-        assert parsed["ui"]["dialogue_bold"] is False
+        assert parsed["terminal"]["dialogue_color"] == "auto"
+        assert parsed["terminal"]["dialogue_bold"] is False

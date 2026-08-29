@@ -16,11 +16,11 @@ class ConfigError(Exception):
 
 
 @dataclass(frozen=True)
-class UiSettings:
-    """The configured looks a frontend needs at its own launch — the one
-    slice of config.toml that is the frontend's business (a persisted
-    slice, hence a settings type; run-time bundles live beside their
-    consumers instead)."""
+class TerminalSettings:
+    """The looks the terminal frontend needs at its own launch — its
+    slice of config.toml, as `WebSettings` below is the other one's (a
+    persisted slice, hence a settings type; run-time bundles live beside
+    their consumers instead)."""
 
     # Which of the shipped themes to paint in: "light" or "dark" says so
     # outright, and anything else — "auto", or a hand-edited typo, which
@@ -63,7 +63,7 @@ class Config:
     show_banner: bool = True
     smooth_streaming: bool = True
     notification_sound: str = "default"  # "default" = the platform's own; else a path
-    # [ui]
+    # [terminal]
     theme: str = "auto"  # "auto" asks the terminal; else "light" or "dark"
     dialogue_color: str = "auto"
     dialogue_bold: bool = False
@@ -97,7 +97,7 @@ class Config:
             row(f"smooth_streaming = {toml_scalar(self.smooth_streaming)}", "re-time bursty model output into an even stream"),
             row(f"notification_sound = {toml_scalar(self.notification_sound)}", 'what /set notification plays: "default" is the platform\'s own, else a path'),
             "",
-            "[ui]",
+            "[terminal]",
             row(f"theme = {toml_scalar(self.theme)}", '"auto" asks the terminal and takes dark when it will not say; or "light"/"dark"'),
             row(f"dialogue_color = {toml_scalar(self.dialogue_color)}", 'spoken lines: "auto" fits the background; a color name ("cyan") or #rrggbb'),
             row(f"dialogue_bold = {toml_scalar(self.dialogue_bold)}", "also bold the spoken lines"),
@@ -141,13 +141,13 @@ class Config:
 
     @property
     def web(self) -> WebSettings:
-        """The web frontend's slice, cut like `ui` below."""
+        """The web frontend's slice, cut like `terminal` below."""
         return WebSettings(host=self.web_host, port=self.web_port)
 
     @property
-    def ui(self) -> UiSettings:
-        """The frontend slice, cut once here."""
-        return UiSettings(
+    def terminal(self) -> TerminalSettings:
+        """The terminal frontend's slice, cut once here."""
+        return TerminalSettings(
             theme=self.theme,
             dialogue_color=self.dialogue_color,
             dialogue_bold=self.dialogue_bold,
@@ -179,7 +179,7 @@ def load(path: Path) -> Config:
     )
 
     settings = _table(raw, "settings", path)
-    ui = _table(raw, "ui", path)
+    terminal = _table(raw, "terminal", path)
     web = _table(raw, "web", path)
     context = _table(raw, "context", path)
     lore = _table(raw, "lore_extraction", path)
@@ -190,8 +190,8 @@ def load(path: Path) -> Config:
             show_banner=bool(settings.get("show_banner", True)),
             smooth_streaming=bool(settings.get("smooth_streaming", True)),
             notification_sound=str(settings.get("notification_sound", "default")),
-            dialogue_color=str(ui.get("dialogue_color", "auto")),
-            dialogue_bold=bool(ui.get("dialogue_bold", False)),
+            dialogue_color=str(terminal.get("dialogue_color", "auto")),
+            dialogue_bold=bool(terminal.get("dialogue_bold", False)),
             web_host=str(web.get("host", "127.0.0.1")),
             # Clamped to the range a socket accepts, 0 excluded: a port
             # of 0 asks the OS to pick one, and `otaku web` says where

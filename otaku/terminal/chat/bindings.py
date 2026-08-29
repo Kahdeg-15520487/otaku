@@ -18,6 +18,7 @@ from typing import NamedTuple
 
 import click
 
+from otaku import web as web_frontend
 from otaku.backend import commands
 from otaku.backend.api import cards as api_cards
 from otaku.backend.api import lore as api_lore
@@ -446,6 +447,31 @@ def _help(chat: Chat, raw: str) -> None:
     chat.say(highlight_commands(help_page.text(captions), command_tokens()))
 
 
+def _web(chat: Chat, raw: str) -> None:
+    """Serve this session to a browser and stand here until the reader
+    stops it, then carry on at the prompt below. One session throughout:
+    the other frontend is handed the open one rather than opening its
+    own, and closing it stays cli's either way.
+
+    This is the one place the terminal reaches the other frontend, and
+    the arrow points only this way — a page has nowhere to send anybody
+    back to."""
+    # The other frontend prints into this terminal itself, which is
+    # printing PAST `say` — so the say protocol is announced here
+    # instead: the blank under the typed line, the stack invalidated
+    # (what it prints lands past every row the ledger was counting), and
+    # the gap before the next prompt earned. Without this the banner
+    # opens flush against `/web` and the loop prints no gap at all.
+    print(chat.ledger.said(), end="")
+    try:
+        web_frontend.run(chat.session, full=False)
+    except web_frontend.ServeError as e:
+        # The address is configuration, and a reader who cannot have the
+        # browser keeps their session: a sentence, not a crash. The
+        # reason is web's own words, under this medium's.
+        chat.say(error_line(f"The web interface could not start: {e}"))
+
+
 def _bye(chat: Chat, raw: str) -> None:
     chat.quit = True
 
@@ -469,6 +495,7 @@ _INTERACTIVE: dict[str, Callable[[Chat, str], None]] = {
     "/export": _export,
     "/model": _model,
     "/help": _help,
+    "/web": _web,
     "/bye": _bye,
 }
 

@@ -77,7 +77,7 @@ class Streamer:
     def __init__(self, out: TextIO | None = None) -> None:
         self._out = out if out is not None else sys.stdout
         # The dialogue look is the theme's, and the theme is the launch's:
-        # the user's [ui] settings reached it there, so nothing has to be
+        # the user's [terminal] settings reached it there, so nothing has to be
         # handed down through every caller to get here.
         colors = theme()
         self._speech_color = colors.dialogue.fg

@@ -319,7 +319,8 @@ export function info(version) {
   const story = state.stories.get(state.open);
   const session = [["Messages", String(story ? story.turns.length : 0)]];
   if (story) session.unshift(["Story", cut(label(story), 50)]);
-  if (story && story.system) session.push(["System", `"${story.system}"`]);
+  // No premise row — the product's report stopped carrying one, and this
+  // answers in the product's shape or it answers wrongly.
   const set = state.settings.parameters.filter((p) => p.value);
   if (set.length) session.push(["Parameters", set.map((p) => `${p.name} = ${p.value}`).join(", ")]);
   return {

@@ -15,6 +15,7 @@ from otaku.settings.migrations.surgery import (
     drop_key_everywhere,
     ensure_key,
     ensure_section,
+    rename_section,
     set_key,
 )
 
@@ -67,10 +68,10 @@ class TestEnsureKey:
     a fresh one."""
 
     def test_no_neighbour_named_puts_it_under_the_header(self) -> None:
-        text = '[ui]\ndialogue_color = "auto"\ndialogue_bold = false\n'
-        migrated = ensure_key("ui", "theme", 'theme = "auto"')(text)
+        text = '[terminal]\ndialogue_color = "auto"\ndialogue_bold = false\n'
+        migrated = ensure_key("terminal", "theme", 'theme = "auto"')(text)
         assert migrated == (
-            '[ui]\ntheme = "auto"\ndialogue_color = "auto"\ndialogue_bold = false\n'
+            '[terminal]\ntheme = "auto"\ndialogue_color = "auto"\ndialogue_bold = false\n'
         )
 
     def test_a_named_neighbour_puts_it_directly_after(self) -> None:
@@ -104,6 +105,40 @@ class TestEnsureKey:
 
     def test_no_such_section_is_untouched(self) -> None:
         assert ensure_key("nowhere", "sound", 'sound = "default"')(BASE) is BASE
+
+
+class TestRenameSection:
+    """A section that has been called something else, whose contents
+    never changed: only the header line is rewritten."""
+
+    def test_renames_the_header_and_keeps_everything_under_it(self) -> None:
+        text = (
+            "[settings]\nshow_banner = true\n"
+            "\n[ui]\n# mine\ndialogue_color = \"cyan\"   # the one I like\n"
+        )
+        migrated = rename_section("ui", "terminal")(text)
+        assert migrated == (
+            "[settings]\nshow_banner = true\n"
+            "\n[terminal]\n# mine\ndialogue_color = \"cyan\"   # the one I like\n"
+        )
+
+    def test_a_file_already_renamed_is_untouched(self) -> None:
+        # Every launch reruns this; the second one must be a no-op.
+        text = '[terminal]\ndialogue_color = "auto"\n'
+        assert rename_section("ui", "terminal")(text) is text
+
+    def test_a_file_holding_both_is_untouched(self) -> None:
+        # Nothing here can merge two sections, and guessing which one
+        # the reader meant would lose the other.
+        text = '[ui]\ndialogue_color = "cyan"\n\n[terminal]\ndialogue_bold = true\n'
+        assert rename_section("ui", "terminal")(text) is text
+
+    def test_no_such_section_is_untouched(self) -> None:
+        assert rename_section("ui", "terminal")(BASE) is BASE
+
+    def test_a_mention_in_a_comment_is_not_the_section(self) -> None:
+        text = BASE + "# [ui] used to live here\n"
+        assert rename_section("ui", "terminal")(text) is text
 
 
 class TestSetKey:

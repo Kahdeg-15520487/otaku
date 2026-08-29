@@ -23,7 +23,7 @@ Two kinds of spec go in, and the difference is deliberate:
   makes a surface transparent. A picker is the terminal with a list on
   it, not a card laid over one.
 
-Which theme is `[ui]`'s `theme`: "light" or "dark" is the reader saying
+Which theme is `[terminal]`'s `theme`: "light" or "dark" is the reader saying
 so and settles it, and "auto" asks the terminal. An unanswered
 background reads as DARK — the ask cannot happen at all on Windows and
 fails quietly enough elsewhere (a pipe, an ssh, a silent emulator) that
@@ -35,7 +35,7 @@ import os
 import re
 from dataclasses import dataclass, replace
 
-from otaku.backend import UiSettings
+from otaku.backend import TerminalSettings
 from otaku.terminal import tty
 
 # A color NAME is the portable form: it compiles to one of the 16 palette
@@ -185,7 +185,7 @@ DARK = Theme(
 )
 
 
-def use(ui: UiSettings) -> None:
+def use(settings: TerminalSettings) -> None:
     """Settle the theme for the session: the background's own base, with
     the user's dialogue settings laid over it. Called once, at the
     launch, before anything draws — which is also when the terminal gets
@@ -196,12 +196,12 @@ def use(ui: UiSettings) -> None:
     A setting that is not a color resolves to the empty one and leaves
     the slot alone, so "auto" needs no special case and a typo costs
     nothing."""
-    base = _theme_for(ui.theme)
+    base = _theme_for(settings.theme)
     _CURRENT[:] = [
         replace(
             base,
-            dialogue=color(ui.dialogue_color) or base.dialogue,
-            dialogue_bold=ui.dialogue_bold,
+            dialogue=color(settings.dialogue_color) or base.dialogue,
+            dialogue_bold=settings.dialogue_bold,
         )
     ]
 

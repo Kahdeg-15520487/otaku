@@ -13,8 +13,8 @@ import shutil
 import sys
 from dataclasses import dataclass
 
-from otaku.console import BOLD, DEFAULT_BG, DIM, RESET
-from otaku.formatting import format_context
+from otaku.console import BOLD, DEFAULT_BG, DIM, MARGIN, RESET
+from otaku.formatting import drawn_width, format_context
 
 
 def _fg(color: int) -> str:
@@ -121,23 +121,37 @@ def render_terminal(facts: SessionFacts) -> str:
     )
 
 
-def render_web(version: str, url: str) -> str:
-    """The banner `otaku web` prints. Its three lines are the one thing
-    this terminal is for: the address, how to open it, and how to stop
-    serving. What the chat banner says (model, story) is on the page
-    itself, so it would only be said twice."""
+def render_web(version: str, url: str, *, full: bool = True) -> str:
+    """What a served session opens with, in the two sizes a terminal
+    wants it. Its three lines are the one thing that terminal is for:
+    the address, how to open it, and how to stop serving. What the chat
+    banner says (model, story) is on the page itself, so it would only
+    be said twice.
+
+    FULL draws the mark above them — `otaku web`, opening a terminal
+    that has nothing else on it. Without it, the three lines alone under
+    a rule of their own width: `/web` prints into a chat already on
+    screen, where the mark was drawn when the session opened, and drawing
+    it again would say the session had started twice when it has only
+    changed medium. That rule is as wide as the longest line it closes
+    and no wider — it parts the serving from the story above it, and a
+    rule reaching past what it parts is underlining the screen — and the
+    block stands in the column the request tail below it uses, so the
+    address, the rule and the requests read as one thing."""
     style = _style()
     # Most terminals want a modifier with the click, and which one is
     # the platform's business — ⌘ on a Mac, ctrl everywhere else.
     click = "⌘" if sys.platform == "darwin" else "ctrl"
-    return _render(
-        version,
-        [
-            f"{style.dim}web ui is available on:{style.reset} {style.accent}{url}{style.reset}",
-            f"{style.dim}{click}-click to open / paste it in your browser{style.reset}",
-            f"{style.dim}ctrl+c to stop{style.reset}",
-        ],
-    )
+    lines = [
+        f"{style.dim}web ui is available on:{style.reset} {style.accent}{url}{style.reset}",
+        f"{style.dim}{click}-click to open / paste it in your browser{style.reset}",
+        f"{style.dim}ctrl+c to stop{style.reset}",
+    ]
+    if full:
+        return _render(version, lines)
+    width = max(drawn_width(line) for line in lines)
+    rule = f"{style.rule}{'─' * width}{style.reset}"
+    return "\n".join(f"{' ' * MARGIN}{line}" for line in [*lines, rule])
 
 
 def _render(version: str, lines: list[str]) -> str:
@@ -160,11 +174,11 @@ def _render(version: str, lines: list[str]) -> str:
     for i in range(max(len(rows), len(said))):
         sprite_row = rows[i] if i < len(rows) else beside
         text = said[i] if i < len(said) else ""
-        out.append(f"  {sprite_row}   {text}".rstrip())
+        out.append(f"{' ' * MARGIN}{sprite_row}   {text}".rstrip())
     # The rule stops short of a wide terminal: it closes the banner, it
     # does not underline the screen.
     width = min(shutil.get_terminal_size((80, 24)).columns, 72)
-    out.append(f"  {style.rule}{'─' * width}{style.reset}")
+    out.append(f"{' ' * MARGIN}{style.rule}{'─' * width}{style.reset}")
     return "\n".join(out)
 
 

@@ -76,12 +76,18 @@ changes.
   section gains the line on the first launch after upgrading, so the setting is there to see and
   edit. The verbose stats line shows `cached N tok` per reply, `/usage` grows a CACHED column, and
   `/info` reports the setting.
-- `[ui]`'s new `theme` setting decides which shades otaku paints in: `"light"` or `"dark"` settles
-  it, and `"auto"` — the default — asks the terminal as before. What changed underneath is the
-  answer when the terminal will not say: it used to read as light, and now reads as dark, which is
-  the likelier background and the only outcome Windows can reach, since there is nothing to ask
-  there. A config from an earlier version gains the line at the head of `[ui]` on the first launch
-  after upgrading, so the setting is there to see and edit.
+- `/web` serves the running session to a browser without leaving the terminal: it prints the
+  address and how to stop, and Ctrl+C hands the session straight back to the prompt you left —
+  nothing redrawn, because nothing started over. Nothing is served in parallel and nothing is
+  copied: it is one session, played through whichever frontend you are in front of. It exists
+  because `otaku web` is a thing you have to already know about, where a command is in the menu
+  that opens when you type a slash, and under a heading of its own in `/help`.
+- `[terminal]`'s new `theme` setting decides which shades otaku paints in: `"light"` or `"dark"`
+  settles it, and `"auto"` — the default — asks the terminal as before. What changed underneath is
+  the answer when the terminal will not say: it used to read as light, and now reads as dark, which
+  is the likelier background and the only outcome Windows can reach, since there is nothing to ask
+  there. A config from an earlier version gains the line at the head of that section on the first
+  launch after upgrading, so the setting is there to see and edit.
 
 ### Changed
 - The codebase is restructured around a frontend-agnostic core. Everything that is not the
@@ -93,6 +99,14 @@ changes.
 - `/balance` names each provider the way the model picker does — "OpenRouter", not the `openrouter`
   section key. A section you named yourself keeps your name, with the engine in brackets, because
   two sections of one kind are two accounts and a balance report has to tell them apart.
+- config.toml's `[ui]` section is now `[terminal]`, which is what it always held: one frontend's
+  looks, beside the `[web]` section that arrived this version. Your file is renamed in place on
+  the first launch after upgrading — the header line and nothing else, so every value and comment
+  under it stays exactly as you left it.
+- `/info` no longer prints the story's premise. A premise is a document rather than a fact about
+  the session — as long as the reader made it, and a lorebook imported into it filled the report
+  with itself — so it is left to `/system`, which reports it on its own and at whatever length it
+  is. The web's info docket never showed it, for that reason; now neither frontend does.
 - Long story titles are cut at 50 characters instead of 40 — in the banner and in the line that
   names the story when it lands — with a fork's number kept whole, as before.
 - Launching with a remembered model whose provider is no longer configured says so before the

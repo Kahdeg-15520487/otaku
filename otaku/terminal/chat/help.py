@@ -70,9 +70,9 @@ def text(shortcuts: Mapping[str, str], width: int | None = None) -> str:
     half = (columns - _GAP) // 2
     if half - _widths(blocks)[2] < _MIN_DESCRIPTION:
         return "\n".join(stacked)
-    cut = _cut(_render(blocks, half))
-    left = _stacked(_render(blocks[:cut], half))
-    right = _stacked(_render(blocks[cut:], half))
+    second = _column_break(_render(blocks, half))
+    left = _stacked(_render(blocks[:second], half))
+    right = _stacked(_render(blocks[second:], half))
     beside = _beside(left, right)
     # Two columns only where they actually save height: halving the
     # description width costs wrapped lines, and just above the floor
@@ -147,16 +147,25 @@ def _stacked(rendered: list[list[str]]) -> list[str]:
     return lines
 
 
-def _cut(rendered: list[list[str]]) -> int:
-    """The block the second column starts at — the split that leaves the
-    two nearest to equal height. A group is never broken across them, and
-    the first block always stays left."""
+def _column_break(rendered: list[list[str]]) -> int:
+    """The block the second column starts at: blocks fill the left column
+    until one takes it past half the page's height. That one is the last
+    the left column takes, and the next opens the right. A group is never
+    broken across the two, and the first block always stays left however
+    tall it is.
+
+    The straddling block goes LEFT, which leaves the left column the
+    fuller of the two rather than the emptier. A reader fills the left
+    before the right, so a right column that runs out early reads as a
+    column running out, where a left one doing the same reads as a
+    mistake. The break falls at a heading either way — a group is not
+    worth splitting to even two columns out."""
     heights = [len(block) + 1 for block in rendered]
     half = (sum(heights) + 1) // 2
     taken = 0
     for i, height in enumerate(heights):
         if i and taken + height > half:
-            return i
+            return i + 1
         taken += height
     return len(rendered)
 

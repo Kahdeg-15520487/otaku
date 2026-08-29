@@ -46,8 +46,8 @@ table, so an import that crosses a layer fails the suite rather than the
 review:
 
     cli        → terminal, web, backend (launch + log unlock), logging, update
-    terminal   → console, backend, formatting
-    web        → console, backend, settings (its own [web] slice), formatting
+    terminal   → console, backend, web (/web serves the open session), formatting
+    web        → console, backend, formatting
     console    → formatting
     worker     → context, providers, store, logging, formatting
     backend    → worker, context, providers, store, settings, encryption, logging, formatting
@@ -96,12 +96,18 @@ the same rows — `text()` is what a terminal shows, not a summary of the
 object. A frontend that parses a report's text back into fields has
 taken the wrong half.
 
-A frontend reads ONE settings slice and only its own. Every setting is
-cut into a typed slice in `settings.config`: the terminal's looks arrive
-as `UiSettings` from the session it is drawing, and the web reads
-`WebSettings` itself (`web.settings`) because where it listens is needed
-before a session exists. Anything a story depends on — a window, a
-template, a provider — is read below both.
+A frontend reads ONE settings slice and only its own, and reads it off
+the SESSION rather than the file. Every setting is cut into a typed slice
+in `settings.config`: the terminal's looks arrive as `session.terminal`,
+where the web listens as `session.web` — neither frontend imports `settings`,
+and `backend` re-exports the two types. `web.settings` is now only the
+`OTAKU_WEB_PORT` override laid over the slice it is handed. Anything a
+story depends on — a window, a template, a provider — is read below both.
+
+The terminal is the one frontend that imports the other: `/web` serves
+the open session and waits. The arrow points only that way — a page has
+nowhere to send anybody back to — so `web` still knows nothing of
+`terminal`.
 
 ### The story's language
 
@@ -158,8 +164,8 @@ can never disagree with an echo. It decides nothing for the page, which
 has its own.
 
 Every color lives in `terminal/tty/theme.py`: one `Theme` per
-background, the user's looks arriving as `backend`'s `UiSettings` (the
-terminal reads no settings files), `use()` settling the theme once at
+background, the user's looks arriving as `backend`'s `TerminalSettings`
+(the terminal reads no settings files), `use()` settling the theme once at
 launch — before anything draws, because the background ask reads stdin,
 which belongs to prompt_toolkit from the first prompt on.
 
@@ -362,14 +368,20 @@ mechanics live in the module docstrings:
 - **A refusal is an answer**: `Refused` comes back 200 as
   `{"notice": …, "refused": true}` — the page shows the sentence and
   reads only the flag, never the wording.
-- **Where it listens** is the `[web]` slice of config.toml, read by the
-  web package itself (`web.settings`) — needed before a session exists.
-  `OTAKU_WEB_PORT` (unadvertised, same reader) moves a development
-  server off the configured port. No host variable: an interface is a
-  decision, and a decision belongs in the file. A port outside 1–65535
-  never reaches the bind — the file's is clamped into range at load, the
-  variable's is rejected and the file's kept — because the address is
-  PRINTED before the bind, and an ephemeral port could not be named.
+- **Where it listens** is the `[web]` slice of config.toml, arriving as
+  `session.web` the way the terminal's looks arrive as `session.terminal` —
+  this package imports no settings of its own. `web.settings` is what
+  lays the two overrides over that slice, in the order they win: the
+  FILE is the standing decision, `OTAKU_WEB_PORT` (unadvertised) moves a
+  development server off it, and `otaku web --host/--port` beats both,
+  being typed for one run by somebody watching it. Still no host
+  VARIABLE: an interface is a decision, and an ambient one is a decision
+  nobody remembers making — a flag is on the line that started the
+  server. A port outside 1–65535 never reaches the bind — the file's is
+  clamped into range at load, the variable's is rejected and the file's
+  kept, the flag's is refused by the argument parser before anything
+  runs — because the address is PRINTED before the bind, and an
+  ephemeral port could not be named.
 - **`web/custom.css`** in the state dir is the reader's own, loaded
   last so anything in it wins; never written by the app, served empty
   when absent. Its custom properties are a public contract

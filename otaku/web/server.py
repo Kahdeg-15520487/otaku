@@ -53,9 +53,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
 
+from otaku.backend import WebSettings
 from otaku.backend.api.play import PlayEvent
 from otaku.backend.session import Refused, Session
-from otaku.settings.config import WebSettings
 from otaku.web import api
 from otaku.web.thread import SessionRunner, StoppingError
 

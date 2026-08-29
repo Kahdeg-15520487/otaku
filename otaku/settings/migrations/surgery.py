@@ -122,6 +122,31 @@ def set_key(section: str, key: str, line: str) -> Migration:
     return apply
 
 
+def rename_section(old: str, new: str) -> Migration:
+    """A migration renaming the `[old]` header to `[new]` and touching
+    nothing under it: a section that has been called something else,
+    whose contents never changed. `rename_key`'s posture one level up —
+    every value, comment and blank the reader has in there survives,
+    because only the header line is rewritten.
+
+    A file already holding `[new]`, or without `[old]`, is left alone;
+    so is a header spelled in a way this cannot rewrite literally (a
+    quoted or spaced-out name), which is a file no otaku ever wrote."""
+
+    def apply(text: str) -> str:
+        parsed = parse(text)
+        if parsed is None or new in parsed or old not in parsed:
+            return text
+        lines = text.splitlines()
+        span = _section_span(lines, old)
+        if span is None or f"[{old}]" not in lines[span[0]]:
+            return text
+        lines[span[0]] = lines[span[0]].replace(f"[{old}]", f"[{new}]", 1)
+        return joined(lines)
+
+    return apply
+
+
 def rename_key(section: str, old: str, new: str, render: Callable[[object], str]) -> Migration:
     """A migration renaming `[section]`'s `old = value` key to `new`, the
     value carried over: the old line is replaced in place by

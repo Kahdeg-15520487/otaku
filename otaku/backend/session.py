@@ -21,6 +21,7 @@ touch only the run's own event. Frontends inherit this rule from here.
 import contextlib
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
+from pathlib import Path
 from typing import Any, Self
 
 from otaku.backend.paths import Paths
@@ -31,7 +32,7 @@ from otaku.logging import ErrorLog
 from otaku.providers import OpenAIClient, ProviderConfig, Registry
 from otaku.settings import models as models_file
 from otaku.settings import state as state_file
-from otaku.settings.config import Config, UiSettings
+from otaku.settings.config import Config, TerminalSettings, WebSettings
 from otaku.settings.prompts import Prompts
 from otaku.settings.state import THINK_DEFAULT, State
 from otaku.store import Store
@@ -251,9 +252,25 @@ class Session:
         return self._state.model if self._state.bare_model else ""
 
     @property
-    def ui(self) -> UiSettings:
-        """The configured looks, for the frontend's own launch."""
-        return self._config.ui
+    def terminal(self) -> TerminalSettings:
+        """The terminal frontend's configured looks, for its own launch."""
+        return self._config.terminal
+
+    @property
+    def web(self) -> WebSettings:
+        """Where the web frontend listens — its slice, as `terminal` is
+        that one's. A frontend reads one slice and only its own; both
+        arrive here rather than being read from the file twice."""
+        return self._config.web
+
+    @property
+    def custom_web_dir(self) -> Path:
+        """The reader's OWN directory in the state dir — the stylesheet
+        and typefaces the page loads last, which otaku never writes. The
+        one path a frontend is handed: it is the one part of the tree
+        that belongs to the reader rather than the app, and the rest of
+        the layout stays the composition root's."""
+        return self._paths.custom_web_dir
 
     # ---------- what frontends may call ----------
 

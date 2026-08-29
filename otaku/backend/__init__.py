@@ -5,7 +5,7 @@ The map (mirroring the web API sketch):
 - `backend.api` — the OPERATIONS: one module per API tag, every function
   taking the `Session` first, its result types beside it. The frontends'
   whole write surface; the boundary is one grep: `backend.api.`
-- `backend.session` — `Session`, `Refused`, `UiSettings`, the /set
+- `backend.session` — `Session`, `Refused`, `TerminalSettings`, the /set
   vocabulary constants.
 - `backend.launch` — `open_session` (the front door) and cli's log
   accessors.
@@ -28,7 +28,7 @@ package root.
 
 from otaku.encryption import EncryptionError
 from otaku.providers import ModelInfo, Provider, ProviderConfig
-from otaku.settings.config import ConfigError, UiSettings, WebSettings
+from otaku.settings.config import ConfigError, TerminalSettings, WebSettings
 from otaku.store import DatabaseError
 from otaku.store.ops.stories import StoryListing
 from otaku.store.schema import Character, Journal, Message, Scene
@@ -45,6 +45,6 @@ __all__ = [
     "ProviderConfig",
     "Scene",
     "StoryListing",
-    "UiSettings",
+    "TerminalSettings",
     "WebSettings",
 ]

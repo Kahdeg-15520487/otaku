@@ -73,7 +73,14 @@ def main(ctx: click.Context) -> None:
 
 
 @main.command(short_help="Serve the web interface")
-def web() -> None:
+@click.option("--host", metavar="HOST", help="Override host from settings.")
+@click.option(
+    "--port",
+    metavar="PORT",
+    type=click.IntRange(1, 65535),
+    help="Override port from settings.",
+)
+def web(host: str | None, port: int | None) -> None:
     """Serve otaku's web interface until interrupted, address and port
     are configured in ~/.otaku/configs/config.toml."""
     ctx = click.get_current_context()
@@ -87,7 +94,7 @@ def web() -> None:
         click.echo(str(e), err=True)
         ctx.exit(1)
     try:
-        web_frontend.run(session, root)
+        web_frontend.run(session, host=host, port=port)
     except web_frontend.ServeError as e:
         # An address that cannot be listened on: another otaku already
         # has it, the host does not name this machine, the port is the
@@ -114,34 +121,9 @@ def _crashed(root: Path | None, e: Exception) -> None:
     )
 
 
-@main.command(short_help="Update otaku to the latest release")
-def update() -> None:
-    """Update otaku in place, whatever installed it: a Homebrew or uv
-    install runs its own upgrade, a source checkout is left to git, and
-    anything else gets pip. The new version runs at the next launch."""
-    command = updater.upgrade_command()
-    if command is None:
-        click.echo("This otaku runs from a source checkout — update it with git:")
-        click.echo("  git pull")
-        return
-    click.echo("Updating via: " + " ".join(command))
-    code = updater.run(command)
-    root = resolve_root()
-    if code == 0:
-        backend_launch.system_log(root).record(f"app update finished ({' '.join(command)})")
-        click.echo("Done — the new version runs at the next otaku.")
-        return
-    backend_launch.system_log(root).record(f"app update failed ({' '.join(command)}, exit {code})")
-    click.echo("The update did not finish — run the one matching your install:", err=True)
-    for manual in updater.MANUAL_COMMANDS:
-        click.echo(f"  {manual}", err=True)
-    click.get_current_context().exit(1)
-
-
 @main.group(
     cls=_DeclaredOrderGroup,
-    short_help="Day-rotated logs: requests (what the models were sent), "
-    "system (the worker's account), error (contained crashes)",
+    short_help="Day-rotated logs: requests, system and error",
 )
 def logs() -> None:
     """Day-rotated logs: `requests` (what the models were sent), `system`
@@ -218,3 +200,27 @@ def _page(
         click.echo(f"no {name} log for {logging.dashed(stamp)}", err=True)
         ctx.exit(1)
     click.echo_via_pager(render(log, stamp))
+
+
+@main.command(short_help="Update otaku to the latest release")
+def update() -> None:
+    """Update otaku in place, whatever installed it: a Homebrew or uv
+    install runs its own upgrade, a source checkout is left to git, and
+    anything else gets pip. The new version runs at the next launch."""
+    command = updater.upgrade_command()
+    if command is None:
+        click.echo("This otaku runs from a source checkout — update it with git:")
+        click.echo("  git pull")
+        return
+    click.echo("Updating via: " + " ".join(command))
+    code = updater.run(command)
+    root = resolve_root()
+    if code == 0:
+        backend_launch.system_log(root).record(f"app update finished ({' '.join(command)})")
+        click.echo("Done — the new version runs at the next otaku.")
+        return
+    backend_launch.system_log(root).record(f"app update failed ({' '.join(command)}, exit {code})")
+    click.echo("The update did not finish — run the one matching your install:", err=True)
+    for manual in updater.MANUAL_COMMANDS:
+        click.echo(f"  {manual}", err=True)
+    click.get_current_context().exit(1)

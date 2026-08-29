@@ -149,7 +149,7 @@ def show(chat: Chat, events: Iterator[PlayEvent]) -> bool:
     if session.notification and not interrupted:
         # The turn is over and the screen wants its reader back. Not
         # after a Ctrl+C: whoever pressed it is already here.
-        ring(session.ui.notification_sound)
+        ring(session.terminal.notification_sound)
     return False
 
 

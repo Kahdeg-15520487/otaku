@@ -30,6 +30,10 @@ _STRING_ESCAPES = {
 # A fork's numbering suffix (see the store's fork titles).
 _FORK_NUMBER = re.compile(r" - \d+$")
 
+# An SGR escape — colour, weight, reset. What a terminal eats rather
+# than draws, which is the whole of `drawn_width` below.
+_SGR = re.compile(r"\x1b\[[0-9;]*m")
+
 # The currencies otaku knows a symbol for; anything else is written with
 # its code after the figure ("4.82 XTS"), which is how a reader tells an
 # unfamiliar currency from a familiar one.
@@ -103,6 +107,14 @@ def printable(text: str) -> str:
     chokepoint for model output and server messages; storage keeps every
     byte."""
     return text.translate(_CONTROL)
+
+
+def drawn_width(text: str) -> int:
+    """The columns `text` takes on screen, its SGR escapes discounted:
+    colour and weight are bytes the terminal eats rather than cells it
+    fills, so `len` overstates a styled row — by enough to pad it short
+    and step whatever lines up beside it out of true."""
+    return len(_SGR.sub("", text))
 
 
 def flatten(text: str) -> str:

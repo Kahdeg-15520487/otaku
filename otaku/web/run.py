@@ -11,9 +11,11 @@ session's thread, the state that spans requests, the hooks the server
 answers the beat from, and the signal that makes Ctrl+C an orderly stop
 are all wired here — so `server` stays HTTP and `thread` stays a queue.
 
-`settings` is where this frontend listens, read from its own slice of
-config.toml: the address is the medium, like a key binding or a column
-width, and it is needed BEFORE a session exists.
+`settings` is where this frontend listens: the session's own `[web]`
+slice, with the development port override laid over it. The address is
+the medium, like a key binding or a column width — so a frontend reads
+one slice and only its own, and gets it the way the terminal gets its
+looks, off the session rather than out of the file.
 """
 
 import contextlib
@@ -27,11 +29,9 @@ from pathlib import Path
 from typing import Any
 
 from otaku import __version__
-from otaku.backend.paths import Paths
+from otaku.backend import WebSettings
 from otaku.backend.session import Session
 from otaku.console import banner, sound, ticker
-from otaku.settings import config as config_file
-from otaku.settings.config import WebSettings
 from otaku.web import api
 from otaku.web.server import LOOPBACK, Hooks, bind
 from otaku.web.thread import SessionRunner
@@ -51,29 +51,42 @@ class ServeError(Exception):
     caller has a sentence to print rather than a traceback to dump."""
 
 
-def run(session: Session, root: str | Path | None = None) -> None:
+def run(
+    session: Session, *, full: bool = True, host: str | None = None, port: int | None = None
+) -> None:
     """This frontend's whole life over an open session, as `chat.run` is
     the terminal's: what the launch has to say, where the page is, and
     the tail of requests until the reader stops it. Everything printed
     by `otaku web` is printed here — into the terminal it was launched
     from, which is the only part of that terminal this frontend has.
     Closing the session stays the caller's, as it is for the other
-    frontend."""
-    config = settings(root)
-    # The launch's own reports have nowhere to go in a browser that is
-    # not open yet, so they go where the reader is: the terminal they
-    # typed in.
-    for report in session.notices:
-        print(report)
-    session.notices.clear()
+    frontend.
+
+    FULL is a terminal this frontend opens: `otaku web`, with the launch
+    to report and a mark to draw. Without it the session came from
+    `/web`, into a chat already in progress — the reports were read when
+    it opened and the mark drawn then, so all this owes the reader is the
+    address.
+
+    `host` and `port` are a caller overriding where it listens for this
+    run — the command line's own, laid over the configured address."""
+    config = settings(session.web, host=host, port=port)
+    if full:
+        # The launch's own reports have nowhere to go in a browser that
+        # is not open yet, so they go where the reader is: the terminal
+        # they typed in. A chat handing its session over has none left —
+        # it printed them when it opened.
+        for report in session.notices:
+            print(report)
+        session.notices.clear()
     # Said before the socket is bound, because the address is the
     # configuration's and not the socket's answer: a reader can be
     # opening the page while the first request is still arriving. The
     # banner is the same mark a chat session opens with and answers to
     # the same setting; without it, one line saying the same things.
     url = address(config)
-    if session.ui.show_banner:
-        print(banner.render_web(__version__, url))
+    if session.terminal.show_banner:
+        print(banner.render_web(__version__, url, full=full))
     else:
         print(f"web ui is available on: {url}  (ctrl+c to stop)")
     # The last few requests, kept under the address and rewritten in
@@ -84,43 +97,58 @@ def run(session: Session, root: str | Path | None = None) -> None:
     with ticker.Ticker() as tail:
 
         def stopping() -> None:
-            """The first Ctrl+C, in words. The tail stops moving, or its
-            next redraw would take this line back — and with it the
-            terminal gets its own behaviour back, because the NEXT press
-            is the fatal one and would leave it without. The sentence is
-            the truth: a reply already in flight is finished, not cut."""
+            """The first Ctrl+C, in words — the last line of the log,
+            said in the log's own voice because that is what the reader
+            is already reading. Shown BEFORE the tail stops, which is the
+            only order that works: a stopped tail draws nothing, and a
+            line drawn as a row is one a later redraw keeps rather than
+            takes back. Then the tail stops, and with it the terminal
+            gets its own behaviour back — the NEXT press is the fatal one
+            and would otherwise leave it without. The sentence is the
+            truth: a reply already in flight is finished, not cut."""
+            tail.show("Shutting down…")
             tail.stop()
-            print("Shutting down…")
 
         serve(
             session,
             config,
-            Paths.resolve(root).custom_web_dir,
+            session.custom_web_dir,
             show=tail.show,
             stopping=stopping,
         )
+    if full:
+        # The shell prompt starts against a blank rather than against the
+        # last request. A chat taking its session back needs none from
+        # here: the blank before its next prompt is its ledger's, and one
+        # printed here as well would be two.
+        print()
 
 
-def settings(root: str | Path | None = None) -> WebSettings:
-    """Where this frontend listens, read from config.toml. Its own slice
-    and its own business: the address is the medium, like a key binding
-    or a column width, and it is needed BEFORE a session exists. A state
-    dir with no config yet answers with the defaults — serving is not a
-    reason to write the reader's files, and the first real launch writes
-    them all anyway.
+def settings(
+    config: WebSettings, *, host: str | None = None, port: int | None = None
+) -> WebSettings:
+    """Where this frontend listens: the session's own `[web]` slice, with
+    what outranks it laid over. The slice arrives from the session as the
+    terminal's looks do — a frontend reads one slice and only its own,
+    and neither reads the file for itself.
 
-    `OTAKU_WEB_PORT` moves a development server off the configured port
-    so a real otaku can keep it. Deliberately unadvertised and read
-    here, not in `cli`: which port this frontend listens on is this
-    frontend's business wherever the answer comes from."""
-    path = Paths.resolve(root).config_file
-    config = config_file.load(path).web if path.is_file() else WebSettings()
+    Three answers, in the order they win. The FILE is the standing one, a
+    decision made once and kept. `OTAKU_WEB_PORT` moves a development
+    server off it so a real otaku can keep the port — unadvertised, and
+    applied here rather than in `cli` because which port this frontend
+    listens on is its own business wherever the answer comes from. An
+    explicit `host` or `port` beats both: it was typed for this run, by
+    somebody who is watching it."""
     wanted = os.environ.get(_PORT_VAR, "").strip()
-    if not wanted:
-        return config
-    if wanted.isdigit() and 1 <= int(wanted) <= 65535:
-        return replace(config, port=int(wanted))
-    print(f"otaku: ignoring {_PORT_VAR}={wanted!r} — not a port number", file=sys.stderr)
+    if wanted:
+        if wanted.isdigit() and 1 <= int(wanted) <= 65535:
+            config = replace(config, port=int(wanted))
+        else:
+            print(f"otaku: ignoring {_PORT_VAR}={wanted!r} — not a port number", file=sys.stderr)
+    if host is not None:
+        config = replace(config, host=host)
+    if port is not None:
+        config = replace(config, port=port)
     return config
 
 
@@ -201,7 +229,7 @@ def serve(
                 # launched from — one user, one desk: the browser and
                 # this shell sit in front of the same reader, and the
                 # sound machinery is the one the chat already rings.
-                ring=lambda: sound.ring(session.ui.notification_sound),
+                ring=lambda: sound.ring(session.terminal.notification_sound),
             ),
         )
     except OSError as e:
