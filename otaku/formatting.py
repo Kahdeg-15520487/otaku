@@ -4,7 +4,9 @@ package: text functions, not settings.
 """
 
 import re
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 # Control characters display must drop: C0 minus newline and tab, DEL, and
@@ -27,6 +29,63 @@ _STRING_ESCAPES = {
 
 # A fork's numbering suffix (see the store's fork titles).
 _FORK_NUMBER = re.compile(r" - \d+$")
+
+# The currencies otaku knows a symbol for; anything else is written with
+# its code after the figure ("4.82 XTS"), which is how a reader tells an
+# unfamiliar currency from a familiar one.
+_SYMBOLS = {"USD": "$", "EUR": "€", "GBP": "£", "JPY": "¥"}
+
+# How many places a currency is quoted in. The default is two; the ones
+# quoted differently are named, because rounding somebody's balance to
+# the wrong place is not a display detail.
+_PLACES = {"JPY": 0}
+_DEFAULT_PLACES = 2
+
+
+@dataclass(frozen=True, order=True)
+class Money:
+    """An amount and the currency it is in.
+
+    DECIMAL, never float: this is a figure somebody is billed against,
+    and binary floating point cannot hold two decimal places exactly —
+    `0.1 + 0.2` is the reason this type exists rather than a number and
+    a string beside it. Build one with `Money.of`, which takes what a
+    provider actually sends (a string, an int, another Decimal) and
+    refuses what is not a number.
+
+    A leaf type on purpose: providers report balances in it, reports
+    carry it, and both frontends print it — so it lives here, where
+    everything above may reach it."""
+
+    amount: Decimal
+    currency: str = "USD"
+
+    @classmethod
+    def of(cls, amount: object, currency: str = "USD") -> "Money | None":
+        """`amount` as money — None when it is not a number at all. A
+        float is accepted through its own repr (the shortest string that
+        round-trips), never through binary expansion."""
+        if isinstance(amount, Money):
+            return amount
+        try:
+            return cls(Decimal(str(amount)), currency.upper() or "USD")
+        except (InvalidOperation, ValueError, TypeError):
+            return None
+
+    def __str__(self) -> str:
+        """The figure as a reader sees it: quantized to the currency's
+        own places, with its symbol where otaku knows one."""
+        places = _PLACES.get(self.currency, _DEFAULT_PLACES)
+        figure = f"{self.amount:.{places}f}"
+        symbol = _SYMBOLS.get(self.currency)
+        return f"{symbol}{figure}" if symbol else f"{figure} {self.currency}"
+
+    def __add__(self, other: "Money") -> "Money":
+        """Two amounts of the SAME currency. Adding across currencies is
+        a conversion, and otaku has no rate to convert with."""
+        if self.currency != other.currency:
+            raise ValueError(f"cannot add {self.currency} to {other.currency}")
+        return Money(self.amount + other.amount, self.currency)
 
 
 def pretty_path(path: Path) -> str:

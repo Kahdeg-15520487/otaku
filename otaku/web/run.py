@@ -6,10 +6,10 @@ of requests until the reader stops it. Everything `otaku web` prints is
 printed HERE, into the terminal it was launched from — `web.server`
 below prints nothing and is handed one line per request worth showing.
 
-`serve` is the composition root under `run`: the runner that owns the
+`serve` is the composition root under `run`: the thread that owns the
 session's thread, the state that spans requests, the hooks the server
 answers the beat from, and the signal that makes Ctrl+C an orderly stop
-are all wired here — so `server` stays HTTP and `runner` stays a queue.
+are all wired here — so `server` stays HTTP and `thread` stays a queue.
 
 `settings` is where this frontend listens, read from its own slice of
 config.toml: the address is the medium, like a key binding or a column
@@ -33,8 +33,8 @@ from otaku.console import banner, sound, ticker
 from otaku.settings import config as config_file
 from otaku.settings.config import WebSettings
 from otaku.web import api
-from otaku.web.runner import SessionRunner
 from otaku.web.server import LOOPBACK, Hooks, bind
+from otaku.web.thread import SessionRunner
 
 __all__ = ["ServeError", "address", "run", "serve", "settings"]
 

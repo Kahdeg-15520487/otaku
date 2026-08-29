@@ -88,13 +88,14 @@ _CONFIG_MIGRATIONS: list[Migration] = [
             'what /set notification plays: "default" is the platform\'s own, else a path',
         ),
     ),
-    # 0.4.0 — the context budget arrives: the prompt stops growing to
-    # the model's whole window by default.
+    # 0.4.0 — the context budget arrives. Founded at 0: the window a
+    # model advertises is the one it can use, and a reader who wants the
+    # prompt kept smaller than that says so.
     ensure_key(
         "context",
         "max_context",
         row(
-            "max_context = 65536",
+            "max_context = 0",
             "the prompt may use at most this many tokens; 0 = the model's whole window",
         ),
     ),

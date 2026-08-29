@@ -11,7 +11,7 @@
  "verbose": false,
  "autocorrect": true,
  "notification": false,
- "max_context": 65536,
+ "max_context": 0,
  "model": "",
  "parameters": [
   {

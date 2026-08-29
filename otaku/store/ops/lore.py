@@ -48,7 +48,7 @@ class SceneOps:
     def list(self, story_id: int) -> builtins.list[Scene]:
         # fmt: off
         rows = self._db.conn.execute(
-            "SELECT id, start_message_id, end_message_id, title, summary, history FROM scenes WHERE story_id = ? ORDER BY id",
+            "SELECT id, start_message_id, end_message_id, title, summary, history, updated_at FROM scenes WHERE story_id = ? ORDER BY id",
             (story_id,),
         ).fetchall()
         # fmt: on
@@ -60,8 +60,9 @@ class SceneOps:
                 title=self._db.unseal(title),
                 summary=self._db.unseal(summary),
                 history=self._db.unseal(history),
+                updated_at=str(updated),
             )
-            for sid, start, end, title, summary, history in rows
+            for sid, start, end, title, summary, history, updated in rows
         ]
 
     def update(
@@ -184,7 +185,7 @@ class CharacterOps:
     def list(self, story_id: int) -> builtins.list[Character]:
         # fmt: off
         rows = self._db.conn.execute(
-            "SELECT id, name, aliases, description, card FROM characters WHERE story_id = ? ORDER BY id",
+            "SELECT id, name, aliases, description, card, updated_at FROM characters WHERE story_id = ? ORDER BY id",
             (story_id,),
         ).fetchall()
         # fmt: on
@@ -195,8 +196,9 @@ class CharacterOps:
                 aliases=self._decode_aliases(aliases),
                 description=self._db.unseal(description),
                 card=self._db.unseal_opt(card),
+                updated_at=str(updated),
             )
-            for cid, name, aliases, description, card in rows
+            for cid, name, aliases, description, card, updated in rows
         ]
 
     def update(
@@ -387,7 +389,7 @@ class JournalOps:
         """Every journal row of the story, oldest first."""
         # fmt: off
         rows = self._db.conn.execute(
-            "SELECT id, scene_id, character_id, entry, state, history FROM journals WHERE story_id = ? ORDER BY id",
+            "SELECT id, scene_id, character_id, entry, state, history, updated_at FROM journals WHERE story_id = ? ORDER BY id",
             (story_id,),
         ).fetchall()
         # fmt: on
@@ -399,8 +401,9 @@ class JournalOps:
                 entry=self._db.unseal(entry),
                 state=self._db.unseal(state),
                 history=self._db.unseal(history),
+                updated_at=str(updated),
             )
-            for jid, sid, cid, entry, state, history in rows
+            for jid, sid, cid, entry, state, history, updated in rows
         ]
 
     # ---------- getters and setters ----------

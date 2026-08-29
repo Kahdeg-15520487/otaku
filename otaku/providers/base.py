@@ -36,6 +36,7 @@ from typing import Any, ClassVar, Protocol
 
 import httpx
 
+from otaku.formatting import Money
 from otaku.providers import smoothing
 from otaku.settings.providers import ProviderConfig
 
@@ -454,9 +455,11 @@ class CloudClient(OpenAIClient):
         # timeout; any later successful listing clears the mark.
         self._catalog_down = False
 
-    def balance(self, timeout: float = 10.0) -> str | None:
-        """The account balance as the catalog reports it, rendered for a
-        human — None when the service will not say."""
+    def balance(self, timeout: float = 10.0) -> Money | None:
+        """The account balance as the catalog reports it — None when the
+        service will not say. Money, not a rendered string: what a
+        reader sees is the frontends' to decide, and a figure somebody
+        is billed against is not a float."""
         return None
 
     def _key_works(self, timeout: float) -> bool:

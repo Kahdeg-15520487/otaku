@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>otaku</title>
+<!-- A placeholder mark until the app has its own again: the accent square,
+     and the greyed copy `shell.disconnected` swaps in when otaku stops. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Crect%20x='3'%20y='3'%20width='10'%20height='10'%20fill='%23b06636'/%3E%3C/svg%3E" data-offline="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Crect%20x='3'%20y='3'%20width='10'%20height='10'%20fill='%23a0a0a0'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="app.css">
+<!-- The reader's own styles, loaded last so anything in them wins. Served from
+     the state dir (web/custom.css); an empty stylesheet when there is none. -->
+<link rel="stylesheet" href="custom.css">
+</head>
+<body>
+
+<!-- =========================================================================
+     SHELL — the spine, the contents, and the page. Everything otaku has to
+     SAY goes to the one status line at the foot of the contents: what the
+     worker is doing, what a command answered, and that the server went away.
+     ====================================================================== -->
+<div class="otk-app">
+  <nav class="otk-spine" aria-label="Application">
+    <span class="otk-spine__mark"></span>
+    <div class="otk-spine__name"><span>otaku · <span data-fact="version"></span> · a local narrator</span></div>
+    <button type="button" class="otk-spine__toggle" id="otk-rail-toggle" aria-controls="otk-rail" aria-expanded="false">contents</button>
+    <div class="otk-spine__dots" aria-hidden="true">
+      <span class="otk-spine__dot" aria-current="true"></span>
+      <span class="otk-spine__dot"></span>
+      <span class="otk-spine__dot"></span>
+    </div>
+  </nav>
+
+  <nav class="otk-rail" id="otk-rail" aria-label="Contents">
+    <div class="otk-rail__head"><span class="otk-eyebrow">Contents</span></div>
+    <div class="otk-toc">
+      <button type="button" class="otk-toc__row otk-toc__row--lead" data-command="/stories"><span>All stories</span><span class="otk-toc__folio">i</span></button>
+      <span class="otk-toc__gap"></span>
+      <button type="button" class="otk-toc__row" data-command="/system"><span>Premise</span><span class="otk-toc__folio">ii</span></button>
+      <button type="button" class="otk-toc__row" data-goto="messages"><span>Messages</span><span class="otk-toc__folio">iii</span></button>
+      <button type="button" class="otk-toc__row" data-command="/lore"><span>Scenes</span><span class="otk-toc__folio">iv</span></button>
+      <button type="button" class="otk-toc__row" data-command="/cast"><span>Cast</span><span class="otk-toc__folio">v</span></button>
+      <span class="otk-toc__gap"></span>
+      <button type="button" class="otk-toc__row" data-command="/card"><span>Import card</span><span class="otk-toc__folio">vi</span></button>
+      <span class="otk-toc__gap"></span>
+      <button type="button" class="otk-toc__row" data-command="/model"><span>Models</span><span class="otk-toc__folio">vii</span></button>
+      <button type="button" class="otk-toc__row" data-command="/balance"><span>Balance</span><span class="otk-toc__folio">viii</span></button>
+      <button type="button" class="otk-toc__row" data-command="/context"><span>Context</span><span class="otk-toc__folio">ix</span></button>
+      <button type="button" class="otk-toc__row" data-command="/usage"><span>Usage</span><span class="otk-toc__folio">x</span></button>
+      <button type="button" class="otk-toc__row" data-command="/info"><span>Info</span><span class="otk-toc__folio">xi</span></button>
+      <span class="otk-toc__gap"></span>
+      <button type="button" class="otk-toc__row" data-command="/set"><span>Settings</span><span class="otk-toc__folio">xii</span></button>
+      <button type="button" class="otk-toc__row" data-command="/help"><span>Help</span><span class="otk-toc__folio">xiii</span></button>
+    </div>
+
+    <!-- STATUS. One reserved line: it holds its height when empty, so nothing
+         jumps. The lamp says what the session is doing — answering, working,
+         gone — and the text is whatever otaku last had to say. -->
+    <div class="otk-status otk-status--idle" role="status" aria-live="polite">
+      <span class="otk-status__lamp"></span>
+      <span class="otk-status__text"></span>
+      <button type="button" class="otk-status__action" hidden></button>
+    </div>
+
+    <!-- The model in the corner is where a reader looks to check it and
+         reaches to change it: the foot IS the picker's button. -->
+    <button type="button" class="otk-rail__foot" data-command="/model">
+      <span class="otk-rail__model" data-fact="model"></span>
+      <span data-fact="engine"></span>
+    </button>
+  </nav>
+
+  <main class="otk-main">
+    <article class="otk-page">
+      <header class="otk-runhead">
+        <span class="otk-runhead__title" data-fact="story"></span>
+        <span class="otk-runhead__folio" data-fact="turns"></span>
+      </header>
+
+      <!-- Turns are appended here, all of them ordinary flow children: an
+           assistant reply is an <article class="otk-reply"> of prose (its
+           `.otk-generating__status` under it while it arrives), a played
+           line a .otk-turn interjection, a failure an .otk-error block, and
+           the .otk-gap after an undo is the space the flow holds open so
+           the page does not move under the reader. -->
+      <div class="otk-transcript" role="log" aria-live="polite">
+      </div>
+
+      <footer class="otk-composer">
+        <!-- the prefix menu: the story's own typed openers, from the shared
+             table's syntax rows — built by composer.js, never hand-listed -->
+        <div class="otk-prefixes" role="listbox" aria-label="Prefixes" hidden></div>
+
+        <div class="otk-composer__row">
+          <div class="otk-composer__input">
+            <label class="otk-label" for="otk-msg" hidden>Your next turn</label>
+            <textarea id="otk-msg" rows="1" placeholder="Write what happens next&hellip;"></textarea>
+          </div>
+          <div class="otk-composer__verbs">
+            <!-- Send while the box is the reader's, Stop while the model has
+                 it: one place, because they are one turn. Regen and Undo act
+                 on the last exchange, which is why they live beside it. -->
+            <button type="button" class="otk-btn otk-btn--primary" data-send>Send</button>
+            <button type="button" class="otk-btn otk-btn--stop" data-stop hidden><span class="otk-btn__square"></span> Stop</button>
+            <button type="button" class="otk-btn otk-btn--quiet" data-turn="regen">Regen</button>
+            <button type="button" class="otk-btn otk-btn--quiet" data-turn="undo">Undo</button>
+          </div>
+        </div>
+
+        <p class="otk-hints">
+          <span>enter send</span><span>shift+enter newline</span><span>&uarr;/&darr; history</span>
+          <span>ctrl+r regenerate</span><span>ctrl+u undo</span>
+          <button type="button" class="otk-accent-ink" data-prefixes>/ commands</button>
+          <span>esc clear</span>
+        </p>
+      </footer>
+    </article>
+  </main>
+</div>
+
+
+<!-- =========================================================================
+     PANELS — auxiliary tools the reader steps out to. Native dialogs: the
+     scrim is the backdrop, stacking and focus are the platform's.
+     ====================================================================== -->
+
+<!-- level 1: every story -->
+<dialog class="otk-panel" data-popup="/stories" aria-label="Stories">
+  <header class="otk-panel__head">
+    <span class="otk-eyebrow">Stories</span>
+    <span class="otk-push"></span>
+    <button type="button" class="otk-btn" data-command="/new">New story</button>
+    <button type="button" class="otk-btn" data-command="/import">Import story</button>
+    <button type="button" class="otk-btn otk-close">Close <span class="otk-btn__key">esc</span></button>
+  </header>
+
+  <div class="otk-panel__body otk-panel__body--split">
+    <div class="otk-col otk-col--divided">
+      <div class="otk-col__scroll" data-list role="listbox" aria-label="Stories" tabindex="0"></div>
+      <div class="otk-col__pinned">
+        <label class="otk-label" for="otk-filter-stories" hidden>Filter</label>
+        <input class="otk-filter" id="otk-filter-stories" type="search" placeholder="filter titles, arcs, message text">
+      </div>
+    </div>
+    <!-- the body scrolls; the verbs are pinned under it, so a longer or
+         shorter story never moves the button a reader is aiming at -->
+    <div class="otk-detail">
+      <div class="otk-detail__scroll" data-detail></div>
+      <div class="otk-actions" data-actions></div>
+    </div>
+  </div>
+
+  <footer class="otk-panel__foot"><span data-note></span></footer>
+</dialog>
+
+<!-- level 2: inside one story. Four tabs share this shell. -->
+<dialog class="otk-panel" data-popup="/story" aria-label="Story">
+  <header class="otk-panel__head">
+    <span class="otk-eyebrow" data-story-title>Story</span>
+    <span class="otk-push"></span>
+    <button type="button" class="otk-btn" data-back>&larr; All stories</button>
+    <button type="button" class="otk-btn otk-close">Close <span class="otk-btn__key">esc</span></button>
+  </header>
+
+  <div class="otk-tabs" role="tablist">
+    <button type="button" class="otk-tab" role="tab" data-tab="premise">Premise</button>
+    <button type="button" class="otk-tab" role="tab" data-tab="messages">Messages</button>
+    <button type="button" class="otk-tab" role="tab" data-tab="scenes">Scenes</button>
+    <button type="button" class="otk-tab" role="tab" data-tab="cast">Cast</button>
+    <span class="otk-tabs__aside" data-tabs-aside></span>
+  </div>
+
+  <!-- messages: index rail, one line a turn, a reader at full measure -->
+  <div class="otk-panel__body otk-panel__body--dossier" data-pane="messages" hidden>
+    <div class="otk-index" data-index aria-label="Scenes"></div>
+    <div class="otk-col otk-col--divided otk-col--messages">
+      <div class="otk-col__scroll" data-list role="listbox" aria-label="Messages" tabindex="0"></div>
+      <div class="otk-col__pinned">
+        <label class="otk-label" for="otk-filter-messages" hidden>Filter</label>
+        <input class="otk-filter" id="otk-filter-messages" type="search" placeholder="filter messages">
+      </div>
+    </div>
+    <div class="otk-detail otk-detail--reader">
+      <div class="otk-detail__scroll" data-detail></div>
+      <div class="otk-actions" data-actions></div>
+    </div>
+  </div>
+
+  <!-- scenes and cast share this pane shape: index, reading, apparatus margin -->
+  <div class="otk-panel__body otk-panel__body--dossier" data-pane="scenes" hidden>
+    <div class="otk-index" data-index aria-label="Scenes"></div>
+    <div class="otk-reading" data-reading></div>
+    <aside class="otk-margin" data-margin></aside>
+  </div>
+
+  <div class="otk-panel__body otk-panel__body--dossier" data-pane="cast" hidden>
+    <div class="otk-index" data-index aria-label="Cast"></div>
+    <div class="otk-reading" data-reading></div>
+    <aside class="otk-margin" data-margin></aside>
+  </div>
+
+  <!-- premise: no index, one reading measure. The two ways the text gets
+       here: typed, or read out of a file the reader picks — the FILE never
+       leaves this machine's browser. -->
+  <div class="otk-panel__body otk-panel__body--premise" data-pane="premise" hidden>
+    <div class="otk-premise">
+      <span class="otk-label otk-label--accent">the premise of this story</span>
+      <h3 class="otk-reading__title otk-reading__title--lg">Premise</h3>
+      <p class="otk-note otk-premise__lede">Sent as the system message, ahead of the scene, the cast and the recent turns.</p>
+      <label class="otk-label" for="otk-premise-text" hidden>Premise</label>
+      <textarea class="otk-premise__body" id="otk-premise-text" spellcheck="false"></textarea>
+      <div class="otk-actions">
+        <button type="button" class="otk-btn otk-btn--primary" data-save-system>Save premise</button>
+        <button type="button" class="otk-btn" data-import-system>Read from a file&hellip;</button>
+        <span class="otk-premise__state" data-premise-state></span>
+      </div>
+    </div>
+  </div>
+
+  <footer class="otk-panel__foot"><span data-note></span></footer>
+</dialog>
+
+<!-- models, with provider configuration on its own tab -->
+<dialog class="otk-panel otk-panel--wide" data-popup="/model" aria-label="Models">
+  <header class="otk-panel__head">
+    <span class="otk-eyebrow">Models</span>
+    <span class="otk-memory"><span class="otk-label">memory</span><span class="otk-memory__value" data-memory></span></span>
+    <button type="button" class="otk-btn otk-close">Close <span class="otk-btn__key">esc</span></button>
+  </header>
+
+  <div class="otk-tabs" role="tablist">
+    <button type="button" class="otk-tab" role="tab" data-tab="models">Models</button>
+    <button type="button" class="otk-tab" role="tab" data-tab="providers">Providers</button>
+    <span class="otk-tabs__aside" data-tabs-aside></span>
+  </div>
+
+  <div class="otk-panel__body otk-panel__body--models" data-pane="models" hidden>
+    <div class="otk-col otk-col--divided">
+      <div class="otk-col__scroll" data-list role="listbox" aria-label="Models" tabindex="0"></div>
+      <div class="otk-col__pinned">
+        <label class="otk-label" for="otk-filter-models" hidden>Filter</label>
+        <input class="otk-filter" id="otk-filter-models" type="search" placeholder="filter model name">
+      </div>
+    </div>
+    <div class="otk-detail">
+      <div class="otk-detail__scroll" data-detail></div>
+      <div class="otk-actions" data-actions></div>
+    </div>
+  </div>
+
+  <div class="otk-panel__body otk-panel__body--split" data-pane="providers" hidden>
+    <div class="otk-col otk-col--divided">
+      <div class="otk-col__scroll" data-list role="listbox" aria-label="Providers" tabindex="0"></div>
+    </div>
+    <div class="otk-detail">
+      <div class="otk-detail__scroll" data-detail></div>
+      <div class="otk-actions" data-actions></div>
+    </div>
+  </div>
+
+  <footer class="otk-panel__foot"><span data-note></span></footer>
+</dialog>
+
+<!-- context: the request as a document -->
+<dialog class="otk-panel otk-panel--read" data-popup="/context" aria-label="Context">
+  <header class="otk-panel__head">
+    <span class="otk-eyebrow">Context</span>
+    <p class="otk-note">what the next reply will be asked with</p>
+    <button type="button" class="otk-btn otk-close">Close <span class="otk-btn__key">esc</span></button>
+  </header>
+  <div class="otk-context" data-context tabindex="-1" autofocus></div>
+  <footer class="otk-panel__foot"><span data-note></span></footer>
+</dialog>
+
+<!-- a docket: usage, balance and info all use this slip -->
+<dialog data-popup="/report" aria-label="Report">
+  <section class="otk-docket">
+    <div class="otk-docket__tear"></div>
+    <div class="otk-docket__body" tabindex="-1" autofocus>
+      <span class="otk-eyebrow" data-title></span>
+      <div class="otk-tabs otk-tabs--docket" role="tablist" data-scopes hidden></div>
+      <div class="otk-slot" data-report-body></div>
+    </div>
+    <div class="otk-docket__foot">
+      <span class="otk-docket__note" data-note></span>
+      <button type="button" class="otk-btn otk-close">Close <span class="otk-btn__key">esc</span></button>
+    </div>
+    <div class="otk-docket__tear otk-docket__tear--bottom"></div>
+  </section>
+</dialog>
+
+<!-- the settings docket: every knob is one of the /set commands -->
+<dialog data-popup="/set" aria-label="Settings">
+  <section class="otk-docket">
+    <div class="otk-docket__tear"></div>
+    <div class="otk-docket__body" tabindex="-1" autofocus>
+      <span class="otk-eyebrow">Settings</span>
+      <div class="otk-hr"></div>
+      <div class="otk-slot" data-knobs></div>
+    </div>
+    <div class="otk-docket__foot">
+      <span class="otk-docket__note" data-note></span>
+      <button type="button" class="otk-btn otk-close">Close <span class="otk-btn__key">esc</span></button>
+    </div>
+    <div class="otk-docket__tear otk-docket__tear--bottom"></div>
+  </section>
+</dialog>
+
+<!-- the help docket: the keys, and the language they are typed in -->
+<dialog data-popup="/help" aria-label="Help">
+  <section class="otk-docket otk-docket--wide">
+    <div class="otk-docket__tear"></div>
+    <div class="otk-docket__body" tabindex="-1" autofocus>
+      <span class="otk-eyebrow">Help</span>
+      <div class="otk-hr"></div>
+      <div class="otk-slot" data-help-body></div>
+    </div>
+    <div class="otk-docket__foot">
+      <span class="otk-docket__note" data-note></span>
+      <button type="button" class="otk-btn otk-close">Close <span class="otk-btn__key">esc</span></button>
+    </div>
+    <div class="otk-docket__tear otk-docket__tear--bottom"></div>
+  </section>
+</dialog>
+
+
+<!-- =========================================================================
+     DIALOGS — one decision, always dismissible
+     ====================================================================== -->
+
+<dialog class="otk-dialog" data-dialog="delete-story" aria-labelledby="otk-del-title">
+  <span class="otk-eyebrow" data-title id="otk-del-title">Delete this story?</span>
+  <div class="otk-dialog__subject">
+    <span class="otk-dialog__name"></span>
+    <span class="otk-index__sub"></span>
+  </div>
+  <p class="otk-dialog__body"></p>
+  <div class="otk-dialog__foot">
+    <span class="otk-dialog__escape">esc cancels</span>
+    <button type="button" class="otk-btn" data-choice="cancel" autofocus>Cancel</button>
+    <button type="button" class="otk-btn otk-btn--danger" data-choice="delete">Delete</button>
+  </div>
+</dialog>
+
+<!-- the same shape with choices instead of a message: resume above the tail -->
+<dialog class="otk-dialog" data-dialog="landing" aria-labelledby="otk-resume-title">
+  <span class="otk-eyebrow" data-title id="otk-resume-title"></span>
+  <p class="otk-dialog__body"></p>
+  <div class="otk-choices" role="radiogroup">
+    <button type="button" class="otk-choice" data-select="fork" role="radio" aria-checked="true">
+      <span class="otk-choice__name">Fork</span>
+      <span class="otk-choice__desc">Continue in a new story from here</span>
+    </button>
+    <button type="button" class="otk-choice" data-select="truncate" role="radio" aria-checked="false">
+      <span class="otk-choice__name">Set aside</span>
+      <span class="otk-choice__desc">Keep them out of the story, in the database</span>
+    </button>
+  </div>
+  <div class="otk-dialog__foot">
+    <span class="otk-dialog__escape">esc cancels</span>
+    <button type="button" class="otk-btn" data-choice="cancel">Cancel</button>
+    <button type="button" class="otk-btn otk-btn--primary" data-choice="confirm">Fork</button>
+  </div>
+</dialog>
+
+<!-- a story to start, and the one thing worth saying up front -->
+<dialog class="otk-dialog" data-dialog="new-story" aria-labelledby="otk-new-title">
+  <span class="otk-eyebrow" data-title id="otk-new-title">New story</span>
+  <div class="otk-dialog__field">
+    <label class="otk-label" for="otk-new-name">title</label>
+    <input class="otk-field" id="otk-new-name" type="text" placeholder="optional">
+  </div>
+  <p class="otk-note">Leave it empty and the listing names the story from its first scene.</p>
+  <div class="otk-dialog__foot">
+    <span class="otk-dialog__escape">esc cancels</span>
+    <button type="button" class="otk-btn" data-choice="cancel">Cancel</button>
+    <button type="button" class="otk-btn otk-btn--primary" data-choice="start">Start</button>
+  </div>
+</dialog>
+
+<!-- a name to give: the story the browser is on -->
+<dialog class="otk-dialog" data-dialog="rename" aria-labelledby="otk-rename-title">
+  <span class="otk-eyebrow" data-title id="otk-rename-title">Rename story</span>
+  <p class="otk-dialog__body"></p>
+  <label class="otk-label" for="otk-rename" hidden>Title</label>
+  <input class="otk-field" id="otk-rename" type="text">
+  <div class="otk-dialog__foot">
+    <span class="otk-dialog__escape">esc cancels</span>
+    <button type="button" class="otk-btn" data-choice="cancel">Cancel</button>
+    <button type="button" class="otk-btn otk-btn--primary" data-choice="rename">Rename</button>
+  </div>
+</dialog>
+
+<!-- the plainest of the family: a question and the button that answers it -->
+<dialog class="otk-dialog" data-dialog="confirm" aria-labelledby="otk-confirm-title">
+  <span class="otk-eyebrow" data-title id="otk-confirm-title"></span>
+  <p class="otk-dialog__body"></p>
+  <p class="otk-note" data-note hidden></p>
+  <div class="otk-dialog__foot">
+    <span class="otk-dialog__escape">esc cancels</span>
+    <button type="button" class="otk-btn" data-choice="cancel">Cancel</button>
+    <button type="button" class="otk-btn otk-btn--primary" data-choice="confirm" autofocus></button>
+  </div>
+</dialog>
+
+<!-- an answer the reader asked for and cannot act on: one door out -->
+<dialog class="otk-dialog" data-dialog="told" aria-labelledby="otk-told-title">
+  <span class="otk-eyebrow" data-title id="otk-told-title"></span>
+  <p class="otk-dialog__body"></p>
+  <div class="otk-dialog__foot">
+    <span class="otk-dialog__escape">esc closes</span>
+    <button type="button" class="otk-btn otk-btn--primary" data-choice="ok" autofocus>Close</button>
+  </div>
+</dialog>
+
+<!-- the drop-zone dialog: a card in, with the name it speaks to on its face
+     — the one question a card import asks, answered where the card is
+     chosen -->
+<dialog class="otk-dialog" data-dialog="card" aria-labelledby="otk-card-title">
+  <span class="otk-eyebrow" data-title id="otk-card-title">Import a character card</span>
+
+  <!-- STATE: .is-dragover while a file is over it, .is-filled once dropped.
+       It takes the focus so no text field does: the dialog opens on the
+       question it is asking — which file — and not with a caret blinking
+       in a rename nobody asked for. -->
+  <label class="otk-dropzone" for="otk-card-file" tabindex="-1" autofocus>
+    <span class="otk-dropzone__file" data-file hidden></span>
+    <span class="otk-dropzone__label">Drop a PNG or JSON card here</span>
+    <span class="otk-label otk-label--accent">or choose a file</span>
+    <input id="otk-card-file" type="file" accept=".png,.json" hidden>
+  </label>
+
+  <div class="otk-field-row otk-field-row--card">
+    <label class="otk-label" for="otk-card-name">import as</label>
+    <input class="otk-field" id="otk-card-name" type="text" placeholder="optional rename">
+    <label class="otk-label" for="otk-card-persona">user name</label>
+    <input class="otk-field" id="otk-card-persona" type="text" placeholder="who you play" required>
+  </div>
+  <p class="otk-note" data-persona-note hidden>The card writes to <span class="otk-code">{{user}}</span>; whatever is here replaces it.</p>
+
+  <span class="otk-label" data-outcomes-label hidden>This import will</span>
+  <div class="otk-outcomes" data-outcomes hidden></div>
+  <p class="otk-note" data-card-note hidden></p>
+
+  <div class="otk-dialog__foot">
+    <span class="otk-dialog__escape">joins the current story</span>
+    <button type="button" class="otk-btn" data-choice="cancel">Cancel</button>
+    <button type="button" class="otk-btn otk-btn--primary" data-choice="import">Import</button>
+  </div>
+</dialog>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

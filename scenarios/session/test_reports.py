@@ -3,6 +3,7 @@ counts the tokens spent, /info dumps what otaku knows."""
 
 import re
 
+from otaku.backend.api import reports
 from scenarios.support import server as scripted
 from scenarios.support.harness import App, launch, set_config, set_config_provider
 
@@ -79,16 +80,18 @@ class TestContext:
 
 
 class TestUsage:
-    def test_usage_groups_by_purpose_and_model(self, app: App, capsys) -> None:
+    def test_usage_groups_by_purpose_and_model(self, app: App) -> None:
+        # Asserted on the report's FACTS, not on what it prints: the
+        # promise is that spend is kept apart by what it was spent on
+        # and on which model, and the captions those purposes are drawn
+        # with are copy (`reports.USAGE_PURPOSES`).
         for i in range(3):
             app.play(f"Turn number {i}.")
         app.play("/extract")
-        capsys.readouterr()
-        app.play("/usage")
-        out = capsys.readouterr().out
-        assert "chat" in out
-        assert "lore" in out
-        assert "test-model" in out
+        report = reports.usage(app.session)
+        assert {row.purpose for row in report.rows} == {"chat", "lore"}
+        assert {row.model for row in report.rows} == {"test-model"}
+        assert report.requests == sum(row.requests for row in report.rows)
 
     def test_cached_tokens_are_recorded_and_reported(self, app: App, capsys) -> None:
         # The provider says how much of the prompt its cache served; the

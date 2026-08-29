@@ -5,7 +5,7 @@ against `web.serve` over a session opened for it.
 
 The session is opened ON the serving thread, because that is where the
 app opens it — a sqlite connection answers only its own thread, and the
-whole runner exists to keep every touch of the session there. So the
+whole of `web.thread` exists to keep every touch of the session there. So the
 test thread never holds the session: it holds `page`, and it reads the
 store through its own connection (`harness.read_store`), the way every
 other scenario asserts.
@@ -38,9 +38,12 @@ class Page:
     """What the browser does, in the order it does it — plus the store,
     for the half of every story that is not on the wire."""
 
-    def __init__(self, url: str, store: Store, stop: threading.Event) -> None:
+    def __init__(self, url: str, store: Store, stop: threading.Event, root: Path) -> None:
         self.url = url.rstrip("/")
         self.store = store
+        # The state dir, for the half of a story that is files on disk —
+        # the reader's own stylesheet and typefaces above all.
+        self.root = root
         self._stop = stop
 
     def stop(self) -> None:
@@ -54,14 +57,42 @@ class Page:
             return self._read(reply)
 
     def post(self, path: str, body: dict[str, Any] | None = None) -> Any:
+        return self.send("POST", path, body)
+
+    def put(self, path: str, body: dict[str, Any] | None = None) -> Any:
+        return self.send("PUT", path, body)
+
+    def patch(self, path: str, body: dict[str, Any] | None = None) -> Any:
+        return self.send("PATCH", path, body)
+
+    def delete(self, path: str, body: dict[str, Any] | None = None) -> Any:
+        return self.send("DELETE", path, body)
+
+    def send(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+        """Every write, by the method that says what it is — the METHOD
+        is the lane the server answers on."""
         request = urllib.request.Request(
             self.url + path,
             data=json.dumps(body or {}).encode(),
             headers={"Content-Type": "application/json"},
-            method="POST",
+            method=method,
         )
         with urllib.request.urlopen(request, timeout=30) as reply:
             return self._read(reply)
+
+    def sent(
+        self, method: str, path: str, body: dict[str, Any] | None = None
+    ) -> tuple[int, str, Any]:
+        """The whole answer — code, `Location` and payload — for the
+        stories that are about the ANSWER and not only what it said."""
+        request = urllib.request.Request(
+            self.url + path,
+            data=json.dumps(body or {}).encode(),
+            headers={"Content-Type": "application/json"},
+            method=method,
+        )
+        with urllib.request.urlopen(request, timeout=30) as reply:
+            return int(reply.status), reply.headers.get("Location", ""), self._read(reply)
 
     def status(
         self,
@@ -74,7 +105,7 @@ class Page:
         """The code alone, for the paths that are meant to be refused —
         with the headers a page of another origin would send."""
         request = urllib.request.Request(self.url + path, method=method)
-        if method == "POST":
+        if method != "GET":
             request.data = data if data is not None else b"{}"
             request.add_header("Content-Type", "application/json")
         for name, value in (headers or {}).items():
@@ -100,10 +131,12 @@ class Page:
         return urllib.request.urlopen(self.url + path, timeout=10)
 
     def play(self, line: str, *, regenerate: bool = False) -> list[dict[str, Any]]:
-        """One story line, and every event the page would have drawn."""
+        """One story line, and every event the page would have drawn.
+        Regenerating is the same act on the last exchange, so it is a
+        POST to that."""
         request = urllib.request.Request(
-            f"{self.url}/api/play",
-            data=json.dumps({"line": line, "regenerate": regenerate}).encode(),
+            f"{self.url}/api/play/last" if regenerate else f"{self.url}/api/play",
+            data=json.dumps({} if regenerate else {"line": line}).encode(),
             headers={"Content-Type": "application/json"},
             method="POST",
         )
@@ -183,7 +216,7 @@ def _serving(server: ModelServer, tmp_path: Path, *, host: str) -> Iterator[Page
     _reachable(url, failed)
     store = read_store(root)
     try:
-        yield Page(url, store, stop)
+        yield Page(url, store, stop, root)
     finally:
         stop.set()
         served.join(timeout=10)

@@ -1,4 +1,4 @@
-/* The frame around the transcript: what the header and the rail say
+/* The frame around the transcript: what the runhead and the rail say
    about the session, whether otaku is there at all, and the one door
    every write comes back through.
 
@@ -8,20 +8,25 @@
    has to remember. */
 
 import * as api from "./api.js";
+import { guard } from "./browser.js";
 import { $, $$ } from "./dom.js";
-import { showTurns, tell, told } from "./transcript.js";
+import { label } from "./format.js";
+import { offline, reached, tell, told, working } from "./status.js";
+import { isPlaying, showTurns } from "./transcript.js";
 
-const banner = $(".otk-banner");
 const app = $(".otk-app");
 const icon = $('link[rel="icon"]');
-// The tab icon has no stylesheet to dim it, so it carries its own greyed
-// copy (`scripts/mascot.py` writes both). The live one is read once,
-// before anything has had a chance to swap it.
+// The tab icon has no stylesheet to dim it, so the markup carries its
+// own greyed copy in `data-offline`. The live one is read once, before
+// anything has had a chance to swap it.
 const live = icon?.href ?? "";
 
 // The story the transcript is drawing, so a write knows whether the
 // ground moved under it.
 let drawn = null;
+
+// What the offline line says — needed in two places, so it is named once.
+const GONE = "otaku is not answering. The server was stopped in the terminal.";
 
 export function showFacts(facts) {
   const engine = [facts.engine, facts.context && `${facts.context} context`]
@@ -31,12 +36,11 @@ export function showFacts(facts) {
     version: `v${facts.version}`,
     model: facts.model,
     engine: engine,
-    story: facts.story || "No story yet",
+    story: label(facts.story) || "No story yet",
     turns: facts.turns ? `${facts.turns} messages` : "",
   };
   for (const [name, text] of Object.entries(fields)) {
-    const slot = $(`[data-fact="${name}"]`);
-    if (slot) slot.textContent = text;
+    for (const slot of $$(`[data-fact="${name}"]`)) slot.textContent = text;
   }
   // The rail cuts a long model name to one line, so the whole of it has
   // to be somewhere: hovering the name is where.
@@ -120,6 +124,12 @@ export function watchServer(boot) {
         tell("");
         beating = "";
       }
+      /* The lamp says what is RUNNING, whoever started it: a pass the
+         page forced, one the idle deadline started on its own, and the
+         reply, which lights it itself. This beat speaks for the WORKER
+         alone, so it must never put out a lamp it did not light — a
+         reply is minutes long and the beat is seconds. */
+      if (!watcher && !isPlaying()) working(Boolean(beat.status));
     } catch {
       // A beat that cannot be made is the disconnection above, said once.
     }
@@ -139,19 +149,37 @@ let watcher = null;
     family, which is why it lives here. One watcher at a time, whatever
     asked for it — two would announce the same pass twice — and bounded,
     or a server stopped mid-pass would leave a timer running for the life
-    of the tab. */
-export function watchExtraction() {
+    of the tab.
+
+    A pass the PAGE forced is the one it can also give up on, so the
+    status line carries `stop` for as long as this runs. `story` is the
+    story it was forced on: a pass belongs to one, and so does the poll
+    that asks how it went. */
+export function watchExtraction(story) {
   if (watcher) return;
   let left = EXTRACTION_PATIENCE;
   const done = (sentence) => {
     clearInterval(watcher);
     watcher = null;
+    working(false);
     tell(sentence);
   };
+  // Guarded like every other floating promise the page starts: a Stop
+  // that cannot be delivered must say so, not fail into the console.
+  const stop = guard(async () => {
+    const { notice } = await api.stopExtract(story);
+    done(notice);
+  });
+  working(true, stop);
   watcher = setInterval(async () => {
+    /* The lamp is shared with the reply, and a reply that lands clears
+       it — so a pass still running takes it back here, once the turn it
+       yielded to is over. Re-asserted every tick rather than restored
+       once, because there is no moment this could be told about. */
+    if (!isPlaying()) working(true, stop);
     let report = null;
     try {
-      ({ report } = await api.extractionReport());
+      ({ report } = await api.extractionReport(story));
     } catch {
       // A failed poll is a tick like any other: the server may be busy,
       // and the bound below is what stops this running forever.
@@ -162,18 +190,28 @@ export function watchExtraction() {
 }
 
 /** The one failure the page has a state for: otaku stopped answering.
-    Said four ways, all of them the page's own: the banner in the flow,
-    the mark in the rail greyed, the tab icon with it — a tab in the
-    background is where a stopped server is most likely to be noticed —
-    and every control that would reach the session turned off, because a
-    door that opens onto nothing should not look like a door. The retry
-    button is the one thing still live, and the TITLE never changes: it
-    names the app, not its state. */
+    Said three ways, all of them the page's own: the status line at the
+    foot of the contents, the mark in the spine greyed, the tab icon with
+    it — a tab in the background is where a stopped server is most likely
+    to be noticed — and every control that would reach the session turned
+    off, because a door that opens onto nothing should not look like a
+    door. Nothing is offered to press: the heartbeat is already asking,
+    and the page picks the session up the moment it answers. The TITLE
+    never changes: it names the app, not its state. */
 export function disconnected(gone = true) {
-  banner.hidden = !gone;
   app?.classList.toggle("is-offline", gone);
   if (icon) icon.href = (gone && icon.dataset.offline) || live;
-  for (const control of $$(".otk-rail button, .otk-composer__input, [data-send]")) {
+  if (gone) {
+    tell(GONE, "otk-error");
+    offline(true);
+  } else {
+    // The sentence goes with the state it was about; anything said since
+    // is the reader's news and stays.
+    if (told() === GONE) tell("");
+    reached();
+    offline(false);
+  }
+  for (const control of $$(".otk-toc button, .otk-rail__foot, .otk-composer textarea, [data-send]")) {
     control.disabled = gone;
   }
 }

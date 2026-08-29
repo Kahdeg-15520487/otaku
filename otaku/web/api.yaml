@@ -1,0 +1,1613 @@
+# The web frontend's HTTP surface as OpenAPI, maintained by hand. The
+# AUTHORITY is the code: `otaku/web/api.py`'s table and
+# `otaku/web/server.py`'s router. A change to the surface updates this
+# file in the same commit.
+#
+# WHAT THIS SHAPE IS
+#
+#   A button calls an endpoint. Every command a GUI should reach has a
+#   path of its own, and the page sends structured values — never a
+#   composed command line for the far end to parse. So the page parses no
+#   arguments, and there is exactly one door onto anything.
+#
+#   The prompt takes prose. `/me`, `/you`, `/ooc` and `/cue` are FRAMING,
+#   not commands: the story's own typed language, part of the line being
+#   played and read by `context.syntax` at the far end. A line goes
+#   through verbatim, framing included.
+#
+#   Two consequences worth knowing before you build on it. The shared
+#   command table (`backend.commands`) is still the terminal's spine and
+#   still the source of the framing rows, but it does not route this
+#   frontend — so nothing derives "every command is answered" for you;
+#   it is kept by hand. And the two frontends no longer accept the same
+#   input: nobody can type `/usage all` on the page, so anything without
+#   a button is unreachable.
+#
+#   `/last`, `/clear` and `/bye` have no endpoint and never will. They
+#   redraw, or they say something about the tab.
+#
+# WHEN YOU ADD OR CHANGE AN ENDPOINT
+#
+#   Put it in the lane its WORK belongs to. The lanes are in
+#   `info.description`, and the one that catches people: anything that
+#   talks to a provider over the network must not run on the session's
+#   thread, however read-only it looks. A slow GET there stalls a reply
+#   between two frames and holds up the next turn behind it.
+#
+#   A collection answers with an OBJECT, never a bare array. An array
+#   response can never grow a sibling field, so the day `/api/stories`
+#   wants a count or a cursor is the day it breaks its client.
+#
+#   Something that MAKES an entity answers 201 with a `Location`. A
+#   decline answers 200 with the sentence and `refused: true`, because
+#   nothing was created to point at — a refusal is an answer here, not an
+#   error.
+#
+#   One name, one type. `messages` is a chain and `turns` is a count,
+#   everywhere; do not let a name mean an array in one schema and an
+#   integer in another.
+#
+#   Do not open a second door onto one thing. A knob is written by
+#   putting the knob (`PUT /api/settings/{setting}`), and nothing else
+#   sets it. The moment two paths can change one value, they are two
+#   things to keep in step.
+#
+#   A story is ONE read. Scenes and characters have no collection GET of
+#   their own on purpose: the dossier opens four tabs at once, and two
+#   reads of one subject can be torn by an extraction pass landing
+#   between them. They keep their writes, addressed one at a time.
+#
+#   The journal is nobody's limb. A record IS one thing read from two
+#   sides — a character's line in a scene, a scene's line by a character
+#   — and both lenses hand out the same id, so it is its own collection.
+#   Filing it under scenes or under characters picks a side the data does
+#   not take.
+#
+#   Ids, not names, in a path. `/merge A into B` is typed by name; the
+#   endpoint takes character ids and the page resolves them from the cast
+#   it already holds.
+#
+#   An error is a status, not a document. The only body otaku sends about
+#   something going wrong is the backend's own sentence at 200, when a
+#   reader should see it. Everything else is a code the page can log.
+#
+#   The collections are unbounded, and the enums are the story's own
+#   words. `/api/stories`, `GET /api/play` and `/api/history` return
+#   everything: one reader's machine, one client, and the browser filters
+#   what it already holds. If a list ever outgrows a page that is a
+#   design change, not a query parameter.
+#
+# WHAT OVERLAPS ON PURPOSE
+#
+#   `GET /api/play` and `GET /api/stories/{open}` both carry the open
+#   story's chain. Different jobs: the transcript re-reads the chain
+#   after every landing, undo and correction and wants nothing else; the
+#   dossier reads any story whole. Worth a second look if they drift.
+#
+#   `Balance.rows[].value` and `ContextReport.shape`'s `kept`,
+#   `total_tokens` and `used` are figures a page could compute. They stay
+#   because the same report objects feed the terminal, which prints them.
+#   A web-only surface would drop all four.
+#
+# Endpoint order: playing, the stories, then INSIDE one (the dossier's
+# four tabs and the journals behind them), extraction on its own because
+# it is a job and not a part of the story, cards, models — the session's
+# model included, since which model it speaks through belongs with the
+# picker that chooses it — then the session itself: where it is reading,
+# what it will send next, and what it has spent, because the balance and
+# the usage are facts about THIS session's life and not reports standing
+# on their own. Settings, then the two system calls. Schemas:
+# alphabetical.
+
+openapi: 3.1.0
+
+info:
+  title: otaku web API
+  version: 0.4.0
+  contact:
+    name: otaku
+    url: https://otaku.sh
+  description: |
+    The API `otaku web` serves one open session over, on loopback by
+    default. One intended client — the packaged page — so it is small,
+    unversioned, and free to change with the app.
+
+    **Lanes.** Three, and what puts a call in one is what it TOUCHES.
+
+    *The session's store.* Everything that reads or writes the story,
+    on the session's one thread, in the order it was asked for — a
+    sqlite connection answers only the thread that opened it, and the
+    order is the meaning: a premise edited before a line is played must
+    apply to that line. Within this lane the METHOD is the sub-lane:
+    `GET` only reads, so it is answered in the gaps of a streaming
+    reply — between frames, and on a tick while the first token is
+    still awaited — which is why a screen opens while the model talks.
+    Anything else waits its turn.
+
+    *The provider network.* Probing catalogs, testing one provider,
+    reading a balance, loading a model onto an engine. None of it
+    touches the store and all of it can take seconds, so none of it may
+    run on the session's thread: there it would stall a reply between
+    two frames, and hold up the next turn behind it. That is
+    `GET /api/providers`, `GET /api/providers/{provider}`,
+    `GET /api/balance`, and
+    `PATCH /api/providers/{provider}/models/{model}`.
+
+    *Neither.* `/api/alive` and `/api/watch`, answered by the handler
+    thread and never touching the session — which is what makes the
+    heartbeat an answer about the SERVER rather than about the story.
+
+    Playing is NOT a lane of its own. It is the longest job in the store
+    lane, and what lets it flow is the other two lanes staying off that
+    thread — not the turn jumping the queue, which would let a line be
+    played against a premise the reader had already changed. `POST
+    /api/play` and `POST /api/play/last` are the only calls that hold
+    the thread for minutes; `/api/history` and `/api/play/syntax` are as
+    quick as any other read.
+
+    **Guards.** Every request's `Host` must name this machine — a name
+    that reached the server by pointing elsewhere is DNS rebinding and
+    is answered `421` (skipped on a wildcard bind, which is the
+    decision to answer everyone). Every unsafe method must prove it
+    came from otaku's own page — `Sec-Fetch-Site: same-origin`, or an
+    `Origin` equal to the whole origin addressed — else `403`. A
+    request with neither header (curl, a script) is let through; the
+    bind guards those.
+
+    **Refusals.** An operation declining for an expected reason is an
+    ANSWER, not an error: `200` with `{"notice": …, "refused": true}` —
+    the sentence is shown verbatim and only the flag is read. `400` is
+    a malformed request, `404` an unknown path or a subject that is not
+    there, `500` a bug, `503` a server on its way out.
+
+    Beside the API, the server serves the page itself from a closed
+    asset table — not part of this reference.
+
+tags:
+  - name: Playing
+    description: The transcript and the composer.
+  - name: Stories
+    description: The browser, and one story's own life.
+  - name: Dossier
+    description: Inside one story — its premise, messages, scenes, cast and journals, corrected one at a time.
+  - name: Extraction
+    description: The pass that reads played turns into scenes and cast.
+  - name: Cards
+    description: A character card, read and landed.
+  - name: Models
+    description: The picker, the providers behind it, the model the session speaks through, the machine.
+  - name: Session
+    description: What otaku is reading, what it will send next, and what it has spent.
+  - name: Settings
+    description: The knobs, one door each.
+  - name: Server
+    description: Neither lane — the server, not the session.
+
+servers:
+  - url: http://localhost:9600
+    description: The default [web] address in configs/config.toml.
+
+paths:
+  # ---------- Playing ----------
+
+  /api/play:
+    get:
+      operationId: getPlay
+      tags: [Playing]
+      summary: What has been played — the open story, oldest turn first
+      responses:
+        default: { $ref: "#/components/responses/Failed" }
+        "200":
+          description: What has been played — the open story, oldest turn first.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items: { $ref: "#/components/schemas/Turn" }
+    post:
+      operationId: postPlay
+      tags: [Playing]
+      summary: Play one line
+      description: |
+        `line` is PROSE and carries its own framing verbatim — `/me`,
+        `/you NAME`, `/ooc`, and `… /cue` or `… /ooc` inside it — which
+        `context.syntax` reads at the far end. The page does not parse
+        it and does not decide what it means; a line that opens with an
+        unknown slash word is prose that happens to start with a slash.
+
+        The whole turn is ONE job on the session's thread. The reply
+        arrives as a server-sent event stream, one JSON `PlayEvent` per
+        `data:` frame; closing the connection mid-stream is the cancel
+        door, and what streamed is kept and recorded.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [line]
+              properties:
+                line: { type: string }
+      responses:
+        "200":
+          description: Play one line.
+          content:
+            text/event-stream:
+              schema: { $ref: "#/components/schemas/PlayEvent" }
+            application/json:
+              schema: { $ref: "#/components/schemas/Notice" } # refused eagerly
+        "503": { description: otaku is stopping. }
+
+  /api/play/last:
+    post:
+      operationId: postPlayLast
+      tags: [Playing]
+      summary: Regenerate the standing reply
+      description: |
+        The last exchange, replayed: the standing reply becomes a
+        sibling and a fresh take streams in its place. Same stream
+        contract as playing. Mid-reply this is "not this one, try
+        again" — the page stops the open stream first.
+
+        A POST because it is not idempotent: two calls do not leave the
+        story in the same place, they leave two different takes.
+        Regenerating makes something; it does not set something.
+      responses:
+        default: { $ref: "#/components/responses/Failed" }
+        "200":
+          description: Regenerate the standing reply.
+          content:
+            text/event-stream:
+              schema: { $ref: "#/components/schemas/PlayEvent" }
+            application/json:
+              schema: { $ref: "#/components/schemas/Notice" }
+    delete:
+      operationId: deletePlayLast
+      tags: [Playing]
+      summary: Discard the last exchange
+      description: |
+        What `/undo` does in the terminal. Refuses with a sentence when
+        there is nothing to take back; the exchange leaving the screen
+        is the whole answer otherwise.
+      responses:
+        "200": { $ref: "#/components/responses/Answered" }
+        "403": { $ref: "#/components/responses/CrossOrigin" }
+
+  /api/play/syntax:
+    get:
+      operationId: getPlaySyntax
+      tags: [Playing]
+      summary: The story's typed language — the framing words and their shapes
+      description: |
+        NOT commands: the openers a line may start with and the inliners
+        it may carry, derived from `context.syntax`. This is what the
+        composer's menu offers and the help sheet lists. The page holds
+        its own captions for them; this carries the tokens and argument
+        shapes, which are the language's and not the medium's.
+      responses:
+        default: { $ref: "#/components/responses/Failed" }
+        "200":
+          description: The story's typed language — the framing words and their shapes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Syntax" }
+
+  /api/history:
+    get:
+      operationId: getHistory
+      tags: [Playing]
+      summary: The composer's ↑/↓ history, most recent first
+      description: The same store-backed lines the terminal prompt walks.
+      responses:
+        default: { $ref: "#/components/responses/Failed" }
+        "200":
+          description: The composer's ↑/↓ history, most recent first.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lines:
+                    type: array
+                    items: { type: string }
+    post:
+      operationId: postHistory
+      tags: [Playing]
+      summary: One submitted composer line into the ↑/↓ history
+      description: |
+        Blanks and immediate repeats are the session's to skip. The
+        notice is empty; the submission itself was the event.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [line]
+              properties:
+                line: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/Answered" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/CrossOrigin" }
+
+  # ---------- All stories ----------
+
+  /api/stories:
+    get:
+      operationId: getStories
+      tags: [Stories]
+      summary: The story browser's rows, most recently played first
+      description: |
+        `q` filters on the ONE rule both browsers promise: a story
+        matches on its current chain's text OR on its listing row's face
+        (label, arc summary, first prompt, model).
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        default: { $ref: "#/components/responses/Failed" }
+        "200":
+          description: The story browser's rows, most recently played first.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  stories:
+                    type: array
+                    items: { $ref: "#/components/schemas/StoryRow" }
+    post:
+      operationId: postStories
+      tags: [Stories]
+      summary: Start a story — empty, or from a document
+      description: |
+        One act, two sources. With `title` (or nothing) a new empty
+        story, opened. With `import` an uploaded document: an otaku
+        export (.md), a SillyTavern chat (.jsonl), or plain text (.txt),
+        the format detected from the name and the content together.
+        Content-shaped by contract — a path over HTTP would name a file
+        on the SERVER. The memoryless shapes start an extraction pass;
+        `watching` says whether there is one to poll.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string, description: "Optional; the listing names an untitled story from its first scene." }
+                import:
+                  type: object
+                  required: [name, text]
+                  properties:
+                    name: { type: string, description: "The file's own name — half of the format detection." }
+                    text: { type: string }
+      responses:
+        "201":
+          description: The story was made, and the session is open on it.
+          headers:
+            Location:
+              description: The story just made.
+              schema: { type: string, example: /api/stories/7 }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Watched" }
+        "200":
+          description: >
+            No story was made, and the sentence says why — a document that
+            is not one of the three shapes, most of the time. `refused` is
+            true; a decline is an ANSWER, not an error.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Notice" }
+        "403": { $ref: "#/components/responses/CrossOrigin" }
+
+  /api/stories/{story}:
+    parameters:
+      - { name: story, in: path, required: true, schema: { type: integer } }
+    get:
+      operationId: getStory
+      tags: [Stories]
+      summary: One story, whole — the premise, the chain, the scenes and the cast
+      description: |
+        Everything the dossier's four tabs draw, in ONE read. Keep it
+        that way: the panel opens all four tabs from one place, so
+        splitting this would make it ask three times for one subject —
+        and an extraction pass landing between two of those asks hands
+        the page a torn story, scenes covering messages it was told
+        nothing about.
+
+        The scenes and the cast therefore have no collection GET of
+        their own; their representation lives here, in the thing that
+        owns them. They keep their own WRITES, because a correction
+        addresses one scene or one character and nothing else.
+
+        Opening the Cast tab ships the whole chain. Over loopback, for
+        one client, that is cheaper than the round trip it saves.
+      responses:
+        "200":
+          description: One story, whole — the premise, the chain, the scenes and the cast.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Story" }
+        "404": { description: No story with that id. }
+    delete:
+      operationId: deleteStory
+      tags: [Stories]
+      summary: Delete a story and everything it owns
+      responses:
+        "200": { $ref: "#/components/responses/Answered" }
+        "403": { $ref: "#/components/responses/CrossOrigin" }
+        "404": { description: No story with that id. }
+
+  /api/stories/{story}/title:
+    parameters:
+      - { name: story, in: path, required: true, schema: { type: integer } }
+    put:
+      operationId: putStoryTitle
+      tags: [Stories]
+      summary: Set a story's title
+      description: The whole of it, replaced — any story, not only the open one.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/Answered" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/CrossOrigin" }
+
+  /api/stories/{story}/fork:
+    parameters:
+      - { name: story, in: path, required: true, schema: { type: integer } }
+    post:
+      operationId: postStoryFork
+      tags: [Stories]
+      summary: Fork a story — the whole of it, or from one message on
+      description: |
+        A fork MAKES a story, which is why it is a creation and not a
+        mode of the landing. Without `message` it copies the story as it
+        stands; with one it copies up to that message. Either way the
+        original is left alone and the session opens the copy.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message: { type: integer, description: "Fork from here; absent, from the story's head." }
+                title: { type: string, description: "Optional; a taken title is numbered as forks are." }
+      responses:
+        "201":
+          description: The copy was made, the original left as it was, and the session opened on the copy.
+          headers:
+            Location:
+              description: The fork just made.
+              schema: { type: string, example: /api/stories/8 }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Notice" }
+        "200":
+          description: Nothing was forked, and the sentence says why.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Notice" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/CrossOrigin" }
+
+  /api/stories/{story}/export:
+    parameters:
+      - { name: story, in: path, required: true, schema: { type: integer } }
+    get:
+      operationId: getStoryExport
+      tags: [Stories]
+      summary: The story as one Markdown document, and its filename
+      description: Writing the file is the page's — the server never learns where.
+      responses:
+        default: { $ref: "#/components/responses/Failed" }
+        "200":
+          description: The story as one Markdown document, and its filename.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/Export"
+                  - $ref: "#/components/schemas/Notice" # nothing to export yet
+
+  # ---------- Inside a story — premise, messages, scenes, cast, journals ----------
+
+  /api/stories/{story}/premise:
+    parameters:
+      - { name: story, in: path, required: true, schema: { type: integer } }
+    put:
+      operationId: putStoryPremise
+      tags: [Dossier]
+      summary: Set the story's premise — the system message
+      description: |
+        Paragraphs, so a body and not a line. Read from a file by the
+        PAGE, which reads it in the browser and sends the text: a path
+        over HTTP would name a file on the server.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/Answered" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/CrossOrigin" }
+
+  #
+  # Read with the story that owns them; corrected one at a time here.
+
+  /api/stories/{story}/messages/{message}:
+    parameters:
+      - { name: story, in: path, required: true, schema: { type: integer } }
+      - { name: message, in: path, required: true, schema: { type: integer } }
+    patch:
+      operationId: patchStoryMessages
+      tags: [Dossier]
+      summary: Correct one message's text
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/Answered" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/CrossOrigin" }
+
+  /api/stories/{story}/scenes/{scene}:
+    parameters:
+      - { name: story, in: path, required: true, schema: { type: integer } }
+      - { name: scene, in: path, required: true, schema: { type: integer } }
+    patch:
+      operationId: patchStoryScene
+      tags: [Dossier]
+      summary: Correct a scene's title or summary
+      description: |
+        Send the field that changed. An emptied summary is REFUSED: the
+        assembler covers a scene only while its summary exists, so
+        clearing one would silently swallow the scene's span. The arc
+        (`history`) is derived and has no write — correct the entries
+        and it rebuilds.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                title: { type: string }
+                summary: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/Answered" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/CrossOrigin" }
+
+  #
+  # Read with the story that owns them; corrected one at a time here.
+
+  /api/stories/{story}/characters/{character}:
+    parameters:
+      - { name: story, in: path, required: true, schema: { type: integer } }
+      - { name: character, in: path, required: true, schema: { type: integer } }
+    patch:
+      operationId: patchStoryCharacter
+      tags: [Dossier]
+      summary: Correct a character's description or card
+      description: |
+        Send the field that changed. `card` is the import archive and is
+        TOML — a broken edit is refused rather than saved, because other
+        features parse it.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                description: { type: string }
+                card: { type: string, description: "The import archive, as TOML." }
+      responses:
+        "200": { $ref: "#/components/responses/Answered" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/CrossOrigin" }
+
+  /api/stories/{story}/characters/{character}/merge:
+    parameters:
+      - { name: story, in: path, required: true, schema: { type: integer } }
+      - { name: character, in: path, required: true, schema: { type: integer } }
+    put:
+      operationId: putStoryCharacterMerge
+      tags: [Dossier]
+      summary: Fold this character into the one it is really the same as
+      description: |
+        What `/merge A into B` does. Its scenes, journals and aliases
+        move across and THIS CHARACTER STOPS EXISTING — which is why it
+        is not a field of the PATCH above. Ids, not names: the page
+        holds the cast and resolves the name it showed.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [into]
+              properties:
+                into: { type: integer }
+      responses:
+        "200": { $ref: "#/components/responses/Answered" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/CrossOrigin" }
+
+  /api/stories/{story}/journals/{record}:
+    parameters:
+      - { name: story, in: path, required: true, schema: { type: integer } }
+      - { name: record, in: path, required: true, schema: { type: integer } }
+    patch:
+      operationId: patchStoryJournal
+      tags: [Dossier]
+      summary: Correct one journal record — a character's line in a scene
+      description: |
+        Its own collection, because a record IS one thing read from two
+        sides: a character's entry in a scene, and a scene's entry by a
+        character. Both lenses hand out the same `record` id. A `state`
+        that a later one has superseded is refused.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                entry: { type: string }
+                state: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/Answered" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/CrossOrigin" }
+
+  # ---------- Extraction — the pass that reads played turns into scenes and cast ----------
+
+  /api/stories/{story}/extraction:
+    parameters:
+      - { name: story, in: path, required: true, schema: { type: integer } }
+    get:
+      operationId: getStoryExtraction
+      tags: [Extraction]
+      summary: The pending extraction pass's report
+      description: |
+        Answered from the run itself, never the session's thread —
+        which is the point: the thread may be busy running the pass.
+      responses:
+        default: { $ref: "#/components/responses/Failed" }
+        "200":
+          description: The pending extraction pass's report.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  report:
+                    type: [string, "null"]
+                    description: The pass's one-line report; null while it runs.
+    post:
+      operationId: postStoryExtraction
+      tags: [Extraction]
+      summary: Force an extraction pass now
+      description: The run is kept for the GET to poll; a pass already running is not doubled.
+      responses:
+        default: { $ref: "#/components/responses/Failed" }
+        "200":
+          description: Force an extraction pass now.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Watched" }
+    delete:
+      operationId: deleteStoryExtraction
+      tags: [Extraction]
+      summary: Give up on the pass the page forced
+      description: |
+        The door Ctrl+C opens in the terminal. Nothing half-done
+        commits; already-closed scenes stay. Nothing running answers
+        with a sentence saying so — an automatic pass is the worker's
+        own, and the page never started it.
+      responses:
+        default: { $ref: "#/components/responses/Failed" }
+        "200": { $ref: "#/components/responses/Answered" }
+
+  # ---------- Import card ----------
+
+  /api/cards:
+    post:
+      operationId: postCards
+      tags: [Cards]
+      summary: Read and vet a character card — everything before the persona ask
+      description: |
+        The prepared card stays on the server, keyed by the returned
+        token; the page hands back only the token and the persona
+        answer. A card left unanswered is swept after ten minutes.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [data, name]
+              properties:
+                data: { type: string, description: "The card file, base64." }
+                name: { type: string, description: "The file's own name." }
+                rename: { type: string, description: "Optional cast name override." }
+      responses:
+        default: { $ref: "#/components/responses/Failed" }
+        "201":
+          description: >
+            The card was read and vetted, and waits under its token for the
+            persona answer. Swept after ten minutes if none comes.
+          headers:
+            Location:
+              description: The prepared card — where PUT lands it.
+              schema: { type: string, example: /api/cards/9f3c1a }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PreparedCard" }
+        "200":
+          description: >
+            Nothing was prepared, and the sentence says why — not a card, or
+            a cast name already taken.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Notice" }
+
+  /api/cards/{token}:
+    parameters:
+      - { name: token, in: path, required: true, schema: { type: string } }
+    put:
+      operationId: putCard
+      tags: [Cards]
+      summary: Land a prepared card — everything after the persona ask
+      description: |
+        Completing the half-made card the POST returned. It joins the
+        OPEN story; a card is imported into the story being read.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [persona]
+              properties:
+                persona: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/Answered" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/CrossOrigin" }
+        "404": { description: No prepared card under that token — it expired. }
+
+  # ---------- Models ----------
+
+  /api/providers:
+    get:
+      operationId: getProviders
+      tags: [Models]
+      summary: The model picker's inventory and the provider panel
+      description: An api key's VALUE is never sent — only whether one is set.
+      parameters:
+        - name: scope
+          in: query
+          required: false
+          schema: { type: string, enum: [local, cloud] }
+          description: >
+            Which slice to probe and list — the terminal's own two-phase
+            rule: "local" everything but the cloud catalogs, "cloud" only
+            those, absent the whole set. A single provider is
+            /api/providers/{provider}.
+      responses:
+        default: { $ref: "#/components/responses/Failed" }
+        "200":
+          description: The model picker's inventory and the provider panel.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Providers" }
+
+  /api/providers/{provider}:
+    parameters:
+      - { name: provider, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: getProvider
+      tags: [Models]
+      summary: One provider, re-probed — which is what a Test connection is
+      description: |
+        A provider that answers with models is configured and one that
+        does not is not; the test IS this read. Same envelope as the
+        collection, one engine in it.
+      responses:
+        "200":
+          description: One provider, re-probed — which is what a Test connection is.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Providers" }
+        "404": { description: No provider configured under that name. }
+    patch:
+      operationId: patchProvider
+      tags: [Models]
+      summary: Save a provider's url or api key
+      description: |
+        Sealed (keys), written surgically into providers.toml, live in
+        the running registry at once. The key's value goes IN through
+        here and never comes back out through any read.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                url: { type: string }
+                api_key: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/Answered" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/CrossOrigin" }
+
+  /api/providers/{provider}/models/{model}:
+    parameters:
+      - { name: provider, in: path, required: true, schema: { type: string } }
+      - { name: model, in: path, required: true, schema: { type: string } }
+    patch:
+      operationId: patchProviderModel
+      tags: [Models]
+      summary: Load or unload a model on a managed engine
+      description: |
+        Residency is a property of the model, so it is a PATCH of one.
+        A long one: loading holds the session's thread, and every GET
+        waits behind it.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [loaded]
+              properties:
+                loaded: { type: boolean, description: true loads, false unloads. }
+      responses:
+        "200": { $ref: "#/components/responses/Answered" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/CrossOrigin" }
+
+  /api/session/model:
+    put:
+      operationId: putSessionModel
+      tags: [Models]
+      summary: Switch the session's model
+      description: Which model the session speaks through — a property of the session, not of the model.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider, model]
+              properties:
+                provider: { type: string }
+                model: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/Answered" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/CrossOrigin" }
+
+  /api/session/model/parameters/{name}:
+    parameters:
+      - { name: name, in: path, required: true, schema: { type: string } }
+    put:
+      operationId: putSessionModelParameter
+      tags: [Models]
+      summary: Set one inference parameter for the model the session is on
+      description: |
+        Kept per MODEL, not per session — which is why it hangs off the
+        model rather than off /api/settings. The value is sent as the
+        reader typed it; how it parses (float / int / str) is the
+        parameter's own, declared in the settings read.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/Answered" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/CrossOrigin" }
+    delete:
+      operationId: deleteSessionModelParameter
+      tags: [Models]
+      summary: Return one parameter to the model's own default
+      description: What `/set parameter NAME reset` does — an absence, not a value.
+      responses:
+        "200": { $ref: "#/components/responses/Answered" }
+        "403": { $ref: "#/components/responses/CrossOrigin" }
+
+  /api/machine:
+    get:
+      operationId: getMachine
+      tags: [Models]
+      summary: The machine's memory gauge, alone
+      description: >
+        The same figure the picker opens with, on its own so the page can
+        watch it while a model loads — one syscall, no engine probed.
+      responses:
+        default: { $ref: "#/components/responses/Failed" }
+        "200":
+          description: The machine's memory gauge, alone.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  memory:
+                    type: string
+                    description: 'e.g. "RAM: 12.4 / 32.0 GB (39%)"; "" where the platform will not say'
+
+  # ---------- The session — where it is reading, what it will send, what it has spent ----------
+
+  /api/session:
+    get:
+      operationId: getSession
+      tags: [Session]
+      summary: The session facts the header and rail draw
+      responses:
+        default: { $ref: "#/components/responses/Failed" }
+        "200":
+          description: The session facts the header and rail draw.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+
+  /api/session/head:
+    put:
+      operationId: putSessionHead
+      tags: [Session]
+      summary: Resume a story at a message, keeping or discarding what follows
+      description: |
+        Where the session is reading. `discard: false` resumes above the
+        tail and leaves the later turns in the database; `true` sets
+        them aside. Forking is not here — it makes a story, so it is a
+        POST to that story's fork.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [story, message]
+              properties:
+                story: { type: integer }
+                message: { type: integer }
+                discard:
+                  type: boolean
+                  default: false
+                  description: Set the later turns aside rather than keeping them.
+      responses:
+        "200": { $ref: "#/components/responses/Answered" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/CrossOrigin" }
+
+  /api/session/context:
+    get:
+      operationId: getSessionContext
+      tags: [Session]
+      summary: The next request, exactly as it will be sent
+      responses:
+        default: { $ref: "#/components/responses/Failed" }
+        "200":
+          description: The next request, exactly as it will be sent.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ContextReport" }
+
+  /api/session/info:
+    get:
+      operationId: getSessionInfo
+      tags: [Session]
+      summary: Everything otaku knows about this session, in blocks
+      responses:
+        default: { $ref: "#/components/responses/Failed" }
+        "200":
+          description: Everything otaku knows about this session, in blocks.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Info" }
+
+  /api/balance:
+    get:
+      operationId: getBalance
+      tags: [Session]
+      summary: What each cloud account has left
+      responses:
+        default: { $ref: "#/components/responses/Failed" }
+        "200":
+          description: What each cloud account has left.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Balance" }
+
+  /api/usage:
+    get:
+      operationId: getUsage
+      tags: [Session]
+      summary: What the tokens were spent on
+      description: |
+        A refusal (no story, nothing recorded, an unknown scope) comes
+        back BESIDE the scopes rather than instead of them — the other
+        tab is the way out of an empty one.
+      parameters:
+        - name: scope
+          in: query
+          schema: { type: string, enum: ["", "all"] }
+      responses:
+        default: { $ref: "#/components/responses/Failed" }
+        "200":
+          description: What the tokens were spent on.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/Usage"
+                  - $ref: "#/components/schemas/UsageRefused"
+
+  # ---------- Settings ----------
+
+  /api/settings:
+    get:
+      operationId: getSettings
+      tags: [Settings]
+      summary: The /set family as values
+      description: |
+        Read whole, written one at a time. There is no PATCH of the
+        collection: a knob is set by putting the knob, and a screen that
+        changed one thing should say one thing.
+      responses:
+        default: { $ref: "#/components/responses/Failed" }
+        "200":
+          description: The /set family as values.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Settings" }
+
+  /api/settings/{setting}:
+    parameters:
+      - name: setting
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [think, verbose, autocorrect, notification, max_context]
+    put:
+      operationId: putSetting
+      tags: [Settings]
+      summary: Set one session-wide knob
+      description: |
+        The value's type is the knob's: a word for `think` (one of the
+        ladder in `Settings.think_levels`), a boolean for the three
+        toggles, an integer for `max_context` where 0 means the model's
+        whole window. Per-model inference parameters are not here — they
+        belong to a model, and live under the session's model.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value:
+                  oneOf:
+                    - { type: string }
+                    - { type: boolean }
+                    - { type: integer }
+      responses:
+        "200": { $ref: "#/components/responses/Answered" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/CrossOrigin" }
+
+  # ---------- Neither lane: the server, not the session ----------
+
+  /api/alive:
+    get:
+      operationId: getAlive
+      tags: [Server]
+      summary: The page's heartbeat
+      description: |
+        Answered by the handler thread itself, never the session — an
+        otaku deep in a reply still answers, which is what makes this
+        an answer about the SERVER. Carries the background worker's
+        one-line status and the sentences it has said since the last
+        beat.
+      responses:
+        default: { $ref: "#/components/responses/Failed" }
+        "200":
+          description: The page's heartbeat.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Alive" }
+
+  /api/watch:
+    get:
+      operationId: getWatch
+      tags: [Server]
+      summary: The files the page is made of, as they change
+      description: |
+        A server-sent event stream, held open for the life of the tab.
+        The first frame names the reconnect interval (`retry:`); each
+        following frame's `data:` is the bare NAME of a file that
+        changed under the packaged `static/` or the reader's own state
+        `web/` directory. The page swaps a stylesheet in place and
+        reloads itself for anything else; a reopened stream is how a
+        tab learns the server was restarted.
+      responses:
+        default: { $ref: "#/components/responses/Failed" }
+        "200":
+          description: The files the page is made of, as they change.
+          content:
+            text/event-stream: {}
+
+components:
+  responses:
+    Answered:
+      description: "The write's answer — a sentence, or a marked refusal."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Notice" }
+    BadRequest:
+      description: "A field the page did not send, or sent wrong."
+    CrossOrigin:
+      description: "The write did not come from otaku's own page."
+    Failed:
+      description: |
+        The request was not answered, and the STATUS says why: 400 a
+        malformed request, 403 a write from somewhere that is not
+        otaku's page, 404 a path or subject that is not there, 421 a
+        Host that does not name this machine, 500 a bug, 503 a server on
+        its way out. There is no body — deliberately. otaku has one
+        client on one machine: a refusal a reader should SEE comes back
+        200 with the backend's own sentence, and everything here is a
+        fault the page can only log, so a second error vocabulary would
+        be for nobody to read.
+
+  # Alphabetical.
+  schemas:
+    Alive:
+      type: object
+      properties:
+        status:
+          type: string
+          description: The background worker's one-line account; "" when idle.
+        notices:
+          type: array
+          items: { type: string }
+          description: What the worker has said since the last beat.
+
+    Balance:
+      type: object
+      properties:
+        total:
+          description: >
+            Everything on account when one currency covers every row
+            that answered; null when it does not, because adding across
+            currencies is a conversion and otaku has no rate.
+          oneOf:
+            - $ref: "#/components/schemas/Money"
+            - type: "null"
+        note:
+          type: string
+          description: >
+            What the story on screen spends, in one sentence — the half
+            of "what have I got left" a list of accounts cannot say.
+        rows:
+          type: array
+          items:
+            type: object
+            properties:
+              provider: { type: string, description: "The config section's own name — what a reader would type." }
+              label: { type: string, description: "The engine's caption, for a frontend that captions rather than keys." }
+              money:
+                description: What the account has left; null when it would not say.
+                oneOf:
+                  - $ref: "#/components/schemas/Money"
+                  - type: "null"
+              note:
+                type: string
+                description: 'Why there is no figure — "no key set", or the dash for an account that did not answer.'
+              value:
+                type: string
+                description: The row as one string — the figure, or the note. What a line prints.
+
+    Character:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        aliases:
+          type: array
+          items: { type: string }
+        description: { type: string }
+        card: { type: string, description: 'The import archive, as TOML; "" for an extracted character.' }
+        updated_at: { type: string, format: date-time, description: "When the extractor last wrote the character — display alone." }
+        journals:
+          type: array
+          items: { $ref: "#/components/schemas/JournalRecord" }
+          description: >
+            What this character recorded, scene by scene — the same
+            records the scenes carry, read from the other side. The
+            newest `state` among them is where they stand now.
+
+    ContextReport:
+      type: object
+      properties:
+        shape:
+          type: object
+          description: What the next request is MADE of — the diagram's arithmetic.
+          properties:
+            head: { type: integer, description: "Opening messages, verbatim." }
+            middle: { type: integer, description: "Messages the recap stands in for." }
+            history: { type: boolean, description: "A story-so-far opens the recap (old summaries folded into it)." }
+            rolled_up: { type: integer, description: "The scenes that story-so-far covers; 0 without one." }
+            summaries: { type: integer, description: "Scene summaries riding after it." }
+            tail: { type: integer, description: "Recent messages, verbatim." }
+            tail_target: { type: integer, description: "The tail aimed for — below tail_setting, the limit forced it." }
+            tail_setting: { type: integer, description: "The configured min_tail_messages." }
+            system_tokens: { type: integer }
+            transcript_tokens: { type: integer }
+            limit: { type: integer, description: "What the prompt measured against — the smaller of the model's window and max_context, minus the reply reserve." }
+            kept: { type: integer, description: "Derived: head + tail." }
+            total_tokens: { type: integer, description: "Derived: system + transcript." }
+            used: { type: integer, description: "Derived: percent of the limit." }
+        lede: { type: string, description: "The summary said in words." }
+        parts:
+          type: array
+          description: One part per message, exactly as the wire will carry it.
+          items:
+            type: object
+            properties:
+              role: { type: string }
+              body: { type: string }
+
+    Export:
+      type: object
+      properties:
+        name: { type: string, description: "The filename to save under." }
+        text: { type: string, description: "The whole Markdown document." }
+
+    Info:
+      type: object
+      properties:
+        sections:
+          type: array
+          items:
+            type: object
+            properties:
+              rows:
+                type: array
+                items:
+                  type: array
+                  description: One labeled fact — [label, value].
+                  items: { type: string }
+                  prefixItems:
+                    - { type: string }
+                    - { type: string }
+                  minItems: 2
+                  maxItems: 2
+              note: { type: string, description: "The sentence standing where a block's facts would be." }
+
+    JournalRecord:
+      type: object
+      description: |
+        One character's line in one scene — the thing both lenses show.
+        `id` is what `PATCH /api/stories/{story}/journals/{id}` addresses;
+        `scene` and `character` are the two sides it hangs between, so
+        either lens can draw the other's name.
+      properties:
+        id: { type: integer }
+        scene: { type: integer }
+        character: { type: integer }
+        entry: { type: string, description: "What they recorded." }
+        state: { type: string, description: 'Where it left them; "" when the pass wrote none.' }
+        updated_at: { type: string, format: date-time, description: "When the extractor last wrote the record — display alone." }
+
+    Money:
+      type: object
+      description: |
+        An amount and its currency. `amount` is a DECIMAL STRING, never
+        a JSON number: a figure somebody is billed against must not
+        cross the wire as a float. `text` is the rendering both
+        frontends print.
+      properties:
+        amount: { type: string, example: "4.82" }
+        currency: { type: string, example: "USD" }
+        text: { type: string, example: "$4.82" }
+
+    Notice:
+      type: object
+      description: |
+        A write's answer — the sentence to show, verbatim. `refused`
+        marks an expected decline; the page reads the flag, never the
+        wording.
+      required: [notice]
+      properties:
+        notice: { type: string }
+        refused: { type: boolean }
+
+    PlayEvent:
+      description: One frame of the reply stream, keyed by `type`.
+      oneOf:
+        - type: object
+          description: The user's turn landed — echo it.
+          properties:
+            type: { const: recorded }
+            turn: { $ref: "#/components/schemas/Turn" }
+        - type: object
+          properties:
+            type: { const: thinking }
+            text: { type: string }
+        - type: object
+          properties:
+            type: { const: text }
+            text: { type: string }
+        - type: object
+          description: The stream declines mid-way; what already happened stands.
+          properties:
+            type: { const: declined }
+            reason: { type: string }
+        - type: object
+          description: The stream failed; what streamed is kept and recorded.
+          properties:
+            type: { const: failed }
+            reason: { type: string }
+        - type: object
+          description: The turn's end.
+          properties:
+            type: { const: done }
+
+    PreparedCard:
+      type: object
+      properties:
+        token: { type: string, description: "Hands the card back to PUT /api/cards/{token}." }
+        card:
+          type: object
+          properties:
+            name: { type: string }
+            notes:
+              type: array
+              items: { type: string }
+            tokens: { type: integer, description: "The composed block's cost estimate." }
+            large: { type: boolean, description: "Worth warning — it rides every request." }
+            persona: { type: string, description: "The remembered {{user}} name; \"\" when none." }
+
+    Providers:
+      type: object
+      description: >
+        The gauge is not here: it moves on its own clock, so it is
+        /api/machine and nothing carries a second copy.
+      properties:
+        current: { type: string, description: '"provider/model"; "" without a model.' }
+        engines:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              label: { type: string }
+              local: { type: boolean }
+              connected: { type: boolean }
+              url: { type: string }
+              has_key: { type: boolean, description: "Whether a key is SET — never the value." }
+              models:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name: { type: string }
+                    loaded: { type: boolean }
+                    can_load_unload: { type: boolean }
+                    size: { type: string }
+                    context: { type: string }
+
+    Scene:
+      type: object
+      properties:
+        id: { type: integer }
+        number: { type: integer, description: "Its place in the story, 1-based." }
+        span: { type: string, description: '"61-84"; "" when off the current chain.' }
+        title: { type: string }
+        summary: { type: string }
+        history: { type: string, description: 'The story-so-far THROUGH this scene; "" when not generated here. DERIVED — there is no write for it.' }
+        updated_at: { type: string, format: date-time, description: "When the extractor last wrote the scene — display alone." }
+        present:
+          type: array
+          items: { type: string }
+          description: The names in this scene, as the cast spells them.
+        journals:
+          type: array
+          items: { $ref: "#/components/schemas/JournalRecord" }
+          description: What each character present recorded here.
+
+    Session:
+      type: object
+      description: |
+        What the rail and the runhead draw, without reading a story or
+        probing an engine. The knobs are NOT here — they are
+        `/api/settings`, and a figure with two homes has two truths; nor
+        is the premise, which is the open story's and comes with it.
+      properties:
+        version: { type: string }
+        model: { type: string, description: "The bare model name; \"(no model)\" when none." }
+        engine: { type: string }
+        context: { type: string, description: "The window, formatted; \"\" when unknown." }
+        story: { type: string, description: "The open story's name; \"\" when none." }
+        story_id: { type: [integer, "null"] }
+        turns: { type: integer, description: "How many, so the runhead needs no chain." }
+
+    Settings:
+      type: object
+      properties:
+        think: { type: string }
+        think_levels:
+          type: array
+          items: { type: string }
+          description: The effort ladder in its one shared order (backend.session.THINK_MENU).
+        verbose: { type: boolean }
+        autocorrect: { type: boolean }
+        notification: { type: boolean }
+        max_context: { type: integer, description: "Tokens the prompt may use at most; 0 = the model's whole window." }
+        model: { type: string, description: "Whose parameters these are — the read is a snapshot, and a switch mid-slip would silently retitle it." }
+        parameters:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              value: { type: string, description: '"" when at the model''s own default.' }
+              type: { type: string, description: "float / int / str — how a typed value parses." }
+
+    Story:
+      type: object
+      description: One story, whole — what the dossier's four tabs draw.
+      properties:
+        id: { type: integer }
+        label: { type: string, description: "Title, else newest rollup, else first prompt." }
+        title: { type: string }
+        updated_at: { type: string, format: date-time }
+        premise: { type: string, description: "The system message this story is sent with." }
+        messages:
+          type: array
+          items: { $ref: "#/components/schemas/Turn" }
+        scenes:
+          type: array
+          items: { $ref: "#/components/schemas/Scene" }
+        characters:
+          type: array
+          items: { $ref: "#/components/schemas/Character" }
+        read_through:
+          type: integer
+          description: >
+            The last message a closed scene covers, as a 1-based chain
+            position; 0 when nothing has been read yet.
+        unread:
+          type: integer
+          description: Messages played past the last closed scene.
+        unread_span:
+          type: string
+          description: 'Those messages as "N-M"; "" when none are open.'
+
+    StoryRow:
+      type: object
+      properties:
+        id: { type: integer }
+        label: { type: string, description: "Title, else newest rollup, else first prompt." }
+        title: { type: string }
+        story_so_far: { type: string }
+        first_user: { type: string }
+        model: { type: string }
+        updated_at: { type: string, format: date-time }
+        turns: { type: integer, description: "How many — a count is `turns`, the chain itself is `messages`." }
+        open: { type: boolean, description: "Whether this is the session's open story." }
+
+    Syntax:
+      type: object
+      description: |
+        The story's typed language. `openers` may begin a line;
+        `inliners` ride inside one. Both are declared once, in
+        `context.syntax`.
+      properties:
+        prose:
+          type: string
+          description: What a line with no framing does — the explainer the sheet opens with.
+        openers:
+          type: array
+          items: { $ref: "#/components/schemas/SyntaxRow" }
+        inliners:
+          type: array
+          items: { $ref: "#/components/schemas/SyntaxRow" }
+
+    SyntaxRow:
+      type: object
+      properties:
+        token: { type: string, example: "/you" }
+        args: { type: string, description: "The argument shape, as help spells it.", example: "NAME[: HINT]" }
+
+    Turn:
+      type: object
+      properties:
+        id: { type: integer }
+        role: { type: string, enum: [user, assistant] }
+        body: { type: string }
+        kind: { type: string, enum: [dialogue, narration, ooc, card] }
+        speaker:
+          type: [string, "null"]
+          description: "The extractor's name for who spoke; null until its pass reads the turn."
+        provider:
+          type: [string, "null"]
+          description: "Who generated an assistant turn ('card' on a card greeting)."
+        model: { type: [string, "null"] }
+        template:
+          type: [string, "null"]
+          description: "The template the turn was played with, filled at wire time."
+
+    Usage:
+      type: object
+      properties:
+        scope: { type: string, description: '"this story" or "all stories".' }
+        scopes: { $ref: "#/components/schemas/UsageScopes" }
+        rows:
+          type: array
+          items:
+            type: object
+            properties:
+              purpose: { type: string }
+              provider: { type: string }
+              model: { type: string }
+              requests: { type: integer }
+              prompt_tokens: { type: integer }
+              completion_tokens: { type: integer }
+              cached_tokens: { type: integer, description: "Of prompt_tokens, served from the provider's cache; 0 where caching never engaged." }
+              rate: { type: number, description: "Completion tokens per second; 0.0 unmeasured." }
+        requests: { type: integer }
+        prompt_tokens: { type: integer }
+        completion_tokens: { type: integer }
+        cached_tokens: { type: integer }
+        total_tokens: { type: integer }
+
+    UsageRefused:
+      type: object
+      description: The refusal beside the scopes — the other tab is the way out.
+      properties:
+        notice: { type: string }
+        scopes: { $ref: "#/components/schemas/UsageScopes" }
+
+    UsageScopes:
+      type: array
+      items:
+        type: object
+        properties:
+          key: { type: string }
+          label: { type: string }
+
+    Watched:
+      allOf:
+        - $ref: "#/components/schemas/Notice"
+        - type: object
+          properties:
+            watching:
+              type: boolean
+              description: Whether an extraction pass is running to poll for.

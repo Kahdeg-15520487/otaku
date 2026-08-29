@@ -22,18 +22,14 @@ export function row(...parts) {
   return button;
 }
 
-/** A field row — a name and its value, the row itself the control that
-    opens it (which is why the default tag is a button). `note` is a
-    third column only where there is something to put in it: a row that
-    is its own control needs no caption saying how to open it. */
-export function fieldRow(name, value, note = "", tag = "button") {
-  const el = element(tag, "otk-field-row");
-  if (tag === "button") el.type = "button";
-  // Enter on a focused button activates it; the browser's own handler
-  // steps aside inside the preview so it can (see browser.js).
-  el.append(span("otk-field-row__name", name), span("otk-field-row__value", value));
-  if (note) el.append(span("otk-field-row__hint", note));
-  return el;
+/** One verb of an action row. `onclick` arrives already answered-for:
+    this module knows nothing about screens, guards included. */
+export function actionButton(label, { kind = "", off = false, onclick } = {}) {
+  const button = element("button", kind ? `otk-btn ${kind}` : "otk-btn", label);
+  button.type = "button";
+  button.disabled = off;
+  if (onclick) button.onclick = onclick;
+  return button;
 }
 
 // ---------- textareas that size to their text ----------

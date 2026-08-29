@@ -96,15 +96,20 @@ def import_file(session: Session, text: str, file_name: str) -> ImportedStory:
     return ImportedStory(notices=tuple(notices), extraction=run)
 
 
-def export(session: Session) -> str:
-    """The current story as the one Markdown document: the story-so-far,
-    system, and cast, the scenes with their journals, then every message
-    verbatim (template included) — importable back losslessly. Raises
-    Refused when there is nothing to export. Writing the file — and
-    asking about overwrites — is the frontend's."""
-    if not session.messages:
+def export(session: Session, story_id: int | None = None) -> str:
+    """A story as the one Markdown document: the story-so-far, system,
+    and cast, the scenes with their journals, then every message
+    verbatim (template included) — importable back losslessly.
+    `story_id` names one that is not open, for a browser exporting from
+    the outside; the open story's own when it is None. Raises Refused
+    when there is nothing to export. Writing the file — and asking
+    about overwrites — is the frontend's."""
+    if story_id is None:
+        if not session.messages:
+            raise Refused("Nothing to export yet.")
+        story_id = session._ensure_story()
+    elif not session._store.stories.get_messages_ids(story_id):
         raise Refused("Nothing to export yet.")
-    story_id = session._ensure_story()
     return exports.render_story(
         exports.read_story(session._store, story_id),
         otaku_version=__version__,
@@ -113,9 +118,12 @@ def export(session: Session) -> str:
     )
 
 
-def export_name(session: Session) -> str:
-    """`the-long-road.md` from the story title; `story.md` untitled."""
-    story = session._store.stories.get(session.story_id) if session.story_id is not None else None
+def export_name(session: Session, story_id: int | None = None) -> str:
+    """`the-long-road.md` from the story title; `story.md` untitled.
+    Names the same story `export` would render."""
+    if story_id is None:
+        story_id = session.story_id
+    story = session._store.stories.get(story_id) if story_id is not None else None
     stem = re.sub(r"[^\w\s-]", "", (story.title if story else "").lower())
     slug = re.sub(r"[\s_-]+", "-", stem).strip("-")
     return f"{slug or 'story'}{EXPORT_SUFFIX}"

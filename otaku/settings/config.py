@@ -68,7 +68,7 @@ class Config:
     # [context]
     head_messages: int = 20
     min_tail_messages: int = 150
-    max_context: int = 65536
+    max_context: int = 0
     # [lore_extraction]
     lore_enabled: bool = True
     idle_seconds: float = 300.0
@@ -189,7 +189,7 @@ def load(path: Path) -> Config:
             web_port=min(65535, max(1, _int(web, "port", 9600))),
             head_messages=max(0, _int(context, "head_messages", 20)),
             min_tail_messages=max(1, _int(context, "min_tail_messages", 150)),
-            max_context=max(0, _int(context, "max_context", 65536)),
+            max_context=max(0, _int(context, "max_context", 0)),
             lore_enabled=bool(lore.get("enabled", True)),
             idle_seconds=max(0.0, _float(lore, "idle_seconds", 300.0)),
             scene_min_chars=max(1, _int(lore, "scene_min_chars", 6000)),

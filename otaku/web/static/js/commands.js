@@ -1,31 +1,24 @@
-/* What a command does on this side — the dispatch half, routing by the
-   language in `table.js` exactly as the terminal's bindings route by
-   `backend.commands`.
+/* What a row of the contents opens, and the few doors that are a call
+   rather than a screen.
 
-   Every command is reachable two ways and both come here: a click on a
-   rail button, and a line typed into the composer. A BARE token opens
-   its screen; the same token with an argument is answered by the backend
-   — `/model` opens the picker, `/model ollama/x` switches — exactly as
-   the terminal reads them.
-
-   SCREENS is this frontend's half of the shared table, as
-   `terminal.chat.bindings._INTERACTIVE` is the terminal's: everything
-   the backend does NOT answer with a sentence must have a row here, and
-   `checkCoverage` proves it at boot rather than leaving a button dead. */
+   Every one of these is reached by a BUTTON — nothing here composes a
+   command line for the far end to parse. `SCREENS` is keyed by the token
+   the contents rail carries, because a rail row and a screen are one
+   thought; what each one then asks of otaku is an endpoint, named in
+   `api.js`. */
 
 import * as api from "./api.js";
-import { ask, closeAll } from "./browser.js";
+import { ask, closeAll, popups } from "./browser.js";
 import { $ } from "./dom.js";
 import { openHelp } from "./help.js";
 import { openSettings } from "./settings.js";
-import { openLore } from "./lore.js";
 import { openModels } from "./models.js";
 import { openBalance, openContext, openInfo, openUsage } from "./reports.js";
 import { disconnected, landed, refresh, watchExtraction } from "./shell.js";
 import { openStories } from "./stories.js";
-import { openSystem } from "./system.js";
-import { allSpecs, answered, rawArgument, specFor } from "./table.js";
-import { clear, isPlaying, play, stopPlaying, tell } from "./transcript.js";
+import { openStory } from "./story.js";
+import { tell } from "./status.js";
+import { clear, isPlaying, play, stopPlaying } from "./transcript.js";
 import { exportStory, importCard, importDocument } from "./transfer.js";
 
 const SCREENS = {
@@ -37,25 +30,25 @@ const SCREENS = {
      carries an argument and goes straight to the backend, as every
      other command with one does: the reader who spelled it out has
      already said yes. */
-  "/new": () =>
-    confirmed({
-      title: "New story",
-      body: "Do you want to start a new story?",
-      action: "New story",
-      line: "/new",
-    }),
+  "/new": newStory,
   "/fork": () =>
     confirmed({
       title: "Fork this story?",
       body: "A copy from here on. The original stays as it is, and play continues in the copy.",
       action: "Fork",
-      line: "/fork",
+      run: async () => {
+        const story = (await api.facts()).story_id;
+        if (story === null) return tell(_NO_STORY.fork, "otk-error");
+        const { notice } = await api.fork(story);
+        await landed(notice, { redraw: "always" });
+      },
     }),
-  // The bare token opens the screen; `/system some text` is answered by
-  // the backend, exactly as `/model` and `/model x/y` divide.
-  "/system": openSystem,
-  "/lore": () => openLore("scenes"),
-  "/cast": () => openLore("cast"),
+  /* The story dossier answers three commands, one tab each — the bare
+     token opens it there; `/system some text` is answered by the
+     backend, exactly as `/model` and `/model x/y` divide. */
+  "/system": () => openStory({ tab: "premise", allStories: backToStories }),
+  "/lore": () => openStory({ tab: "scenes", allStories: backToStories }),
+  "/cast": () => openStory({ tab: "cast", allStories: backToStories }),
   "/model": openModels,
   "/set": openSettings,
   "/context": openContext,
@@ -63,16 +56,10 @@ const SCREENS = {
   "/balance": openBalance,
   "/info": openInfo,
   "/help": () => openHelp(),
-  "/import": importDocument,
+  "/import": importStory,
   "/card": importCard,
   "/export": exportStory,
-  "/extract": () =>
-    confirmed({
-      title: "Extract now",
-      body: "Do you want to read the recent messages into scenes and cast now?",
-      action: "Extract now",
-      run: extract,
-    }),
+  "/extract": extractNow,
   "/undo": undo,
   "/regen": regenerate,
   "/last": () => refresh(),
@@ -82,37 +69,13 @@ const SCREENS = {
   "/bye": () => tell("Close the tab. The server stops in the terminal."),
 };
 
-export function checkCoverage() {
-  /* The terminal would raise a KeyError for a command with no handler.
-     The page cannot, so it says so where a developer will see it — and
-     "has no screen here yet" becomes unreachable, which is the point. */
-  const missing = allSpecs()
-    .filter((row) => row.kind !== "syntax" && !SCREENS[row.token] && !answered(row.token))
-    .map((row) => row.token);
-  if (missing.length) console.warn("otaku: no handler for", missing.join(", "));
-}
-
-export async function run(line) {
+export async function run(token) {
+  /* One row of the contents, opened. The token is a UI key — what the
+     rail's button carries — and never a line anybody typed. */
   try {
-    const spec = specFor(line);
-    const argument = rawArgument(line, spec);
-    /* A screen opens for the bare token; the same token WITH an argument
-       goes to the backend when the backend answers it — `/model` opens
-       the picker, `/model ollama/x` switches, exactly as the terminal
-       reads them. Only a row the backend cannot answer keeps its screen
-       for both forms, which is how `/last 3` and `/card NAME` arrive. */
-    const answers = spec && answered(spec.token);
-    const screen = argument && answers ? null : SCREENS[spec?.token ?? line.trim()];
-    if (screen) {
-      await screen(argument);
-      return;
-    }
-    // Everything else — wired rows and unknown tokens alike — is the
-    // backend's to answer: an unknown line comes back as the shared
-    // sentence (`backend.commands.unknown_notice`), marked refused, so both
-    // frontends refuse a typo with the same words.
-    const { notice } = await api.runCommandLine(line);
-    await landed(notice);
+    const screen = SCREENS[token];
+    if (screen) await screen();
+    else console.warn("otaku: no screen for", token);
   } catch (e) {
     // The reader gets the sentence; the console gets the stack, because
     // a TypeError inside a screen is a bug, not an answer.
@@ -121,17 +84,61 @@ export async function run(line) {
   }
 }
 
-/** Whether a command asks before it acts. A screen that opens a question
-    of its own must be left the screen it was called FROM: `app.js` closes
-    a popup before running a command carried in its header, because the
-    answer lands in the flow behind it — but a question cancelled has no
-    answer, and closing first would take the reader out of the browser
-    they were reading for nothing. */
-export function asksFirst(token) {
-  return token === "/new" || token === "/fork" || token === "/extract";
+/** Where a dossier's back button lands when no story browser waits
+    underneath it: the browser, positioned on the story it came from. */
+const backToStories = (storyId) => openStories("", { selectId: storyId });
+
+/** The contents row that is not a command: the open story's messages,
+    which live on the dossier the way its scenes and cast do. A UI door,
+    not a token — `app.js` wires the button here so the dossier stays
+    reachable without inventing a command nobody typed. */
+export async function openMessages() {
+  try {
+    await openStory({ tab: "messages", allStories: backToStories });
+  } catch (e) {
+    console.error(e);
+    tell(String(e.message ?? e), "otk-error");
+  }
 }
 
-async function confirmed({ title, body, action, line, run }) {
+/** Whether a command carried by a panel's own chrome KEEPS that panel.
+    `app.js` closes a popup before running a command in its header,
+    because the answer usually lands in the flow behind it — but two
+    kinds of row must be left where they were fired from: one that asks
+    a question (a question cancelled has no answer, and closing first
+    would take the reader out of the screen for nothing), and one whose
+    whole result belongs to that screen — an import that adds a row to
+    the list you are reading, an export that saves a file and changes
+    nothing. */
+export function keepsScreen(token) {
+  return ["/new", "/fork", "/extract", "/import", "/export"].includes(token);
+}
+
+async function newStory() {
+  /* A new story is one question with an optional answer: what to call
+     it. Left empty, the listing names it from its first rollup — which
+     is the sentence under the field. */
+  const dialog = $('dialog[data-dialog="new-story"]');
+  const field = $("input", dialog);
+  const choice = await ask("new-story", () => (field.value = ""));
+  if (choice !== "start") return;
+  closeAll();
+  const { notice } = await api.newStory(field.value.trim());
+  await landed(notice, { redraw: "always" });
+}
+
+async function importStory() {
+  /* The imported story lands in the library the reader is looking at,
+     so the list is asked again and left on what just arrived — the
+     screen a reader imported FROM is the screen that must show it. */
+  await importDocument();
+  if (popups.get("/stories")?.open) {
+    const facts = await api.facts();
+    await openStories("", { selectId: facts.story_id });
+  }
+}
+
+async function confirmed({ title, body, note = "", action, cancel = "Cancel", run }) {
   /* One question, one button that answers it. The dialog is the ask
      family's plainest shape and its words are set here, because what a
      command is about to do to the story on screen is the page's to say
@@ -139,18 +146,19 @@ async function confirmed({ title, body, action, line, run }) {
   const choice = await ask("confirm", (dialog) => {
     $("[data-title]", dialog).textContent = title;
     $(".otk-dialog__body", dialog).textContent = body;
+    // A second line, for a question whose answer has a consequence
+    // worth spelling out; hidden for the plain ones.
+    const aside = $("[data-note]", dialog);
+    aside.textContent = note;
+    aside.hidden = !note;
     $('[data-choice="confirm"]', dialog).textContent = action;
+    $('[data-choice="cancel"]', dialog).textContent = cancel;
   });
   if (choice !== "confirm") return;
   // Now the screens go: the story is about to change under them, and the
   // sentence that says so belongs in the flow.
   closeAll();
-  if (run) {
-    await run();
-    return;
-  }
-  const { notice } = await api.runCommandLine(line);
-  await landed(notice, { redraw: "always" });
+  await run();
 }
 
 /** Play a line as story, reporting a lost connection the one way the
@@ -158,7 +166,7 @@ async function confirmed({ title, body, action, line, run }) {
 export async function playLine(line) {
   try {
     await play(line);
-    /* A played line is a write like any other, and the header is drawn
+    /* A played line is a write like any other, and the runhead is drawn
        from facts that just changed: the first line of a session makes
        the story that "No story yet" was standing in for, and every line
        after it moves the count. No notice — the reply IS the answer —
@@ -191,7 +199,7 @@ async function undo() {
      reads about a turn they can see is gone. A refusal — nothing to
      undo — still speaks, under the prompt, and it is the FLAG that says
      so: the page never reads the wording. */
-  const answer = await api.runCommandLine("/undo");
+  const answer = await api.undo();
   await landed("", { redraw: "always", keepPlace: true });
   if (answer.refused) tell(answer.notice);
 }
@@ -212,9 +220,43 @@ async function regenerate() {
   }
 }
 
-async function extract() {
-  const { notice, watching } = await api.act("extract", {});
+/* What the backend says when there is no story to act on. COPIED,
+   because the page cannot ask: these endpoints address a story by its
+   id, and with no story there is no id to put in the path. Their homes
+   are `backend.api.stories.fork` and `backend.api.lore.extract` — a
+   sentence that changes there changes here. */
+const _NO_STORY = {
+  fork: "Nothing to fork yet — send a message first.",
+  extract: "No story yet — send a message first.",
+};
+
+async function extractNow() {
+  /* A pass is minutes of model time, so the question says so before it
+     starts one — and says what happens if the reader waits instead,
+     because waiting is the normal way this runs. */
+  const facts = await api.facts();
+  const opened = facts.story_id == null ? null : await api.story(facts.story_id).catch(() => null);
+  const unread = opened?.unread ?? 0;
+  await confirmed({
+    title: "Read them now?",
+    body:
+      (unread
+        ? `${unread} ${unread === 1 ? "message has" : "messages have"} not been read into scenes and cast. `
+        : "Everything played has been read already. ") +
+      "Reading asks the model for a summary, a history and a journal per character — it can take a minute or two.",
+    note: "Otherwise it happens on its own, five minutes after you stop typing.",
+    action: "Read now",
+    cancel: "Wait",
+    run: () =>
+      facts.story_id === null
+        ? tell(_NO_STORY.extract, "otk-error")
+        : extract(facts.story_id),
+  });
+}
+
+async function extract(story) {
+  const { notice, watching } = await api.extract(story);
   closeAll();
   tell(notice);
-  if (watching) watchExtraction();
+  if (watching) watchExtraction(story);
 }

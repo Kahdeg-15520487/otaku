@@ -4,16 +4,28 @@
    a slash token is drawn as, and where the caret rides are decided here
    and nowhere else; nothing in this file rewrites the text itself.
 
+   The page draws the story as a book draws one: the reply is prose in
+   the flow, and a played line is a centred interjection under a mono
+   rubric — the same meaning as the terminal's `>` band, in this
+   medium's shape. Waiting and streaming are ONE state: the caret holds
+   the answer's place and text grows in front of it, with a status line
+   under it while it runs.
+
+   Three kinds of line are not the story and never read as it: the
+   model's thinking, the verbose stats the terminal prints after a
+   reply, and a failure. Each has its own voice.
+
    It renders the undo/regen bar but does not know what those do: the
    buttons carry `data-turn`, and whoever owns commands listens. That
    keeps the transcript a drawing, not a controller. */
 
 import * as api from "./api.js";
-import { $, $$, element } from "./dom.js";
+import { $, $$, element, span } from "./dom.js";
+import { typeset } from "./prose.js";
+import { tell, working } from "./status.js";
 import { isToken } from "./table.js";
 
 const transcript = $(".otk-transcript");
-const said = $(".otk-composer__said");
 const stop = $("[data-stop]");
 const send = $("[data-send]");
 
@@ -26,6 +38,10 @@ let settled = Promise.resolve();
 // the composer waits for it.
 let playing = false;
 
+// The ordinal the NEXT drawn turn takes — the rubric's number, counted
+// the way the story browser counts messages.
+let ordinal = 0;
+
 export const isPlaying = () => playing;
 
 // ---------- what is on screen ----------
@@ -34,13 +50,15 @@ export function showTurns(turns, { keepPlace = false } = {}) {
   /* `keepPlace` is for a redraw the reader did not ask to be moved by —
      an undo, a regenerate: the turns change, the scroll does not, and
      what was taken away simply leaves the space it was in. */
+  ordinal = turns.length;
+  const drawn = turns.map((turn, i) => drawTurn(turn, i + 1));
   if (keepPlace) {
-    holdSpace(() => transcript.replaceChildren(...turns.map(drawTurn)));
+    holdSpace(() => transcript.replaceChildren(...drawn));
     showTurnBar();
     return;
   }
   release();
-  transcript.replaceChildren(...turns.map(drawTurn));
+  transcript.replaceChildren(...drawn);
   showTurnBar();
   toBottom({ force: true });
 }
@@ -49,31 +67,10 @@ export function clear() {
   transcript.replaceChildren();
 }
 
-/** What is on the say line right now — for the beat, which takes its own
-    sentence down when the pass it was about is over, and leaves anything
-    said since alone. */
-export function told() {
-  return said?.textContent ?? "";
-}
-
-/** Everything otaku has to SAY, as opposed to everything it played: a
-    command's answer, a refusal, a report, a failure. All of it belongs
-    under the prompt — the transcript is the story, and a story is what
-    was played into it. `kind` marks a refusal, which reads red.
-
-    It clears itself the moment the reader types again, or the next turn
-    begins: a sentence about the last line is over when the next one is. */
-export function tell(text, kind = "") {
-  if (!said) return;
-  said.textContent = text ?? "";
-  said.classList.toggle("is-error", Boolean(text) && kind === "otk-error");
-}
-
 /** Send while the box is the reader's, Stop while the model has it. */
 function turnOver(streaming) {
   if (send) send.hidden = streaming;
   if (stop) stop.hidden = !streaming;
-  if (send) send.disabled = streaming;
 }
 
 /** Give up on the reply that is arriving, and answer when it is over.
@@ -162,15 +159,16 @@ function toBottom({ force = false } = {}) {
 
 // ---------- drawing a turn ----------
 
-function drawTurn(turn) {
-  const article = element("article", "otk-turn");
+function drawTurn(turn, position) {
   if (turn.role === "user") {
-    article.classList.add("otk-turn--user");
-    const line = element("p", "otk-turn__typed");
+    const article = element("article", "otk-turn");
+    const rubric = element("span", "otk-turn__rubric", `◆ ${position} · you`);
+    const line = element("p", "otk-turn__body");
     line.append(...withSlashTokens(turn.body));
-    article.append(line);
+    article.append(rubric, line);
     return article;
   }
+  const article = element("article", "otk-reply");
   drawProse(article, turn.body);
   return article;
 }
@@ -185,45 +183,6 @@ function withSlashTokens(line) {
   });
 }
 
-/* An opening quote and the marks that may answer it. The rule is the
-   terminal's, copied (`otaku/terminal/tty/typography.py`, where the
-   whole convention including the dialogue dash lives): `“` both opens
-   English speech and closes German, the straight quote closes itself,
-   and `„` takes either curly mark because the strict pairing is rarely
-   typed. */
-const _CLOSERS = { "«": "»", "“": "”", "„": "“”", '"': '"' };
-
-function speech(paragraph) {
-  /* The paragraph as spoken and unspoken runs, decided forward-only at
-     the opening mark — the same way the terminal decides, because a
-     reply arrives a character at a time and there is nothing ahead to
-     read. A quote left open is spoken to the end: mid-stream it is a
-     line still arriving. */
-  const runs = [];
-  let plain = "";
-  let quote = null;
-  for (const ch of paragraph) {
-    if (quote) {
-      quote.text += ch;
-      if (quote.closers.includes(ch)) {
-        runs.push({ spoken: true, text: quote.text });
-        quote = null;
-      }
-      continue;
-    }
-    if (_CLOSERS[ch]) {
-      if (plain) runs.push({ spoken: false, text: plain });
-      plain = "";
-      quote = { text: ch, closers: _CLOSERS[ch] };
-      continue;
-    }
-    plain += ch;
-  }
-  if (quote) runs.push({ spoken: true, text: quote.text });
-  else if (plain) runs.push({ spoken: false, text: plain });
-  return runs;
-}
-
 function drawProse(article, text, { streaming = false } = {}) {
   /* The reply as it stands, re-typeset from the whole text rather than
      appended to: a paragraph break arrives mid-stream like any other
@@ -231,27 +190,20 @@ function drawProse(article, text, { streaming = false } = {}) {
   const paragraphs = text.split(/\n\s*\n/).filter((part) => part.trim());
   const drawn = $$(".otk-prose", article);
   paragraphs.forEach((paragraph, i) => {
-    const p = drawn[i] ?? article.appendChild(element("p"));
-    const runs = speech(paragraph.trim());
+    const p = drawn[i] ?? article.insertBefore(element("p"), $(".otk-generating__status", article));
     // Two shapes of the same accent: a paragraph that is nothing but
     // speech takes it whole, and a mixed one takes it a run at a time.
-    const spoken = runs.length === 1 && runs[0].spoken;
+    const { spoken, nodes } = typeset(paragraph.trim());
     p.className = spoken ? "otk-prose otk-prose--dialogue" : "otk-prose";
-    p.replaceChildren(
-      ...runs.map((run) =>
-        run.spoken && !spoken
-          ? element("span", "otk-quote", run.text)
-          : document.createTextNode(run.text),
-      ),
-    );
+    p.replaceChildren(...nodes);
   });
-  // The cursor rides the end of the text while it is still arriving —
-  // the one thing on the page that says the model is still talking.
+  // The caret rides the end of what has arrived — the one moving thing
+  // on the page, and the only one actually happening.
   $(".otk-caret", article)?.remove();
-  if (streaming && article.lastElementChild) {
+  if (streaming) {
     const caret = element("span", "otk-caret");
     caret.setAttribute("aria-hidden", "true");
-    article.lastElementChild.append(caret);
+    ($$(".otk-prose", article).at(-1) ?? article).append(caret);
   }
 }
 
@@ -261,18 +213,15 @@ function showTurnBar() {
      PROMPT, not under the turn: they are what you do next, and next is
      where the cursor is. Drawn once in the markup, so this only decides
      whether there is anything to act on. */
-  const bar = $(".otk-turnbar");
-  if (!bar) return;
-  const turns = $$(".otk-turn").length;
-  bar.hidden = false;
+  const turns = $$(".otk-turn, .otk-reply", transcript).length;
   /* Both act on the last exchange, so both are off when there is no
      exchange to act on. Regenerate answers mid-reply as well — it means
      "not this one" and takes the same door Stop does; undo cannot,
      because the turn it would take back has not landed yet. */
-  const undo = $("[data-turn='undo']", bar);
-  const regen = $("[data-turn='regen']", bar);
-  if (undo) undo.disabled = !turns || playing;
-  if (regen) regen.disabled = !turns;
+  const undo = $("[data-turn='undo']");
+  const regen = $("[data-turn='regen']");
+  undo?.setAttribute("aria-disabled", String(!turns || playing));
+  regen?.setAttribute("aria-disabled", String(!turns));
 }
 
 /* ---------- a turn arriving ----------
@@ -331,28 +280,36 @@ function beginTurn(regenerate) {
   settled = new Promise((resolve) => (over = resolve));
   turnOver(true);
   tell("");
-  // The bar belongs to the last exchange; from here until this reply
-  // lands there is no last exchange, so it has nothing to act on. It is
-  // hidden, never removed: it lives in the composer's own row now.
+  // Stopping a reply is the composer's own button, right where it was
+  // asked for — so the status line says only that something is running.
+  working(true);
   showTurnBar();
-  const article = element("article", "otk-turn is-streaming");
+  const article = element("article", "otk-reply otk-generating is-streaming");
   /* The transcript is a polite live region, and a reply rewrites its
      text several times a second: without this a screen reader is asked
      to re-announce a growing paragraph forty times and says nothing
      useful. `aria-busy` is the standard answer — hold the subtree, and
      announce it once when it settles. */
   article.setAttribute("aria-busy", "true");
-  /* Waiting on the model is a state of its own, and on a local model it
-     is the long one: the request is away and nothing has come back. The
-     terminal spins through it; the page marks it where the reply is
-     about to appear, and the mark goes at the first sign of one.
-     `aria-busy` above is what says it to a screen reader, so the mark
-     itself is decoration. */
-  const waiting = element("p", "otk-status");
-  waiting.append(element("span", "otk-spinner"));
-  waiting.setAttribute("aria-hidden", "true");
-  article.classList.add("is-waiting");
-  article.append(waiting);
+  /* Waiting and writing are ONE state: the caret holds the answer's
+     place from the first moment, and text grows in front of it. Under
+     it, the line that says the model has the turn and for how long. */
+  const held = element("p", "otk-prose");
+  const caret = element("span", "otk-caret");
+  caret.setAttribute("aria-hidden", "true");
+  held.append(caret);
+  /* The rule runs BEHIND the words, which sit on paper over it — so the
+     creep never appears out of nowhere at an edge. */
+  const state = element("span", "otk-generating__text", "waiting");
+  const elapsed = element("span", "otk-generating__text otk-generating__elapsed", "0.0s");
+  const status = element("div", "otk-generating__status");
+  status.setAttribute("aria-hidden", "true");
+  status.append(element("span", "otk-generating__rule"), state, elapsed);
+  article.append(held, status);
+  const started = Date.now();
+  const ticking = setInterval(() => {
+    elapsed.textContent = `${((Date.now() - started) / 1000).toFixed(1)}s`;
+  }, 100);
   /* A regenerate takes the standing reply off the screen NOW, before the
      request is even away: the reader asked for another take, and the one
      they are replacing must not sit there while the model thinks. The
@@ -361,7 +318,7 @@ function beginTurn(regenerate) {
      the store has it. */
   if (regenerate) holdSpace(dropLastReply);
   showTurnBar();
-  return { article, waiting, over, tail, thinking: null, prose: "" };
+  return { article, status, state, ticking, over, tail, thinking: null, prose: "" };
 }
 
 function draw(turn, happened) {
@@ -369,11 +326,6 @@ function draw(turn, happened) {
   // so the reply's own block joins the flow at the first sign of it, or
   // it would stream into nothing.
   if (!turn.article.isConnected) transcript.append(turn.article);
-  // The terminal's own order: any signal clears the wait, and a
-  // recorded turn puts it back — that one only says the story took the
-  // line, and the reply is still to come.
-  turn.waiting.remove();
-  turn.article.classList.remove("is-waiting");
   DRAW[happened.type]?.(turn, happened);
   // What arrives goes into the space the old take was read in.
   reserve();
@@ -383,9 +335,8 @@ function draw(turn, happened) {
 // One drawer per event kind — `web.api.event`'s closed union, drawn.
 const DRAW = {
   recorded(turn, happened) {
-    transcript.insertBefore(drawTurn(happened.turn), turn.article);
-    turn.article.classList.add("is-waiting");
-    turn.article.append(turn.waiting);
+    ordinal += 1;
+    transcript.insertBefore(drawTurn(happened.turn, ordinal), turn.article);
   },
   thinking(turn, happened) {
     if (!turn.thinking) {
@@ -393,21 +344,47 @@ const DRAW = {
       turn.article.prepend(turn.thinking);
     }
     turn.thinking.textContent += happened.text;
+    turn.state.textContent = "thinking";
   },
   text(turn, happened) {
     turn.prose += happened.text;
+    turn.state.textContent = "writing";
     drawProse(turn.article, turn.prose, { streaming: true });
   },
   declined(turn, happened) {
-    turn.article.append(element("p", "otk-error", happened.reason));
+    turn.article.append(failure("The model declined", happened.reason));
   },
   failed(turn, happened) {
-    turn.article.append(element("p", "otk-error", `[ error: ${happened.reason} ]`));
+    turn.article.append(failure("The reply stopped", happened.reason));
   },
   done(turn, happened) {
-    if (happened.stats) turn.article.append(element("p", "otk-report", happened.stats));
+    // The stats line the terminal prints after a reply, verbatim — off
+    // unless the reader asked for it (`/set verbose`).
+    if (happened.stats) turn.article.append(element("p", "otk-verbose", happened.stats));
   },
 };
+
+function failure(label, reason) {
+  /* A failure is not a turn and never reads as the story: its own rule,
+     its own voice, and the two doors out of it. The LABEL names the
+     state (the medium's own word); the sentence under it is the
+     backend's, unchanged. */
+  const box = element("div", "otk-error");
+  const actions = element("div", "otk-error__actions");
+  const again = element("button", "otk-btn", "Try again");
+  again.type = "button";
+  again.dataset.turn = "regen";
+  const other = element("button", "otk-btn", "Choose another model");
+  other.type = "button";
+  other.dataset.command = "/model";
+  actions.append(again, other);
+  box.append(
+    span("otk-error__label", label),
+    element("p", "otk-error__body", reason),
+    actions,
+  );
+  return box;
+}
 
 function endTurn(turn) {
   // Whatever ended it — the last event, the reader's Stop, or a
@@ -415,15 +392,34 @@ function endTurn(turn) {
   // it is still arriving.
   playing = false;
   arriving = null;
+  clearInterval(turn.ticking);
   turn.over();
   turnOver(false);
+  working(false);
   // Whatever the page had to say about the last attempt is over with
   // the turn it was about.
   tell("");
-  turn.waiting.remove();
-  turn.article.classList.remove("is-waiting", "is-streaming");
+  /* The status row STAYS, hidden: it keeps its height, so the moment a
+     reply lands nothing above it moves. */
+  turn.article.classList.add("otk-generating--idle");
+  turn.article.classList.remove("is-streaming");
   turn.article.setAttribute("aria-busy", "false");
   $(".otk-caret", turn.article)?.remove();
+  // The paragraph that held the answer's place, when nothing came to
+  // fill it: an empty line is not a reply and must not stand as one.
+  for (const p of $$(".otk-prose", turn.article)) if (!p.textContent) p.remove();
+  // A reply that never arrived leaves no empty block behind.
+  if (!turn.prose && !$(".otk-error, .otk-verbose, .otk-thinking", turn.article)) {
+    turn.article.remove();
+  } else if (turn.article.isConnected && turn.prose) {
+    /* The reply landed: the story is one turn longer than the rubric
+       counted at the recorded event. TEXT is the test, not the block —
+       a declined or failed attempt keeps its block to say so but stores
+       no message (`backend.api.play._land_reply` records a reply row
+       only when some text arrived), and counting it would number every
+       later turn one too high. */
+    ordinal += 1;
+  }
   showTurnBar();
   follow(turn);
 }
@@ -439,6 +435,9 @@ function follow(turn) {
 /* Take the standing reply off the screen, so the fresh take streams in
    its place rather than under it. */
 function dropLastReply() {
-  const last = [...$$(".otk-turn")].pop();
-  if (last && !last.classList.contains("otk-turn--user")) last.remove();
+  const last = [...$$(".otk-turn, .otk-reply", transcript)].pop();
+  if (last && last.classList.contains("otk-reply")) {
+    last.remove();
+    ordinal -= 1;
+  }
 }

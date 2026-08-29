@@ -28,7 +28,7 @@ from otaku.store.schema import Message, Story
 # so numbering works off the stem and the suffixes can never pile up
 # ("The River - 3 - 3 - 2"). The group captures the last repetition, which
 # is the number the title actually reads as.
-_FORK_SUFFIX = re.compile(r"(?: - (\d+))+$")
+_NUMBER_SUFFIX = re.compile(r"(?: - (\d+))+$")
 
 
 @dataclass(frozen=True)
@@ -57,6 +57,13 @@ class StoryOps:
         self._db = db
 
     def add(self, title: str | None = None) -> int:
+        """A new story. A title already taken is NUMBERED, the way a fork
+        numbers its copy: a title is how a reader finds a story again,
+        and two rows with one name are two rows nobody can tell apart —
+        whether they came from the same document imported twice or from
+        the same name typed twice."""
+        if title:
+            title = self._unique_title(title)
         now = self._db.now()
         with self._db.conn as conn:
             # fmt: off
@@ -302,7 +309,7 @@ class StoryOps:
         chain = self._get_chain_ids(cut)
         copied = set(chain)
         if title is None:
-            title = self._fork_title(source.title)
+            title = self._unique_title(source.title) if source.title else None
         now = self._db.now()
 
         with self._db.conn as conn:
@@ -375,14 +382,20 @@ class StoryOps:
 
     # ---------- internals ----------
 
-    def _fork_title(self, base: str) -> str | None:
-        """`fork_title` over the titles already in the database. Titles
-        only — the full listing would decrypt every story's labels just to
-        number one fork."""
+    def _unique_title(self, base: str) -> str:
+        """`base` itself when no story has it, and the next fork number
+        off it when one does — ONE numbering rule for every way a story
+        is made, so a copy, a re-import and a second story of the same
+        name are all named the same way. A fork always lands in the
+        second case: its source is in the database holding that title.
+
+        Titles only — the full listing would decrypt every story's
+        labels just to number one of them."""
         # fmt: off
         rows = self._db.conn.execute("SELECT title FROM stories").fetchall()
         # fmt: on
-        return fork_title(base, {self._db.unseal(title) for (title,) in rows})
+        taken = {self._db.unseal(title) for (title,) in rows}
+        return base if base not in taken else (unique_title(base, taken) or base)
 
     def _get_chain_ids(self, head_id: int | None) -> builtins.list[int]:
         """Walk the parent chain from a head; ids come back root → head."""
@@ -505,9 +518,12 @@ class MessagesOps:
         return sum(len(self._db.unseal(row[0])) for row in rows)
 
 
-def fork_title(base: str, taken: Container[str]) -> str | None:
-    """The title a fork of `base` gets: the first name not in `taken` of
-    the form "<stem> - N", counting up FROM `base`'s own number.
+def unique_title(base: str, taken: Container[str]) -> str | None:
+    """The numbering RULE, over a set of titles the caller supplies: the
+    first name not in `taken` of the form "<stem> - N", counting up FROM
+    `base`'s own number. A module function because it is pure and the
+    unit suite covers it here; the method of the same name reads the
+    database and calls this.
 
     A numbered title is renumbered off its stem — never suffixed again
     ("The River - 3" forks to "- 4", never "- 3 - 2") and never below
@@ -518,7 +534,7 @@ def fork_title(base: str, taken: Container[str]) -> str | None:
     """
     if not base:
         return None
-    numbered = _FORK_SUFFIX.search(base)
+    numbered = _NUMBER_SUFFIX.search(base)
     stem = base[: numbered.start()] if numbered else base
     n = int(numbered.group(1)) + 1 if numbered else 2
     if not stem:  # a title that is nothing but a number keeps itself

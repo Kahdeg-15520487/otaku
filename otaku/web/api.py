@@ -1,16 +1,15 @@
 """What the page asks for, as plain data — this frontend's whole surface
 over an open session, one table per kind of request.
 
-`READS` is everything under `/api/read/`: one function per thing the
-browser fetches, taking the session and returning something `json` can
-write, each row adapting the request's query onto its function so the
-query-string names live here and nowhere else. `ACTIONS` is every write
-a screen performs; `FLOWS` the writes whose result outlives their
-request (`Pending` is where it waits); `ANSWERS` the command lines this
-frontend answers with a sentence. `play` and `regenerate` return the
-reply's event stream and `event` names each event on the wire. What is
-NOT here is HTTP: `web.server` looks a request up in these tables and
-carries the result, and nothing else.
+`ROUTES` is the whole of it: one entry per method and path, each
+taking the session and an `Ask` — what the path named, what the query
+asked for, what the body carried — and returning something `json` can
+write. A bare sentence back is a notice; a `Created` says a thing was
+made and where it now lives. `Pending` holds what outlives a request,
+and reaches only the rows of `FLOWS`. `play` and `regenerate`
+return the reply's event stream and `event` names each event on the
+wire. What is NOT here is HTTP: `web.server` matches a request against
+this table and carries the result, and nothing else.
 
 Nothing here decides how any of it LOOKS — where a paragraph breaks,
 what a slash token is drawn as, how a count is worded — because that is
@@ -28,11 +27,11 @@ import base64
 import secrets
 import time
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from otaku import __version__
-from otaku.backend import Message, commands, meminfo
+from otaku.backend import Journal, Message, commands, meminfo
 from otaku.backend.api import cards as api_cards
 from otaku.backend.api import lore as api_lore
 from otaku.backend.api import play as api_play
@@ -42,100 +41,75 @@ from otaku.backend.api import settings as api_settings
 from otaku.backend.api import stories as api_stories
 from otaku.backend.api import transfer as api_transfer
 from otaku.backend.api.cards import PreparedCard
-from otaku.backend.api.lore import Field, LoreView, WorkerRun
+from otaku.backend.api.lore import FieldKind, WorkerRun
 from otaku.backend.api.play import Declined, Done, Failed, PlayEvent, Recorded, Text, Thinking
 from otaku.backend.api.providers import Engine
-from otaku.backend.commands import (
-    COMMANDS,
-    GROUP_LABELS,
-    PROSE_DESCRIPTION,
-    PROSE_GROUP,
-    PROSE_LABEL,
-)
+from otaku.backend.commands import COMMANDS, PROSE_DESCRIPTION
 from otaku.backend.session import KNOWN_PARAMS, THINK_MENU, Refused, Session
-from otaku.formatting import format_context, format_size
+from otaku.formatting import Money, format_context, format_size
 
 __all__ = [
-    "ACTIONS",
-    "ANSWERS",
     "FLOWS",
-    "READS",
+    "ROUTES",
+    "Ask",
+    "Created",
     "Pending",
-    "add_card",
-    "answering",
-    "balance",
-    "commands_table",
     "context",
     "event",
-    "export_document",
     "facts",
-    "history",
-    "import_document",
-    "info",
-    "lore",
     "play",
-    "prepare_card",
-    "providers",
     "regenerate",
-    "search",
     "settings",
-    "start_extract",
     "stories",
-    "story_messages",
-    "turns",
-    "usage",
+    "story",
+    "syntax",
 ]
 
-# ---------- the command surface ----------
-
-# One OPERATION command: the raw argument text in, the sentence out —
-# the shared table's enforceable contract, wired generically so a new
-# operation is a row there and an entry here.
-_Operation = Callable[[Session, str], str]
-
-ANSWERS: dict[str, _Operation] = {
-    # The shared table's OPERATION rows, wired generically — the
-    # contract is exactly this call shape, so a new operation is a row
-    # there and a row here.
-    "/fork": api_stories.fork,
-    # `/new` is an operation here where the terminal keeps a handler: it
-    # swaps the story under the screen, and a page simply asks again.
-    "/new": api_stories.new,
-    "/title": api_stories.set_title,
-    "/merge": api_lore.merge,
-    # Text verbatim: the terminal resolves its `/system FILE`
-    # affordance on its own side, because a path over HTTP would
-    # name a file on the server.
-    "/system": api_stories.set_system,
-    "/set think": api_settings.set_think,
-    "/set parameter": api_settings.set_parameter,
-    "/set verbose": api_settings.set_verbose,
-    "/set autocorrect": api_settings.set_autocorrect,
-    "/set notification": api_settings.set_notification,
-    "/set max_context": api_settings.set_max_context,
-    # INTERACTIVE rows whose TYPED form is a plain call, answered here
-    # while the bare token opens a screen — exactly as the terminal's
-    # `/model PROVIDER/MODEL` switches and its bare `/model` opens the
-    # picker.
-    "/model": api_providers.switch_spec,
-    "/undo": lambda session, raw: _undo(session),
-}
+# ---------- what a request carries ----------
 
 
-def answering(line: str) -> Callable[[Session], dict[str, str]] | None:
-    """The call a command line names — resolved WITHOUT the session, so
-    the server answers an unknown token on its own thread, before
-    anything queues. None for a line no wired row matches — and the
-    sentence for that is `commands.unknown_notice(line)`, said by the server
-    as a refusal; what the call itself raises (Refused above all — a
-    refusal IS the answer) stays the caller's to answer."""
-    spec = commands.find(line)
-    operation = ANSWERS.get(spec.token) if spec else None
-    if spec is None or operation is None:
-        return None
-    argument = commands.raw_argument(line, spec.token)
-    call = operation
-    return lambda session: {"notice": call(session, argument)}
+@dataclass(frozen=True)
+class Ask:
+    """One request as a handler sees it, with no HTTP in sight: what the
+    PATH named, what the query asked for, and what the body carried.
+    `web.server` takes a request apart and hands over these three."""
+
+    params: Mapping[str, str] = field(default_factory=dict)
+    query: Mapping[str, str] = field(default_factory=dict)
+    body: Mapping[str, Any] = field(default_factory=dict)
+
+    def id(self, name: str) -> int:
+        """One numeric path segment. The router has already matched the
+        template, so a value that is not a number is a bug here, not a
+        request to refuse."""
+        return int(self.params[name])
+
+    def text(self, name: str, default: str = "") -> str:
+        """A body field the request may leave out."""
+        return str(self.body.get(name, default))
+
+    def need(self, name: str) -> str:
+        """A body field the request MUST carry. Missing is a malformed
+        request — the server answers 400 — and never a silent default:
+        a PATCH with no text would blank what it was meant to correct.
+        A field sent as `null` is the same fault wearing a value, and is
+        refused for the same reason: coerced, it would store the literal
+        title "None"."""
+        value = self.body[name]
+        if value is None:
+            raise TypeError(f"{name} is null")
+        return str(value)
+
+
+@dataclass(frozen=True)
+class Created:
+    """A write that MADE something: the sentence, and where the thing now
+    lives. The server answers `201` and names it in `Location`; anything
+    else a write returns is a plain `200`."""
+
+    notice: str
+    location: str
+    extra: Mapping[str, Any] = field(default_factory=dict)
 
 
 def _undo(session: Session) -> str:
@@ -153,9 +127,13 @@ def _undo(session: Session) -> str:
 
 
 def facts(session: Session) -> dict[str, Any]:
-    """The header's line and what else the page must know about the
-    session it is drawing. Best-effort like the terminal's own opening:
-    a cloud catalog is never asked for its context window here."""
+    """What the rail and the runhead draw, without reading a story or
+    probing an engine. Best-effort like the terminal's own opening: a
+    cloud catalog is never asked for its context window here.
+
+    The knobs are NOT here — they are `settings`, and a figure with two
+    homes has two truths — and neither is the premise, which belongs to
+    the story that is sent with it."""
     window = session.context_size()
     return {
         "version": __version__,
@@ -164,65 +142,60 @@ def facts(session: Session) -> dict[str, Any]:
         "context": format_context(window) if window else "",
         "story": api_stories.headline(session),
         "story_id": session.story_id,
+        # How many, so the runhead needs no chain.
         "turns": len(session.messages),
-        # The story's premise, as the screen that edits it opens on.
-        "system": session.system,
-        "think": session.think or "default",
-        "verbose": session.verbose,
-        "autocorrect": session.autocorrect,
-        "notification": session.notification,
     }
 
 
-def turns(session: Session) -> list[dict[str, Any]]:
+def _turns(session: Session) -> list[dict[str, Any]]:
     """The open story, one row per stored turn, oldest first."""
     return [_turn(message) for message in session.messages]
 
 
-def history(session: Session) -> list[str]:
+def _history(session: Session) -> list[str]:
     """The composer's ↑/↓ history, most recent first — the same
     store-backed lines the terminal prompt walks, so a reload (or a
     session on the other frontend) starts with the history it left."""
     return session.history()
 
 
-def commands_table() -> dict[str, Any]:
-    """The shared table — the rows the help page lists, the page's menus
-    offer, and its buttons carry. A command exists once.
+def syntax() -> dict[str, Any]:
+    """The story's typed LANGUAGE — not its commands. The openers a line
+    may start with and the inliners it may carry, which is what the
+    composer's menu offers and the help sheet lists.
 
-    `groups` names them and `prose` is the row that is not a command:
-    both decide what the help page SAYS, which is why neither is the
-    page's to invent. Where each lands, and what it is drawn as, is the
-    page's alone."""
+    Tokens and argument shapes only. What each one MEANS in a menu is
+    the page's own caption: a sheet has room for a caption where the
+    shared table's row is a sentence, and where a word is drawn is the
+    medium's business. The rows themselves are declared once, in
+    `context.syntax`, and reach here through the shared table."""
+    rows = [spec for spec in COMMANDS if spec.kind is commands.CommandKind.SYNTAX]
     return {
-        "prose": {
-            "label": PROSE_LABEL,
-            "group": PROSE_GROUP,
-            "description": PROSE_DESCRIPTION,
-        },
-        "groups": GROUP_LABELS,
-        # What this frontend can answer — the shared rows it wires. A
-        # page reading this needs no table of its own to know whether a
-        # click is a call or a screen.
-        "answers": sorted(ANSWERS),
-        "rows": [
-            {
-                "token": spec.token,
-                "args": spec.args,
-                "description": spec.description,
-                "group": spec.group,
-                "kind": spec.kind.value,
-            }
-            for spec in COMMANDS
+        # What a line with no framing does — the one row that is not a
+        # word, and the sentence the sheet opens with.
+        "prose": PROSE_DESCRIPTION,
+        "openers": [
+            {"token": spec.token, "args": spec.args}
+            for spec in rows
+            if not spec.token.startswith("…")
+        ],
+        "inliners": [
+            {"token": spec.token, "args": spec.args} for spec in rows if spec.token.startswith("…")
         ],
     }
 
 
-def stories(session: Session) -> list[dict[str, Any]]:
+def stories(session: Session, query: str = "") -> list[dict[str, Any]]:
     """The story browser's rows, most recently played first. `label` is
     the listing's own fallback rule — title, then the newest rollup,
-    then the first prompt — resolved in its one home, never here."""
+    then the first prompt — resolved in its one home, never here.
+
+    `query` filters the collection on the ONE rule both browsers
+    promise: a story matches on its current chain's text OR on its
+    listing row's face. The union is the backend's — the browsers agree
+    because neither composes it."""
     open_id = session.story_id
+    matched = set(api_stories.search(session, query)) if query else None
     return [
         {
             "id": row.id,
@@ -232,43 +205,53 @@ def stories(session: Session) -> list[dict[str, Any]]:
             "first_user": row.first_user,
             "model": row.model,
             "updated_at": row.updated_at.isoformat(),
-            "messages": row.num_messages,
+            # A count is `turns`; the chain itself is `messages`, and it
+            # comes with the story rather than with the listing.
+            "turns": row.num_messages,
             "open": row.id == open_id,
         }
         for row in api_stories.listing(session)
+        if matched is None or row.id in matched
     ]
 
 
-def search(session: Session, query: str) -> list[int]:
-    """Ids of the stories whose CURRENT CHAIN contains `query` — the
-    browser's content filter, one call per keystroke. Served from the
-    session's own index, so a keystroke never re-reads the library."""
-    return api_stories.search(session, query)
+def story(session: Session, story_id: int) -> dict[str, Any]:
+    """One story, WHOLE: everything the dossier's four tabs draw, in one
+    read. Any story's, not only the open one.
 
-
-def story_messages(session: Session, story_id: int) -> list[dict[str, Any]]:
-    """One story's current chain — the browser's drill-in."""
-    return [_turn(message) for message in api_stories.messages_of(session, story_id)]
-
-
-def lore(session: Session) -> dict[str, Any]:
-    """The memory as the browser shows it: both lenses, and the field
-    list each row opens into. The fields carry their own address
-    (`kind`, `target`), which is what an edit names — a row of display
-    state never travels back."""
-    view = api_lore.view(session)
+    One read and not three, because the panel opens all four tabs from
+    one place: asking three times for one subject lets an extraction
+    pass land between two of the asks and hand the page a torn story —
+    scenes covering messages it was told nothing about."""
+    listing = next((row for row in api_stories.listing(session) if row.id == story_id), None)
+    view = api_lore.view(session, story_id)
     return {
+        "id": story_id,
+        "label": listing.label if listing else "",
+        "title": listing.title if listing else "",
+        "updated_at": listing.updated_at.isoformat() if listing else "",
+        "premise": api_stories.get_system(session, story_id),
+        "messages": [_turn(message) for message in api_stories.messages_of(session, story_id)],
+        # How far the extractor has read, and what is still open — the
+        # facts the index's pending row and the extract block draw.
+        "read_through": view.read_through(),
+        "unread": view.unread(),
+        "unread_span": view.unread_span(),
         "scenes": [
             {
                 "id": scene.id,
-                "label": view.scene_label(scene.id),
-                # Its own field, from the view's own data: the label is
-                # display text, and a scene whose span cannot be
+                "number": number,
+                # From the view's own data: a scene whose span cannot be
                 # computed drops it, which would make a title read as a
                 # message range.
                 "span": view.scene_span(scene.id),
                 "title": scene.title,
                 "summary": scene.summary,
+                # The arc THROUGH this scene — derived, so no write takes
+                # it — and when the extractor last wrote the scene (an
+                # audit stamp, display alone).
+                "history": scene.history,
+                "updated_at": scene.updated_at,
                 "present": [
                     character.name
                     for character in view.cast
@@ -277,25 +260,43 @@ def lore(session: Session) -> dict[str, Any]:
                         for journal in view.journals
                     )
                 ],
-                "fields": [_field(f) for f in view.scene_fields(scene.id)],
+                "journals": [
+                    _journal(journal) for journal in view.journals if journal.scene_id == scene.id
+                ],
             }
-            for scene in view.scenes
+            for number, scene in enumerate(view.scenes, start=1)
         ],
-        "cast": [
+        "characters": [
             {
                 "id": character.id,
                 "name": character.name,
                 "aliases": list(character.aliases),
                 "description": character.description,
-                "now": _latest_state(view, character.id),
-                "fields": [_field(f) for f in view.char_fields(character.id)],
+                # The archive an IMPORTED character carries; "" for one
+                # the extractor named out of the story itself.
+                "card": character.card or "",
+                # When the extractor last wrote them — display alone.
+                "updated_at": character.updated_at,
+                "journals": [
+                    _journal(journal)
+                    for journal in view.journals
+                    if journal.character_id == character.id
+                ],
             }
             for character in view.cast
         ],
     }
 
 
-def providers(session: Session) -> dict[str, Any]:
+def _memory(session: Session) -> dict[str, Any]:
+    """The machine's memory alone — the same gauge the picker opens with
+    (`backend.meminfo`), on its own so the page can watch it fill while a
+    model loads. Reading it costs one syscall; asking `providers` for it
+    would re-probe every engine a second."""
+    return {"memory": meminfo.gauge()}
+
+
+def _providers(session: Session, scope: str = "") -> dict[str, Any]:
     """The model picker: every reachable provider's models under their
     engine captions, and the panel's field rows. An api key's VALUE is
     never sent — only whether one is set.
@@ -304,15 +305,29 @@ def providers(session: Session) -> dict[str, Any]:
     for: a section somebody added by hand is a provider they play on,
     and the terminal lists those after the engines, by name. A picker
     that hides the model the session is using is a picker with no way
-    back to it."""
+    back to it.
+
+    `scope` is which slice to ask — the terminal's own two-phase rule
+    (its picker opens on the local engines and lets each cloud catalog
+    answer after): "local" probes and lists everything but the cloud
+    catalogs, "cloud" only those, a provider's name only it (the
+    one-provider refresh a Test connection is), "" the whole set."""
     engines = api_providers.engines(session)
-    rows, reachable = api_providers.get_providers(session)
-    # Seeded from what is CONFIGURED, not from what answered: a provider
+    catalogs = {engine.name for engine in engines if not engine.local}
+    everyone = {engine.name for engine in engines} | api_providers.configured(session)
+    if scope == "local":
+        asked = everyone - catalogs
+    elif scope == "cloud":
+        asked = catalogs
+    elif scope:
+        asked = {scope} & everyone
+    else:
+        asked = everyone
+    rows, reachable = api_providers.get_providers(session, skip=everyone - asked)
+    # Seeded from what is ASKED, not from what answered: a provider
     # whose server is down is exactly the one a reader opens the picker
     # to fix, and `get_providers` returns only the reachable.
-    models: dict[str, list[dict[str, Any]]] = {
-        name: [] for name in {engine.name for engine in engines} | api_providers.configured(session)
-    }
+    models: dict[str, list[dict[str, Any]]] = {name: [] for name in asked}
     for row in rows:
         models.setdefault(row.config.name, []).extend(
             {
@@ -326,8 +341,10 @@ def providers(session: Session) -> dict[str, Any]:
         )
     known = {engine.name: engine for engine in engines}
     # The engines in their own order, then whatever else is configured,
-    # by name — the terminal's `order.get(name, len(order))`.
-    named = [engine.name for engine in engines]
+    # by name — the terminal's `order.get(name, len(order))` — and only
+    # the slice that was asked: a scoped answer carries no card it did
+    # not probe, so the page never draws a lamp nobody checked.
+    named = [engine.name for engine in engines if engine.name in asked]
     named += sorted(name for name in models if name not in known)
     return {
         "current": session.full_model_name,
@@ -400,7 +417,7 @@ def context(session: Session) -> dict[str, Any]:
     }
 
 
-def usage(session: Session, raw: str = "") -> dict[str, Any]:
+def _usage(session: Session, raw: str = "") -> dict[str, Any]:
     """What the tokens were spent on, as the table's rows — and every
     scope the report can be asked for, because the page draws a tab per
     scope and needs them all to draw any.
@@ -417,22 +434,54 @@ def usage(session: Session, raw: str = "") -> dict[str, Any]:
     return {
         "scope": report.scope,
         "scopes": scopes,
-        "rows": [asdict(row) for row in report.rows],
+        # `label` rides along: what a purpose is CALLED is decided below
+        # both frontends (`reports.USAGE_PURPOSES`), never here.
+        "rows": [asdict(row) | {"label": row.purpose_label} for row in report.rows],
         "requests": report.requests,
         "prompt_tokens": report.prompt_tokens,
         "completion_tokens": report.completion_tokens,
         "cached_tokens": report.cached_tokens,
         "total_tokens": report.total_tokens,
+        # The figures said in a sentence, and how much of the spend
+        # nobody asked for — the report's own words, not the page's.
+        "note": report.note,
     }
 
 
-def balance(session: Session) -> dict[str, Any]:
-    """What each cloud account has left. The VALUE is the provider's own
-    string — a currency, a credit, a word — never a number to format."""
-    return {"rows": [asdict(row) for row in reports.balances(session).rows]}
+def _money(money: Money | None) -> dict[str, Any] | None:
+    """One amount on the wire: the figure as a STRING (a decimal is not
+    a float and must not become one crossing JSON), its currency, and
+    the rendering both frontends print."""
+    if money is None:
+        return None
+    return {"amount": str(money.amount), "currency": money.currency, "text": str(money)}
 
 
-def info(session: Session) -> dict[str, Any]:
+def _balance(session: Session) -> dict[str, Any]:
+    """What each cloud account has left, as Money — and the note that
+    stands where a figure would be for an account nobody has a key for
+    or one that would not answer. `total` is everything on account when
+    one currency covers every row, and null when it does not: adding
+    across currencies is a conversion, and otaku has no rate."""
+    report = reports.balances(session)
+    return {
+        "rows": [
+            {
+                "provider": row.provider,
+                "label": row.label,
+                "money": _money(row.money),
+                "note": row.note,
+                "value": row.value,
+            }
+            for row in report.rows
+        ],
+        "total": _money(report.total),
+        # What the story on screen spends — the report's own sentence.
+        "note": report.note,
+    }
+
+
+def _info(session: Session) -> dict[str, Any]:
     """Everything otaku knows about this session, in the blocks the
     report is built from — labelled facts, or the sentence that stands
     where a block's facts would be."""
@@ -444,131 +493,169 @@ def info(session: Session) -> dict[str, Any]:
     }
 
 
-def export_document(session: Session) -> dict[str, str]:
-    """The story as one Markdown document, and the name to save it
-    under. Writing the file is the page's — a browser saves where the
-    reader says, and the server never learns where."""
-    return {"name": api_transfer.export_name(session), "text": api_transfer.export(session)}
+def _export_document(session: Session, story_id: int | None = None) -> dict[str, str]:
+    """A story as one Markdown document, and the name to save it under
+    — `story_id` for one that is not open, so the browser can export
+    without landing on it first. Writing the file is the page's: a
+    browser saves where the reader says, and the server never learns
+    where."""
+    return {
+        "name": api_transfer.export_name(session, story_id),
+        "text": api_transfer.export(session, story_id),
+    }
 
 
-# One READ: the session and the request's query (one value per name),
-# the payload out. Rows adapt onto the view functions' own signatures,
-# so the one place a query-string name exists is beside the read it
-# parameterizes.
-_Read = Callable[[Session, Mapping[str, str]], Any]
-
-# What the page may READ, by name — served under `/api/read/`, the
-# prefix that says which lane a request takes (see `web.server`). The
-# one read that is not a row is `extract`: it never touches the session
-# (a run's `poll` is channel-safe by contract, and asking must never
-# queue), so the server answers it from `Pending` itself.
-READS: dict[str, _Read] = {
-    "session": lambda session, query: facts(session),
-    "turns": lambda session, query: turns(session),
-    "history": lambda session, query: history(session),
-    "commands": lambda session, query: commands_table(),
-    "stories": lambda session, query: stories(session),
-    "search": lambda session, query: search(session, query.get("q", "")),
-    "story": lambda session, query: story_messages(session, int(query.get("id", ""))),
-    "lore": lambda session, query: lore(session),
-    "providers": lambda session, query: providers(session),
-    "settings": lambda session, query: settings(session),
-    "context": lambda session, query: context(session),
-    "usage": lambda session, query: usage(session, query.get("scope", "")),
-    "balance": lambda session, query: balance(session),
-    "info": lambda session, query: info(session),
-    "export": lambda session, query: export_document(session),
-}
-
-
-# ---------- what a popup writes ----------
+# ---------- what a screen writes ----------
 #
-# One row of ACTIONS each, and nothing else: the table below is the whole
-# list, and a function here that is not in it would be a row nobody can
-# reach.
-
-# One popup action: the request's JSON body in, the sentence out. Every
-# write a screen performs goes through one of these — the frontend owns
-# the sequence, never the state.
-_Action = Callable[[Session, dict[str, Any]], str]
+# One entry in ROUTES each, and nothing else: the table at the foot of
+# this module is the whole list, and a function here that is not in it
+# would be a door nobody can open.
 
 
-def _land(session: Session, body: dict[str, Any]) -> str:
-    action: Any = str(body.get("action", "resume"))
-    if action not in ("resume", "fork", "truncate"):
-        raise Refused(f"Unknown action {action!r}.")
-    return api_stories.land(session, int(body["story"]), int(body["message"]), action)
+def _head(session: Session, ask: Ask) -> str:
+    """Where the session is reading. `discard` sets the later turns
+    aside; without it they stay in the database above the tail."""
+    action: Any = "truncate" if ask.body.get("discard") else "resume"
+    return api_stories.land(session, int(ask.body["story"]), int(ask.body["message"]), action)
 
 
-def _set_system(session: Session, body: dict[str, Any]) -> str:
-    """The story's premise, from the screen that edits it. A body rather
-    than a command line: a premise is paragraphs, and a command line is
-    one."""
-    return api_stories.set_system(session, str(body["text"]))
+def _premise(session: Session, ask: Ask) -> str:
+    """A story's premise. A body rather than a line: a premise is
+    paragraphs. Any story's — the dossier edits one from the outside as
+    readily as the open one."""
+    return api_stories.set_system(session, ask.need("text"), ask.id("story"))
 
 
-def _rename_story(session: Session, body: dict[str, Any]) -> str:
-    """Title the story the browser is on — any of them, not only the
-    open one."""
-    return api_stories.set_title(session, str(body["title"]), int(body["story"]))
+def _title(session: Session, ask: Ask) -> str:
+    return api_stories.set_title(session, ask.need("title"), ask.id("story"))
 
 
-def _delete_story(session: Session, body: dict[str, Any]) -> str:
-    api_stories.delete(session, int(body["story"]))
+def _delete_story(session: Session, ask: Ask) -> str:
+    api_stories.delete(session, ask.id("story"))
     return "Story deleted."
 
 
-def _edit_message(session: Session, body: dict[str, Any]) -> str:
-    api_stories.edit_message(session, int(body["message"]), str(body.get("text", "")))
+def _fork(session: Session, ask: Ask) -> Created:
+    """A copy of the story, from its head or from one message on. It
+    MAKES a story, so it answers with where the copy now lives."""
+    message = ask.body.get("message")
+    title = ask.text("title")
+    if message is None:
+        # The whole story the PATH names, which is not always the open
+        # one: a copy made from a browser row must not silently copy
+        # whatever happens to be open instead.
+        said = api_stories.fork(session, title, ask.id("story"))
+    else:
+        said = api_stories.land(session, ask.id("story"), int(message), "fork")
+    return Created(said, _at(session), {"story": session.story_id})
+
+
+def _at(session: Session) -> str:
+    """Where the story the session just landed in now lives."""
+    return f"/api/stories/{session.story_id}"
+
+
+def _edit_message(session: Session, ask: Ask) -> str:
+    api_stories.edit_message(session, ask.id("message"), ask.need("text"), story_id=ask.id("story"))
     return "Message edited."
 
 
-def _edit_lore(session: Session, body: dict[str, Any]) -> str:
-    return api_lore.edit(session, body["kind"], int(body["target"]), str(body.get("text", "")))
+def _edit_scene(session: Session, ask: Ask) -> str:
+    """A scene's own two fields. The arc (`history`) is derived and has
+    no write — correcting the entries rebuilds it."""
+    return _edit_lore(session, ask, "scene", {"title": "scene-title", "summary": "scene-summary"})
 
 
-def _switch_model(session: Session, body: dict[str, Any]) -> str:
-    return api_providers.switch_model(session, str(body["provider"]), str(body["model"]))
+def _edit_character(session: Session, ask: Ask) -> str:
+    return _edit_lore(session, ask, "character", {"description": "description", "card": "card"})
 
 
-def _load_model(session: Session, body: dict[str, Any]) -> str:
-    provider, model = str(body["provider"]), str(body["model"])
-    if body.get("loaded"):
+def _edit_journal(session: Session, ask: Ask) -> str:
+    return _edit_lore(session, ask, "record", {"entry": "entry", "state": "state"})
+
+
+def _edit_lore(session: Session, ask: Ask, target: str, kinds: dict[str, FieldKind]) -> str:
+    """One corrected row of the memory. The PATH says which row — a
+    scene, a character, a journal record — and the body says which of
+    its fields; `api_lore.edit` takes the pair as one address."""
+    said = ""
+    for name, kind in kinds.items():
+        if name in ask.body:
+            said = api_lore.edit(
+                session, kind, ask.id(target), str(ask.body[name]), ask.id("story")
+            )
+    if not said:
+        raise Refused(f"Nothing to change — send one of {', '.join(kinds)}.")
+    return said
+
+
+def _merge(session: Session, ask: Ask) -> str:
+    return api_lore.merge_by_id(session, ask.id("character"), int(ask.body["into"]))
+
+
+def _switch_model(session: Session, ask: Ask) -> str:
+    return api_providers.switch_model(session, ask.need("provider"), ask.need("model"))
+
+
+def _load_model(session: Session, ask: Ask) -> str:
+    provider, model = ask.params["provider"], ask.params["model"]
+    if ask.body["loaded"]:
         api_providers.load(session, provider, model)
         return f"Loaded {model}."
     api_providers.unload(session, provider, model)
     return f"Unloaded {model}."
 
 
-def _save_field(session: Session, body: dict[str, Any]) -> str:
-    attr: Any = str(body["field"])
-    if attr not in ("url", "api_key"):
-        raise Refused(f"Unknown field {attr!r}.")
-    warning = api_providers.save_field(session, str(body["provider"]), attr, str(body["value"]))
-    return warning or f"Saved {attr.replace('_', ' ')} for {body['provider']}."
+def _save_provider(session: Session, ask: Ask) -> str:
+    """A provider's url or api key, whichever the body names. The key's
+    value goes IN here and never comes back out through any read."""
+    said = ""
+    for attr in ("url", "api_key"):
+        if attr in ask.body:
+            warning = api_providers.save_field(
+                session, ask.params["provider"], attr, str(ask.body[attr])
+            )
+            said = warning or f"Saved {attr.replace('_', ' ')} for {ask.params['provider']}."
+    if not said:
+        raise Refused("Nothing to change — send a url or an api_key.")
+    return said
 
 
-def _record_history(session: Session, body: dict[str, Any]) -> str:
+def _set_knob(session: Session, ask: Ask) -> str:
+    """One session-wide knob. The value crosses as the reader gave it and
+    each setter parses its own: the shapes are the backend's, so the page
+    never learns what `think` accepts."""
+    setter = _KNOBS.get(ask.params["setting"])
+    if setter is None:
+        raise Refused(f"Unknown setting {ask.params['setting']!r}.")
+    value = ask.body["value"]
+    return setter(session, "on" if value is True else "off" if value is False else str(value))
+
+
+_KNOBS: dict[str, Callable[[Session, str], str]] = {
+    "think": api_settings.set_think,
+    "verbose": api_settings.set_verbose,
+    "autocorrect": api_settings.set_autocorrect,
+    "notification": api_settings.set_notification,
+    "max_context": api_settings.set_max_context,
+}
+
+
+def _set_param(session: Session, ask: Ask) -> str:
+    return api_settings.set_parameter_value(session, ask.params["name"], ask.need("value"))
+
+
+def _reset_param(session: Session, ask: Ask) -> str:
+    return api_settings.set_parameter_value(session, ask.params["name"], "reset")
+
+
+def _record_history(session: Session, ask: Ask) -> str:
     """One submitted composer line into the ↑/↓ history — what the
     terminal prompt does at its own door, fired by the page beside every
     submission (blanks and immediate repeats are the session's to skip).
     Nothing to say back: the submission itself is the event."""
-    session.record_history(str(body.get("line", "")))
+    session.record_history(ask.need("line"))
     return ""
-
-
-ACTIONS: dict[str, _Action] = {
-    "land": _land,
-    "set-system": _set_system,
-    "rename-story": _rename_story,
-    "delete-story": _delete_story,
-    "edit-message": _edit_message,
-    "edit-lore": _edit_lore,
-    "switch-model": _switch_model,
-    "load-model": _load_model,
-    "save-field": _save_field,
-    "record-history": _record_history,
-}
 
 
 # ---------- the flows that span two requests ----------
@@ -623,77 +710,94 @@ class Pending:
         return held[0] if held else None
 
 
-# One flow: an action that also reaches `Pending`, answered with a
-# payload of its own rather than a bare sentence.
-_Flow = Callable[[Session, Pending, dict[str, Any]], dict[str, Any]]
+def _new_story(session: Session, ask: Ask, pending: Pending) -> Created:
+    """A story, made. Empty with a title (or nothing), or read out of an
+    uploaded document — an otaku export, a SillyTavern chat, or plain
+    text. Content-shaped by contract: a path over HTTP would name a file
+    on the SERVER, so the page sends what it read.
 
-
-def import_document(session: Session, pending: Pending, body: dict[str, Any]) -> dict[str, Any]:
-    """Import an uploaded document — an otaku export, a SillyTavern
-    chat, or plain text. Content-shaped by contract: a path over HTTP
-    would name a file on the SERVER, so the page sends what it read. The
-    extraction pass the memoryless shapes start is kept where a forced
-    pass is kept, so the page polls one place for both; a native export
-    arrives with its memory and runs none — `watching` says so, which is
-    what stops the page polling for a report that is never coming."""
-    landed = api_transfer.import_file(session, str(body["text"]), str(body["name"]))
+    The extraction pass the memoryless shapes start is kept where a
+    forced pass is kept, so the page polls one place for both; a native
+    export arrives with its memory and runs none — `watching` says so,
+    which is what stops the page polling for a report never coming."""
+    document: Any = ask.body.get("import")
+    if not document:
+        said = api_stories.new(session, ask.text("title"))
+        # The id it made, so a page that needs a story to address — a
+        # premise written before the first message — can address this one
+        # without reading `Location` back apart.
+        return Created(said, _at(session), {"story": session.story_id})
+    landed = api_transfer.import_file(session, str(document["text"]), str(document["name"]))
     pending.extraction = landed.extraction
-    return {"notice": " ".join(landed.notices), "watching": landed.extraction is not None}
+    return Created(
+        " ".join(landed.notices),
+        _at(session),
+        # And whether a pass is running on it, which is what stops the
+        # page polling for a report that is never coming.
+        {"story": session.story_id, "watching": landed.extraction is not None},
+    )
 
 
-def prepare_card(session: Session, pending: Pending, body: dict[str, Any]) -> dict[str, Any]:
+def _prepare_card(session: Session, ask: Ask, pending: Pending) -> Created:
     """Everything before the persona ask. The prepared card is OPAQUE —
     it waits in `Pending` and the page hands back only the token and the
-    answer. Bytes-shaped for the same reason as the import: the web
-    uploads."""
+    answer. Bytes-shaped for the same reason as an import: the web
+    uploads what it read, because a path over HTTP would name a file on
+    the SERVER."""
     prepared = api_cards.prepare(
         session,
-        base64.b64decode(str(body["data"])),
-        str(body["name"]),
-        str(body.get("rename", "")),
+        base64.b64decode(ask.need("data")),
+        ask.need("name"),
+        ask.text("rename"),
     )
-    return {
-        "token": pending.hold_card(prepared),
-        "card": {
-            "name": prepared.card.name,
-            "notes": list(prepared.notes),
-            "tokens": prepared.block_tokens,
-            "large": prepared.large,
-            "persona": api_cards.remembered_persona(session),
+    token = pending.hold_card(prepared)
+    return Created(
+        "",
+        f"/api/cards/{token}",
+        {
+            "token": token,
+            "card": {
+                "name": prepared.card.name,
+                "notes": list(prepared.notes),
+                "tokens": prepared.block_tokens,
+                "large": prepared.large,
+                "persona": api_cards.remembered_persona(session),
+            },
         },
-    }
+    )
 
 
-def add_card(session: Session, pending: Pending, body: dict[str, Any]) -> dict[str, Any]:
+def _add_card(session: Session, ask: Ask, pending: Pending) -> dict[str, Any]:
     """Everything after it. Nothing waiting is not an error: a page that
     asked twice, or a reload between the two halves."""
-    prepared = pending.take_card(str(body.get("token", "")))
+    prepared = pending.take_card(ask.params["token"])
     if prepared is None:
         return {"notice": "No card is waiting."}
-    return {"notice": api_cards.add(session, prepared, str(body.get("persona", ""))).report}
+    return {"notice": api_cards.add(session, prepared, ask.need("persona")).report}
 
 
-def start_extract(session: Session, pending: Pending, body: dict[str, Any]) -> dict[str, Any]:
+def _stop_extract(session: Session, ask: Ask, pending: Pending) -> dict[str, Any]:
+    """Give up on the pass the page forced — the door Ctrl+C opens in
+    the terminal, which is the only other way to leave one. Nothing
+    half-done commits; already-closed scenes stay. Nothing running is
+    not an error: a pass can finish between the reader asking and this
+    arriving, and an automatic pass is the worker's own — the page
+    never started it and cannot end it."""
+    running = pending.extraction
+    if running is None or running.poll() is not None:
+        return {"notice": "No pass is running."}
+    return {"notice": running.cancel()}
+
+
+def _start_extract(session: Session, ask: Ask, pending: Pending) -> dict[str, Any]:
     """Force an extraction pass now and keep the run, so the page can
     ask for its report without ever holding the session's one thread. A
     second pass would overwrite the run the page is polling, and the
     first one's report would never be read."""
-    running = pending.extraction
-    if running is not None and running.poll() is None:
+    if pending.extraction is not None and pending.extraction.poll() is None:
         return {"notice": "A pass is already running.", "watching": True}
     pending.extraction = api_lore.extract(session)
     return {"notice": "Extracting lore from the recent messages…", "watching": True}
-
-
-# The writes whose result outlives their request, one row each under
-# `/api/do/` exactly as ACTIONS — the extra hand is `Pending`, where
-# what waits between the halves lives.
-FLOWS: dict[str, _Flow] = {
-    "import": import_document,
-    "prepare-card": prepare_card,
-    "add-card": add_card,
-    "extract": start_extract,
-}
 
 
 # ---------- the reply stream ----------
@@ -735,25 +839,123 @@ def event(happened: PlayEvent) -> dict[str, Any]:
 # ---------- shared shapes ----------
 
 
-def _field(field: Field) -> dict[str, Any]:
-    """One editable row of a detail view, with the address an edit names."""
+def _journal(journal: Journal) -> dict[str, Any]:
+    """One character's line in one scene — the thing BOTH lenses show,
+    which is why it carries the two sides it hangs between. `id` is what
+    a correction addresses; a scene draws these under its own heading, a
+    character draws the same rows from the other side."""
     return {
-        "label": field.label,
-        "kind": field.kind,
-        "text": field.text,
-        "target": field.target,
-        "editable": field.editable,
-        "pivot": field.pivot,
-        "scene_no": field.scene_no,
+        "id": journal.id,
+        "scene": journal.scene_id,
+        "character": journal.character_id,
+        "entry": journal.entry,
+        "state": journal.state,
+        # When the extractor last wrote it — an audit stamp, display alone.
+        "updated_at": journal.updated_at,
     }
 
 
-def _latest_state(view: LoreView, character_id: int) -> str:
-    """The character's newest state row — the one line the cast list
-    shows beside a name, and the only state ever read again."""
-    states = [f for f in view.char_fields(character_id) if f.kind == "state"]
-    return states[-1].text if states else ""
-
-
 def _turn(message: Message) -> dict[str, Any]:
-    return {"id": message.id, "role": message.role, "body": message.body}
+    """One stored turn as the page reads it: the body, and the facts
+    recorded with it — the kind the language stored it as, who answered
+    an assistant turn and with what template, and the speaker the
+    extractor named (None until its pass reads the turn, which is a
+    state the reader pane draws as pending)."""
+    return {
+        "id": message.id,
+        "role": message.role,
+        "body": message.body,
+        "kind": message.kind,
+        "speaker": message.speaker,
+        "provider": message.provider,
+        "model": message.model,
+        "template": message.template,
+    }
+
+
+# ---------- the whole surface, in one table ----------
+
+
+# One route's work: the session, and the request taken apart. What it
+# returns is what the page gets — a payload, a bare sentence the server
+# wraps as a notice, or a `Created` when it made something.
+_Route = Callable[[Session, Ask], Any]
+
+# A flow's work is the same, plus the state that outlives one request.
+# Taking `Pending` as an argument is what says so: a route that spans two
+# requests cannot be mistaken for one that does not.
+_Flow = Callable[[Session, Ask, Pending], Any]
+
+# Every path the page may ask for whose work begins and ends inside the
+# request, by METHOD and template. The method IS the lane (`web.server`):
+# a GET only reads the session and is answered in the gaps of a streaming
+# reply, and anything else takes the thread in turn. `{name}` in a
+# template is a path parameter, and reaches the handler as
+# `ask.params[name]`. The paths that span two requests are `FLOWS`, below.
+#
+# Four paths are NOT here, because none of them touch the session's
+# thread: `/api/alive` and `/api/watch` never do, `GET .../extraction`
+# reads a run's own channel-safe poll, and the two that PLAY answer with
+# a stream rather than a payload. The server holds those itself.
+ROUTES: dict[tuple[str, str], _Route] = {
+    # Playing
+    ("GET", "/api/play"): lambda session, ask: {"messages": _turns(session)},
+    ("DELETE", "/api/play/last"): lambda session, ask: _undo(session),
+    ("GET", "/api/play/syntax"): lambda session, ask: syntax(),
+    ("GET", "/api/history"): lambda session, ask: {"lines": _history(session)},
+    ("POST", "/api/history"): _record_history,
+    # All stories
+    ("GET", "/api/stories"): lambda session, ask: {
+        "stories": stories(session, ask.query.get("q", ""))
+    },
+    ("GET", "/api/stories/{story}"): lambda session, ask: story(session, ask.id("story")),
+    ("DELETE", "/api/stories/{story}"): _delete_story,
+    ("PUT", "/api/stories/{story}/title"): _title,
+    ("POST", "/api/stories/{story}/fork"): _fork,
+    ("PATCH", "/api/stories/{story}/messages/{message}"): _edit_message,
+    ("GET", "/api/stories/{story}/export"): lambda session, ask: _export_document(
+        session, ask.id("story")
+    ),
+    # Inside a story
+    ("PUT", "/api/stories/{story}/premise"): _premise,
+    ("PATCH", "/api/stories/{story}/scenes/{scene}"): _edit_scene,
+    ("PATCH", "/api/stories/{story}/characters/{character}"): _edit_character,
+    ("PUT", "/api/stories/{story}/characters/{character}/merge"): _merge,
+    ("PATCH", "/api/stories/{story}/journals/{record}"): _edit_journal,
+    # Models
+    ("GET", "/api/providers"): lambda session, ask: _providers(session, ask.query.get("scope", "")),
+    ("GET", "/api/providers/{provider}"): lambda session, ask: _providers(
+        session, ask.params["provider"]
+    ),
+    ("PATCH", "/api/providers/{provider}"): _save_provider,
+    ("PATCH", "/api/providers/{provider}/models/{model}"): _load_model,
+    ("PUT", "/api/session/model"): _switch_model,
+    ("PUT", "/api/session/model/parameters/{name}"): _set_param,
+    ("DELETE", "/api/session/model/parameters/{name}"): _reset_param,
+    ("GET", "/api/machine"): lambda session, ask: _memory(session),
+    # The session
+    ("GET", "/api/session"): lambda session, ask: facts(session),
+    ("PUT", "/api/session/head"): _head,
+    ("GET", "/api/session/context"): lambda session, ask: context(session),
+    ("GET", "/api/session/info"): lambda session, ask: _info(session),
+    ("GET", "/api/balance"): lambda session, ask: _balance(session),
+    ("GET", "/api/usage"): lambda session, ask: _usage(session, ask.query.get("scope", "")),
+    # Settings
+    ("GET", "/api/settings"): lambda session, ask: settings(session),
+    ("PUT", "/api/settings/{setting}"): _set_knob,
+}
+
+# The five paths whose work outlives the request that started it — a
+# document that lands and starts a pass, a card waiting on its persona
+# answer, a pass the page polls. Matched exactly as `ROUTES` is, and
+# answered on the same lane; the third argument is the whole difference.
+FLOWS: dict[tuple[str, str], _Flow] = {
+    # All stories
+    ("POST", "/api/stories"): _new_story,
+    # Extraction
+    ("POST", "/api/stories/{story}/extraction"): _start_extract,
+    ("DELETE", "/api/stories/{story}/extraction"): _stop_extract,
+    # Import card
+    ("POST", "/api/cards"): _prepare_card,
+    ("PUT", "/api/cards/{token}"): _add_card,
+}

@@ -17,7 +17,7 @@ of the state dir is its own medium and nothing else: where to listen
 
 Four modules, one job each: `run` is the life (the banner, the tail,
 Ctrl+C, and the wiring of everything below); `server` is HTTP; `api` is
-what the page may ask, as tables; `runner` is the thread that owns the
+what the page may ask, as tables; `thread` is the one that owns the
 session.
 """
 

@@ -128,49 +128,27 @@ export function extract() {
   const first = covered + 1;
   const last = turns.length - 2; // the settle margin: the tail stays open
   const id = 1000 + closed;
-  const no = memory.scenes.length + 1;
+  /* One journal per character, held by BOTH sides the way the real
+     payload writes it twice — here it is the same object in both lists,
+     so a correction through either lens lands once. */
+  const journals = memory.characters.map((person) => ({
+    id: 2000 + closed * 10 + person.id,
+    scene: id,
+    character: person.id,
+    entry: canned.entry,
+    state: canned.state,
+  }));
   memory.scenes.push({
     id,
-    label: `${no}  ${first}-${last}  ${canned.title}`,
+    number: memory.scenes.length + 1,
     span: `${first}-${last}`,
     title: canned.title,
     summary: canned.summary,
-    present: memory.cast.map((c) => c.name),
-    fields: [
-      { label: "title", kind: "scene-title", text: canned.title, target: id, editable: true, pivot: null, scene_no: null },
-      { label: "summary", kind: "scene-summary", text: canned.summary, target: id, editable: true, pivot: null, scene_no: null },
-      ...memory.cast.map((c) => ({
-        label: `${c.name} · entry`,
-        kind: "entry",
-        text: canned.entry,
-        target: 2000 + closed * 10 + c.id,
-        editable: true,
-        pivot: c.id,
-        scene_no: null,
-      })),
-    ],
+    history: "",
+    updated_at: new Date().toISOString(),
+    present: memory.characters.map((c) => c.name),
+    journals,
   });
-  for (const person of memory.cast) {
-    person.now = canned.state;
-    person.fields.push({
-      label: `${canned.title} · entry`,
-      kind: "entry",
-      text: canned.entry,
-      target: 2000 + closed * 10 + person.id,
-      editable: true,
-      pivot: id,
-      scene_no: no,
-    });
-    person.fields.push({
-      label: `${canned.title} · state`,
-      kind: "state",
-      text: canned.state,
-      target: 3000 + closed * 10 + person.id,
-      editable: true,
-      pivot: id,
-      scene_no: no,
-    });
-  }
-  const journals = memory.cast.length;
-  return { report: `Scene '${canned.title}' closed: ${journals} journal(s) written.` };
+  memory.characters.forEach((person, i) => person.journals.push(journals[i]));
+  return { report: `Scene '${canned.title}' closed: ${journals.length} journal(s) written.` };
 }

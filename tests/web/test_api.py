@@ -1,11 +1,11 @@
 """What the page asks for, where the answer is pure.
 
-Two promises `web.api` makes that running the app cannot show. A
-command line resolves to a call — or to None — without the session, so
-an unknown token is refused before anything queues. And every play
-event has a name on the wire, with the union CLOSED — a new kind must
-fail here rather than arrive as a silence. (How an argument is cut is
-`backend.commands.raw_argument`'s promise, held in its own suite.)
+Three promises `web.api` makes that running the app cannot show. Every
+play event has a name on the wire, with the union CLOSED — a new kind
+must fail here rather than arrive as a silence. The story's typed
+language reaches the page as two disjoint halves, so the composer's
+menu can offer the right one at the caret. And the route table's key
+says which lane a row takes, because the METHOD is the lane.
 """
 
 from typing import get_args
@@ -43,54 +43,76 @@ class TestEvent:
 
     def test_a_recorded_event_carries_the_turn(self) -> None:
         turn = api.event(Recorded(Message(id=4, role="user", body="I listen.")))["turn"]
-        assert turn == {"id": 4, "role": "user", "body": "I listen."}
+        assert turn == {
+            "id": 4,
+            "role": "user",
+            "body": "I listen.",
+            "kind": "dialogue",
+            "speaker": None,
+            "provider": None,
+            "model": None,
+            "template": None,
+        }
 
 
-class TestAnswering:
-    """`web.api.answering` — a command line resolved to its call, or to
-    None, WITHOUT the session: the promise that lets the server refuse
-    an unknown token from its own thread, before anything queues."""
-
-    def test_a_wired_operation_resolves(self) -> None:
-        assert api.answering("/title The River") is not None
-
-    def test_a_family_row_resolves_by_its_two_word_token(self) -> None:
-        assert api.answering("/set think medium") is not None
-
-    def test_an_unknown_token_is_none(self) -> None:
-        assert api.answering("/frobnicate") is None
-
-    def test_a_declared_row_this_frontend_does_not_wire_is_none(self) -> None:
-        # `/last` is INTERACTIVE and screen-only here: the table declares
-        # it, but no sentence answers it, so the line is the page's to
-        # route — never a 404 the reader meant as a screen.
-        assert api.answering("/last 3") is None
-
-    def test_story_language_is_never_an_answer(self) -> None:
-        # A direction is story; routing it here would eat a played line.
-        assert api.answering("/me Maren: I wave.") is None
-
-
-class TestCommandsTable:
-    """`web.api.commands_table` — what the page's help and menus read."""
+class TestSyntax:
+    """`web.api.syntax` — the story's typed language, which is what the
+    composer's menu offers and the help sheet lists. Not commands: those
+    are endpoints, and a button is how the page reaches one."""
 
     def test_every_row_carries_what_a_menu_needs(self) -> None:
-        for row in api.commands_table()["rows"]:
-            assert set(row) == {"token", "args", "description", "group", "kind"}
-            assert row["token"] and row["description"] and row["group"]
+        language = api.syntax()
+        for row in language["openers"] + language["inliners"]:
+            assert set(row) == {"token", "args"}
+            assert row["token"].startswith(("/", "…"))
 
-    def test_every_group_is_named(self) -> None:
-        table = api.commands_table()
-        assert {row["group"] for row in table["rows"]} <= set(table["groups"])
+    def test_the_two_halves_are_disjoint(self) -> None:
+        # A word opens a line or rides inside one. The `… ` mark is what
+        # the shared table divides them by, and both halves reach the
+        # page so the menu can offer the right one at the caret.
+        language = api.syntax()
+        assert all(not row["token"].startswith("…") for row in language["openers"])
+        assert all(row["token"].startswith("…") for row in language["inliners"])
+        assert language["openers"] and language["inliners"]
 
-    def test_the_prose_row_names_the_group_it_opens(self) -> None:
-        table = api.commands_table()
-        assert table["prose"]["group"] in table["groups"]
-        assert table["prose"]["label"] and table["prose"]["description"]
+    def test_no_command_is_in_it(self) -> None:
+        # A command reaching the composer's menu would offer a word the
+        # box does not take: everything typed there is story.
+        tokens = {row["token"] for row in api.syntax()["openers"]}
+        assert not tokens & {"/stories", "/model", "/set", "/help"}
 
-    def test_what_the_page_may_answer_is_declared(self) -> None:
-        # A token the page thinks it can answer but the table does not
-        # declare is a button the server would refuse as unknown.
-        table = api.commands_table()
-        declared = {row["token"] for row in table["rows"]}
-        assert set(table["answers"]) <= declared
+    def test_a_line_with_no_framing_is_explained(self) -> None:
+        assert api.syntax()["prose"]
+
+
+class TestRoutes:
+    """`web.api.ROUTES` and `web.api.FLOWS` — the whole surface, keyed by
+    method and path. The METHOD is the lane, so what each row promises
+    about the session is readable from its key alone."""
+
+    def test_the_method_is_the_lane(self) -> None:
+        # A GET only reads; anything that MOVES the story is another
+        # method. A read filed as a POST would queue behind a reply and
+        # leave every screen dead while the model talks.
+        moving = {"/api/stories", "/api/history"}
+        surface = _surface()
+        for method, template in surface:
+            assert method in {"GET", "POST", "PUT", "PATCH", "DELETE"}
+            if method == "GET":
+                assert template not in moving or ("POST", template) in surface
+
+    def test_every_template_is_absolute_and_parameterless_where_it_should_be(self) -> None:
+        for _, template in _surface():
+            assert template.startswith("/api/")
+            assert not template.endswith("/")
+
+    def test_no_path_is_answered_by_both_tables(self) -> None:
+        # The server matches one sorted list built from both, so a path
+        # in both would let the compile order decide whether its handler
+        # is handed `Pending` — a difference no request could show.
+        assert set(api.ROUTES) & set(api.FLOWS) == set()
+
+
+def _surface() -> dict[tuple[str, str], object]:
+    """Every path the page may ask for, whichever table answers it."""
+    return {**api.ROUTES, **api.FLOWS}

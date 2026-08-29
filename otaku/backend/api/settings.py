@@ -155,9 +155,19 @@ def set_parameter(session: Session, raw: str) -> str:
         if name in session.params:
             return f"{name} = {session.params[name]}"
         return f"Parameter {name} is at the model's own default."
-    # The literal `reset` returns the parameter to the model's own
-    # default — here and in the saved file.
-    if value_raw.lower() == "reset":
+    return set_parameter_value(session, name, value_raw)
+
+
+def set_parameter_value(session: Session, name: str, value_raw: str) -> str:
+    """One known parameter set to one value, auto-saved per model. The
+    literal `reset` returns it to the model's own default, here and in
+    the saved file. A surface with two fields (a name and a value) calls
+    this; a typed line splits its own line first."""
+    if session._client() is None:
+        raise Refused(NO_MODEL_HINT)
+    if name not in KNOWN_PARAMS:
+        raise Refused(f"Unknown parameter {name!r}. Known: {', '.join(KNOWN_PARAMS)}.")
+    if value_raw.strip().lower() == "reset":
         if name not in session.params:
             return f"Parameter {name} is already at its default."
         session._params.pop(name)

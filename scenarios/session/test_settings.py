@@ -271,10 +271,20 @@ class TestMaxContext:
         relaunched.close()
 
     def test_a_bare_set_reports_and_changes_nothing(self, app: App, capsys) -> None:
+        # Reported against a value the story SET, not against the
+        # shipped default: what this holds is that a bare `/set` reads.
+        app.play("/set max_context 32000")
         capsys.readouterr()
         app.play("/set max_context")
-        assert "65,536 tokens" in capsys.readouterr().out
-        assert "max_context = 65536" in app.paths.config_file.read_text()
+        assert "32,000 tokens" in capsys.readouterr().out
+        assert "max_context = 32000" in app.paths.config_file.read_text()
+
+    def test_the_prompt_may_use_the_whole_window_until_a_cap_is_set(self, app: App) -> None:
+        # 0 is what a fresh config carries: the window a model advertises
+        # is the one it can use, and a reader who wants the prompt kept
+        # smaller than that says so.
+        assert app.session.max_context == 0
+        assert "max_context = 0" in app.paths.config_file.read_text()
 
     def test_a_story_over_the_cap_declines_with_the_sentence(self, app: App, capsys) -> None:
         for i in range(8):
@@ -370,6 +380,21 @@ class TestProviderPanel:
         assert 'url = "http://localhost:7777/v1"' in raw
         assert "[test]" in raw  # the other sections survived
         assert api_providers.section(app.session, "llamacpp").url == "http://localhost:7777/v1"
+
+    def test_a_section_name_cannot_write_rows_of_its_own(self, app: App) -> None:
+        """The name reaches this from a request (the page PATCHes
+        `/api/providers/{provider}`), so a header built by concatenation
+        would let any row be written anywhere in the file — repointing a
+        configured provider's url at another host, which is where the
+        next turn would send its api key."""
+        hostile = 'pwn]\n[openrouter]\nurl = "http://attacker"\n[x'
+        api_providers.save_field(app.session, hostile, "url", "http://evil")
+        parsed = tomllib.loads(app.paths.providers_file.read_text())
+        # One section, named exactly what was asked for — and no second
+        # one conjured out of its name.
+        assert hostile in parsed
+        assert "openrouter" not in parsed
+        assert parsed["test"]["url"] == app.server.url
 
     def test_ctrl_v_sets_a_key_in_one_press(self, app: App, monkeypatch) -> None:
         # An api key is pasted, never typed: Ctrl+V on the highlighted

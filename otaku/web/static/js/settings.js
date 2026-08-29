@@ -1,12 +1,16 @@
-/* The settings form: the /set family as controls — the effort ladder as
-   a segmented control, a switch per toggle, a field row per inference
-   parameter. Every knob is also a /set command, and every write here IS
-   one: the form posts the command line and redraws from the answer, so
-   the panel and the typed form can never disagree. */
+/* The settings docket: the /set family as a slip of leaders — the value
+   each knob stands at on the right, and under it the other values it
+   could take. There is no control here that is not one of those words:
+   clicking a word sets it, which is exactly what typing the command
+   does, because the click POSTS the command line and redraws from its
+   answer. The slip and the typed form can never disagree.
+
+   Two blocks, because where a value persists is a real distinction: the
+   session's own toggles, and the parameters kept per model. */
 
 import * as api from "./api.js";
-import { editingKeys, footnote, guard, hint, popups, wiring } from "./browser.js";
-import { $, $$, element, fieldRow, span } from "./dom.js";
+import { editable, footnote, guard, popups, wiring } from "./browser.js";
+import { $, $$, element, span } from "./dom.js";
 
 // What a parameter nobody has set reads as — the model's own value,
 // which is an absence and is drawn like one.
@@ -14,144 +18,141 @@ const DEFAULT_VALUE = "default";
 
 export async function openSettings(answered = "") {
   const popup = popups.get("/set");
+  if (!popup.open) popup.showModal();
   const knobs = await api.settings();
 
-  const think = formSection("Think", "session-wide");
-  const segmented = element("div", "otk-segmented");
-  segmented.setAttribute("role", "radiogroup");
-  for (const level of knobs.think_levels) {
-    const option = element("button", "otk-segmented__opt", level);
-    option.type = "button";
-    option.setAttribute("role", "radio");
-    option.setAttribute("aria-checked", String(level === knobs.think));
-    option.classList.toggle("is-active", level === knobs.think);
-    option.onclick = guard(() => runSet(`/set think ${level}`));
-    segmented.append(option);
-  }
-  think.append(segmented);
+  const global = element("div", "otk-v otk-v--md");
+  global.append(section("Global", "every story"));
 
-  const toggles = formSection("Toggles", "session-wide");
-  for (const [name, label, about] of [
-    ["verbose", "Verbose", "the stats line after each reply"],
-    ["autocorrect", "Autocorrect", "settle names to the cast's spelling"],
-    ["notification", "Notification", "sound when a reply lands"],
-  ]) {
-    const toggle = element("button", "otk-switch");
-    toggle.type = "button";
-    toggle.setAttribute("role", "switch");
-    toggle.setAttribute("aria-checked", String(knobs[name]));
-    toggle.classList.toggle("is-on", knobs[name]);
-    toggle.append(
-      element("span", "otk-switch__track"),
-      span("otk-switch__label", label),
-      span("otk-meta", about),
+  // The effort ladder: the value it stands at, and every step it could
+  // take written under it in the table's own order.
+  global.append(
+    knob(
+      leader("think", knobs.think),
+      ladder(knobs.think_levels, knobs.think, (level) => setKnob("think", level)),
+    ),
+  );
+
+  for (const name of ["verbose", "autocorrect", "notification"]) {
+    global.append(
+      knob(
+        leader(name, toggle(knobs[name], (wanted) => setKnob(name, wanted))),
+        element("p", "otk-note", about(name)),
+      ),
     );
-    toggle.onclick = guard(() => runSet(`/set ${name} ${knobs[name] ? "off" : "on"}`));
-    toggles.append(toggle);
   }
 
-  const context = formSection("Context", "config.toml's [context]");
-  // One number, edited in place like a parameter row; an emptied field
-  // just cancels — 0 is the spelled form of "the model's whole window".
-  const limitRow = fieldRow("max_context", contextLabel(knobs.max_context));
-  limitRow.onclick = () =>
-    editField(limitRow, "max_context", String(knobs.max_context), (value) =>
-      value ? runSet(`/set max_context ${value}`) : openSettings(),
-    );
-  context.append(limitRow);
+  // One number, edited where it is read; an emptied field just cancels
+  // — 0 is the spelled form of "the model's whole window".
+  const limit = editableLeader("max_context", String(knobs.max_context), (value) =>
+    value.trim() ? setKnob("max_context", value.trim()) : openSettings(),
+  );
+  global.append(knob(limit, element("p", "otk-note", about("max_context"))));
 
-  const params = formSection("Parameters", `per model · ${knobs.model || "no model"}`);
-  /* The same box the lore browser's fields sit in, in the shape a column
-     of numbers wants: tighter rows and a fixed value cell on the right.
-     The shape belongs to the field list, not to this dialog. */
-  const rows = element("div", "otk-fields otk-fields--params");
+  const perModel = element("div", "otk-v otk-v--md");
+  perModel.append(section(knobs.model || "no model", "this model"));
+  const params = element("div", "otk-v otk-v--sm");
   for (const parameter of knobs.parameters) {
-    // Two columns and nothing else: the name, and the value that is
-    // edited by clicking it. A row that IS the control has nothing to
-    // say about how to open it. A parameter nobody has set reads dim,
-    // because "default" is the absence of a value and not one.
-    const button = fieldRow(parameter.name, parameter.value || DEFAULT_VALUE);
-    if (!parameter.value) $(".otk-field-row__value", button).classList.add("is-default");
-    button.onclick = () => editParameter(button, parameter);
-    rows.append(button);
+    // A parameter nobody has set stands at the model's own value. That is
+    // an absence, so it is the field's PLACEHOLDER and not its text — and
+    // it reads the same whether it was never set or was just cleared.
+    const line = editableLeader(parameter.name, parameter.value, (value) =>
+      setParameter(parameter.name, value.trim()),
+    );
+    line.lastElementChild.placeholder = DEFAULT_VALUE;
+    params.append(line);
   }
-  params.append(rows);
+  perModel.append(params);
 
-  // Two columns, as the design lays a form out; they wrap on their own.
-  const form = element("form", "otk-form");
-  const left = element("div", "otk-form__col");
-  const right = element("div", "otk-form__col");
-  left.append(think, toggles, context);
-  right.append(params);
-  form.append(left, right);
-  $(".otk-popup__body", popup).replaceChildren(form);
-  // One slot, on the left: this panel advertises no keys, so what a
-  // knob just answered goes where its standing sentence is — and the
-  // sentence comes back with the next redraw.
-  hint(popup, answered || "every knob here is also a /set command");
-  footnote(popup, "");
-  formKeys(popup);
-  popup.showModal();
+  $("[data-knobs]", popup).replaceChildren(global, element("div", "otk-rule--double"), perModel);
+  footnote(popup, answered);
+  knobKeys(popup);
 }
 
-function contextLabel(tokens) {
-  // 0 is a real value — the model's whole window — and reads as one.
-  return tokens === 0 ? "0 (model window)" : String(tokens);
+function section(name, count) {
+  const head = element("div", "otk-section", name);
+  head.append(span("otk-section__count", count));
+  return head;
 }
 
-function editField(row, name, value, save) {
-  /* A parameter row's edit-in-place, for a field that is not a model
-     parameter: same field, same keys, its own /set line. */
-  const editing = element("div", "otk-field-row is-editing");
-  const input = element("input", "otk-input");
-  input.type = "text";
-  input.value = value;
-  editing.append(span("otk-field-row__name", name), input);
-  row.replaceWith(editing);
-  input.focus();
-  input.select();
-  editingKeys(input, {
-    saves: (event) => event.key === "Enter",
-    save: () => guard(save)(input.value.trim()),
-    cancel: () => {
-      editing.replaceWith(row);
-      row.focus();
-    },
+function knob(line, aside) {
+  const box = element("div", "otk-v otk-v--xs");
+  box.append(line, aside);
+  return box;
+}
+
+function leader(label, value, kind = "") {
+  const line = element("div", "otk-leader");
+  line.append(span("", label), value instanceof Node ? value : span(kind, String(value)));
+  return line;
+}
+
+function ladder(levels, current, set) {
+  /* Every step the knob can take, in the shared table's own order — the
+     one it stands at marked, the rest a click away. */
+  const aside = element("span", "otk-leader__aside");
+  levels.forEach((level, i) => {
+    if (i) aside.append(" · ");
+    const step = element("button", "otk-step", level);
+    step.type = "button";
+    step.setAttribute("aria-checked", String(level === current));
+    step.setAttribute("role", "radio");
+    step.onclick = guard(() => set(level));
+    aside.append(step);
   });
+  return aside;
 }
 
-function editParameter(row, parameter) {
-  /* The value is edited where it is read: the row's own field, no panel
-     and nothing moved. Enter saves — and an EMPTY field saves the
-     MODEL's default back, which is the only reset there is now that the
-     row says nothing else. Esc and any click elsewhere cancel, a click
-     on another parameter included, which then opens its own field. */
-  const editing = element("div", "otk-field-row is-editing");
-  const input = element("input", "otk-input");
-  input.type = "text";
-  input.value = parameter.value;
-  input.placeholder = DEFAULT_VALUE;
-  editing.append(span("otk-field-row__name", parameter.name), input);
-  row.replaceWith(editing);
-  input.focus();
-  input.select();
-  editingKeys(input, {
-    saves: (event) => event.key === "Enter",
-    save: () =>
-      guard(runSet)(`/set parameter ${parameter.name} ${input.value.trim() || "reset"}`),
-    cancel: () => {
-      editing.replaceWith(row);
-      row.focus();
-    },
-  });
+function toggle(on, set) {
+  /* on/off written out, the one in force marked: the value is a word,
+     and the word is the control. */
+  const box = element("span", "otk-keys");
+  for (const [word, wanted] of [
+    ["on", true],
+    ["off", false],
+  ]) {
+    if (wanted === false) box.append(span("otk-faint", "/"));
+    const option = element("button", "otk-toggle", word);
+    option.type = "button";
+    option.setAttribute("aria-checked", String(on === wanted));
+    option.onclick = guard(() => set(word));
+    box.append(option);
+  }
+  return box;
 }
 
-function formKeys(popup) {
-  /* The keys the footer promises. A form is a column of controls, so
-     "navigate" is moving focus between them and "edit" is pressing the
-     one you are on — which is what a button does by itself, once
-     something is focused. Without this the panel opens with `close ·
-     esc` focused and Enter shuts it. */
+function editableLeader(label, value, save) {
+  /* A value edited where it is READ: the figure IS the field, in the
+     same face and the same place. A knob is one line long, so Enter
+     finishes it and Esc puts it back — and neither is written down: a
+     slip that explains its own keys is a slip that moved its figures to
+     make room for the explanation. */
+  const row = element("div", "otk-leader");
+  row.append(span("", label), editable("", { text: value, save, line: true }));
+  return row;
+}
+
+/** The caption under a knob, in the design's own words. A slip has room
+    for a caption and not for a sentence: `/help` prints the table's full
+    row for the same command, and this says the same thing in the space a
+    leader leaves under it. Lowercase, because a caption does not open
+    with a capital. */
+const _ABOUT = {
+  verbose: "the stats line after each reply",
+  autocorrect: "settle names to the cast's spelling",
+  notification: "a sound when a reply lands",
+  max_context: "limit the model context size",
+};
+
+function about(name) {
+  return _ABOUT[name] ?? "";
+}
+
+function knobKeys(popup) {
+  /* A slip is a column of controls, so the arrows move focus between
+     them and Enter presses the one you are on — which is what a button
+     does by itself, once something is focused. Without this the docket
+     opens with `Close` focused and Enter shuts it. */
   const signal = wiring(popup);
   const controls = () => $$("button:not(.otk-close)", popup);
   popup.addEventListener(
@@ -172,25 +173,27 @@ function formKeys(popup) {
     { signal },
   );
   /* Not the close button, which is what `showModal` would otherwise
-     focus — and then Enter would close the panel the footer just told
-     the reader to edit in. Focused outright as well as marked: every
-     control here is a write, and a write rebuilds the form, which drops
-     the focused control and with it the whole keyboard —
-     `showModal` on an already-open dialog honours no autofocus. */
+     focus — and then Enter would close the docket the reader came to
+     edit in. Focused outright as well as marked: every control here is
+     a write, and a write rebuilds the slip, which drops the focused
+     control and with it the whole keyboard — `showModal` on an
+     already-open dialog honours no autofocus. */
   const first = controls()[0];
   first?.setAttribute("autofocus", "");
   first?.focus();
 }
 
-async function runSet(line) {
-  const { notice } = await api.runCommandLine(line);
+async function setKnob(name, value) {
+  /* One knob, put. The slip is rebuilt from the answer rather than
+     patched: a setter may refuse, or settle on a value the reader did
+     not type, and the read is the only thing that knows. */
+  const { notice } = await api.setSetting(name, value);
   openSettings(notice);
 }
 
-function formSection(label, note) {
-  const box = element("div", "otk-form__section");
-  const head = element("div", "otk-form__head");
-  head.append(span("otk-label", label), span("otk-form__note", note));
-  box.append(head);
-  return box;
+async function setParameter(name, value) {
+  // An emptied field is the model's own default, which is an absence and
+  // has its own door.
+  const { notice } = value ? await api.setParameter(name, value) : await api.resetParameter(name);
+  openSettings(notice);
 }

@@ -3,7 +3,12 @@
    Two shapes cross this line and no others: a JSON value, and the reply
    stream. A refusal is NOT an error here — the backend answers one with
    a sentence, and the caller shows it — so only a broken connection or a
-   bug throws. */
+   bug throws.
+
+   The METHOD is the lane. A `get` only reads the session, so the server
+   answers it in the gaps of a streaming reply and a screen opens while
+   the model talks; everything else moves the story and waits its turn.
+   That is the whole reason a read is never written as a POST here. */
 
 /* Every answer is proof that otaku is there, and every connection that
    cannot be made is proof it is not — so whether the page believes it
@@ -31,29 +36,40 @@ async function ask(path, options) {
     throw e;
   }
   onReach();
-  if (!response.ok) throw new Error(`${path} — ${response.status}`);
+  if (!response.ok) {
+    /* A fault, not a refusal — a refusal comes back 200 with the
+       backend's own sentence. There is no sentence for this one, so the
+       page says the only thing it is entitled to say: something about
+       the MEDIUM. The address and the code go to the console, which is
+       where a bug is read, not to the reader. */
+    console.error(`${path} — ${response.status}`, await response.text());
+    throw new Error("otaku could not answer that.");
+  }
   return response;
 }
 
-async function get(path) {
-  return (await ask(path)).json();
-}
+const get = async (path) => (await ask(path)).json();
 
-async function post(path, body) {
+async function send(method, path, body) {
   const response = await ask(path, {
-    method: "POST",
+    method,
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify(body ?? {}),
   });
   return response.json();
 }
 
-// ---------- reading ----------
+const post = (path, body) => send("POST", path, body);
+const put = (path, body) => send("PUT", path, body);
+const patch = (path, body) => send("PATCH", path, body);
+const remove = (path, body) => send("DELETE", path, body);
 
-/* Everything here is `/api/read/`, and the prefix is a promise: these
-   only read the session, so the server answers them on its read lane —
-   while a reply is streaming as well as between replies. A request that
-   changes anything belongs under `/api/do/` (see `act` below). */
+const query = (pairs) => {
+  const asked = new URLSearchParams(Object.entries(pairs).filter(([, v]) => v));
+  return asked.toString() ? `?${asked}` : "";
+};
+
+// ---------- the server, not the session ----------
 
 /** The beat: is otaku there, what is the background worker doing, and
     what has it said since the last one. Answered by the server itself,
@@ -63,50 +79,106 @@ async function post(path, body) {
     turns into the page's connected state. */
 export const alive = () => get("/api/alive");
 
-/* One function per read, named as the read is — the same vocabulary as
-   `web.api.READS`, so a screen, this client, and the server's table all
-   call one thing one name. (`facts` is the one exception: the read is
-   the sketch's `session` tag, and `session()` here would read as the
-   object, not the ask.) */
-export const facts = () => get("/api/read/session");
-export const turns = () => get("/api/read/turns");
-export const history = () => get("/api/read/history");
-export const commands = () => get("/api/read/commands");
-export const stories = () => get("/api/read/stories");
-export const storyMessages = (id) => get(`/api/read/story?id=${id}`);
-export const search = (q) => get(`/api/read/search?q=${encodeURIComponent(q)}`);
-export const lore = () => get("/api/read/lore");
-export const providers = () => get("/api/read/providers");
-export const settings = () => get("/api/read/settings");
-export const context = () => get("/api/read/context");
-export const usage = (scope) => get(`/api/read/usage?scope=${encodeURIComponent(scope)}`);
-export const balance = () => get("/api/read/balance");
-export const info = () => get("/api/read/info");
-export const exportDocument = () => get("/api/read/export");
-export const extractionReport = () => get("/api/read/extract");
+// ---------- playing ----------
 
-// ---------- writing ----------
+export const turns = () => get("/api/play").then((it) => it.messages);
+export const syntax = () => get("/api/play/syntax");
+export const undo = () => remove("/api/play/last");
 
-/** One command line, and the sentence it answers with. */
-export const runCommandLine = (line) => post("/api/command", { line });
+export const history = () => get("/api/history").then((it) => it.lines);
+export const recordHistory = (line) => post("/api/history", { line });
 
-/** One write a screen performed. `name` is a row of the backend's own
-    ACTIONS table. */
-export const act = (name, body) => post(`/api/do/${name}`, body);
+// ---------- stories ----------
+
+export const stories = (q = "") => get(`/api/stories${query({ q })}`).then((it) => it.stories);
+export const story = (id) => get(`/api/stories/${id}`);
+export const newStory = (title = "") => post("/api/stories", { title });
+export const importStory = (name, text) => post("/api/stories", { import: { name, text } });
+export const deleteStory = (id) => remove(`/api/stories/${id}`);
+export const setTitle = (id, title) => put(`/api/stories/${id}/title`, { title });
+/** Fork a story: from `message` on, or from its head when none is
+    given. Answers 201 — the copy is a story that did not exist. */
+export const fork = (id, message = null) =>
+  post(`/api/stories/${id}/fork`, message == null ? {} : { message });
+export const exportDocument = (id) => get(`/api/stories/${id}/export`);
+
+// ---------- inside a story ----------
+
+export const setPremise = (id, text) => put(`/api/stories/${id}/premise`, { text });
+export const editMessage = (story, message, text) =>
+  patch(`/api/stories/${story}/messages/${message}`, { text });
+export const editScene = (story, scene, fields) =>
+  patch(`/api/stories/${story}/scenes/${scene}`, fields);
+export const editCharacter = (story, character, fields) =>
+  patch(`/api/stories/${story}/characters/${character}`, fields);
+export const editJournal = (story, record, fields) =>
+  patch(`/api/stories/${story}/journals/${record}`, fields);
+export const mergeCharacter = (story, character, into) =>
+  put(`/api/stories/${story}/characters/${character}/merge`, { into });
+
+// ---------- extraction ----------
+
+export const extractionReport = (story) => get(`/api/stories/${story}/extraction`);
+export const extract = (story) => post(`/api/stories/${story}/extraction`);
+export const stopExtract = (story) => remove(`/api/stories/${story}/extraction`);
+
+// ---------- cards ----------
+
+export const prepareCard = (name, data, rename = "") =>
+  post("/api/cards", { name, data, rename });
+export const addCard = (token, persona) => put(`/api/cards/${token}`, { persona });
+
+// ---------- models ----------
+
+/** `scope`: "" the whole set, "local"/"cloud" the terminal's own two
+    phases. One provider alone — which is what a Test connection is — is
+    its own address, below. */
+export const providers = (scope = "") => get(`/api/providers${query({ scope })}`);
+export const provider = (name) => get(`/api/providers/${encodeURIComponent(name)}`);
+export const saveProviderField = (name, field, value) =>
+  patch(`/api/providers/${encodeURIComponent(name)}`, { [field]: value });
+export const setLoaded = (provider, model, loaded) =>
+  patch(
+    `/api/providers/${encodeURIComponent(provider)}/models/${encodeURIComponent(model)}`,
+    { loaded },
+  );
+export const switchModel = (provider, model) => put("/api/session/model", { provider, model });
+export const machine = () => get("/api/machine");
+
+// ---------- the session ----------
+
+export const facts = () => get("/api/session");
+/** Resume a story at a message. `discard` sets the later turns aside;
+    without it they stay in the database above the tail. */
+export const setHead = (story, message, discard = false) =>
+  put("/api/session/head", { story, message, discard });
+export const context = () => get("/api/session/context");
+export const info = () => get("/api/session/info");
+export const balance = () => get("/api/balance");
+export const usage = (scope = "") => get(`/api/usage${query({ scope })}`);
+
+// ---------- settings ----------
+
+export const settings = () => get("/api/settings");
+export const setSetting = (name, value) => put(`/api/settings/${name}`, { value });
+export const setParameter = (name, value) =>
+  put(`/api/session/model/parameters/${encodeURIComponent(name)}`, { value });
+export const resetParameter = (name) =>
+  remove(`/api/session/model/parameters/${encodeURIComponent(name)}`);
 
 // ---------- the reply stream ----------
 
-/** Play a line (or regenerate the standing reply). Returns either the
+/** Play a line, or regenerate the standing reply. Returns either the
     refusal — checked before anything is recorded — or the event stream. */
 export async function play(line, { regenerate = false, signal } = {}) {
   /* The stream is a POST like any other as far as reaching otaku goes;
      what is different is the body, which is read frame by frame below.
      `signal` is how a reader gives up on it: aborting takes the socket
      away, which is the backend's cancel-and-keep door. */
-  const response = await ask("/api/play", {
+  const response = await ask(regenerate ? "/api/play/last" : "/api/play", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ line, regenerate }),
+    body: JSON.stringify(regenerate ? {} : { line }),
     signal,
   });
   if (response.headers.get("Content-Type")?.startsWith("application/json")) {

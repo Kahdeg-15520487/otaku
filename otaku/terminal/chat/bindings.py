@@ -50,7 +50,7 @@ Operation = Callable[[Session, str], str]
 OPERATIONS: dict[str, Operation] = {
     "/fork": api_stories.fork,
     "/title": api_stories.set_title,
-    "/merge": api_lore.merge,
+    "/merge": api_lore.merge_raw,
     "/usage": lambda session, raw: api_reports.usage(session, raw).text(),
     "/balance": lambda session, raw: api_reports.balances(session).text(),
     "/info": lambda session, raw: api_reports.info(session).text(),

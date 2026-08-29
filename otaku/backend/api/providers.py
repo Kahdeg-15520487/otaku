@@ -15,7 +15,7 @@ import httpx
 
 from otaku.backend.session import Refused, Session
 from otaku.encryption import SealedError, seal
-from otaku.formatting import printable, toml_scalar
+from otaku.formatting import printable, toml_key, toml_scalar
 from otaku.providers import CLIENTS, ManagedClient, Provider, ProviderConfig
 from otaku.settings.migrations import PROMPT_CACHE_ROW, surgery
 
@@ -143,7 +143,11 @@ def save_field(session: Session, provider: str, attr: Literal["url", "api_key"],
     # engine that honours cache breakpoints is founded with the
     # prompt_cache row, the same line the upgrade migration writes, so
     # the setting is visible in the file however the section got there.
-    block = f"[{provider}]\nurl = {toml_scalar(config.url)}\n" + 'api_key = ""'
+    # The name is QUOTED, as every other writer of this file quotes it
+    # (`settings.providers`, `settings.models`): a section header built
+    # by concatenation is a way to write any row anywhere in the file,
+    # and this one takes its name from a request.
+    block = f"[{toml_key(provider)}]\nurl = {toml_scalar(config.url)}\n" + 'api_key = ""'
     if provider in CLIENTS and CLIENTS[provider].cache_markers:
         block += "\n" + PROMPT_CACHE_ROW
     written = surgery.update_providers(

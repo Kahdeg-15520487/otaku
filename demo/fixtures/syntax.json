@@ -1,0 +1,27 @@
+{
+ "prose": "Your character speaks or acts; the model continues the scene — sent verbatim",
+ "openers": [
+  {
+   "token": "/me",
+   "args": "NAME: PROMPT"
+  },
+  {
+   "token": "/you",
+   "args": "NAME[: HINT]"
+  },
+  {
+   "token": "/ooc",
+   "args": "PROMPT"
+  }
+ ],
+ "inliners": [
+  {
+   "token": "… /ooc",
+   "args": "TEXT"
+  },
+  {
+   "token": "… /cue",
+   "args": "TEXT"
+  }
+ ]
+}

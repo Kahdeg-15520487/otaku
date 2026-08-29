@@ -51,7 +51,9 @@ _ALLOWED = {
         "formatting",
     },
     "context": {"store"},
-    "providers": {"settings"},
+    # `formatting` for `Money`: what a provider reports a balance IN is a
+    # value type, and value types live in the leaf everyone may reach.
+    "providers": {"settings", "formatting"},
     "store": {"encryption"},
     "settings": {"formatting"},
     "logging": {"encryption", "formatting"},
@@ -182,11 +184,61 @@ def _is_inert(obj: object) -> bool:
     return dataclasses.is_dataclass(obj) and obj.__dataclass_params__.frozen
 
 
+# How the PAGE reaches every command the terminal answers. HAND-KEPT and
+# not derived: the page routes by endpoint now, so nothing in the source
+# can say which endpoint stands for which command — only a person can.
+# Three shapes, and the third is the point of writing it down:
+#
+#   screen:TOKEN     a row of `SCREENS` in `web/static/js/commands.js`
+#   METHOD /path     a row of the API tables, reached by a button
+#   none:REASON      deliberately not on the page, and why
+#
+# A new command fails the suite here until somebody decides which of the
+# three it is. That decision is CLAUDE.md's, under Architecture — the
+# story's language.
+_ON_THE_PAGE = {
+    "/undo": "screen:/undo",
+    "/regen": "screen:/regen",
+    "/last": "screen:/last",
+    "/clear": "screen:/clear",
+    "/stories": "screen:/stories",
+    "/fork": "screen:/fork",
+    "/system": "screen:/system",
+    "/title": "PUT /api/stories/{story}/title",
+    "/new": "screen:/new",
+    "/lore": "screen:/lore",
+    "/cast": "screen:/cast",
+    "/extract": "screen:/extract",
+    "/merge": "none:no UI yet — the cast pane has no merge, by decision",
+    "/context": "screen:/context",
+    "/balance": "screen:/balance",
+    "/usage": "screen:/usage",
+    "/info": "screen:/info",
+    "/card": "screen:/card",
+    "/import": "screen:/import",
+    "/export": "screen:/export",
+    "/model": "screen:/model",
+    "/set think": "screen:/set",
+    "/set parameter": "screen:/set",
+    "/set verbose": "screen:/set",
+    "/set autocorrect": "screen:/set",
+    "/set notification": "screen:/set",
+    "/set max_context": "screen:/set",
+    "/help": "screen:/help",
+    "/bye": "screen:/bye",
+}
+
+
 class TestFrontendParity:
-    """CLAUDE.md's first two-frontend rule: a command is declared once
-    and answered by BOTH. A row nobody wired is a button that does
+    """CLAUDE.md, Architecture — the story's language: a command is
+    declared once and reachable in both. A row nobody wired is a button that does
     nothing, and the terminal's own dispatch would raise a KeyError
     where the page can only shrug — so it is caught here instead.
+
+    The terminal still dispatches by token, so its half is derived. The
+    page does not — it routes by endpoint — so its half is the hand-kept
+    `_ON_THE_PAGE` above, which is also where a deliberate gap is
+    recorded instead of going quiet.
 
     The web's screen table is JavaScript, so it is read from the source
     the way this module reads everything else."""
@@ -194,12 +246,26 @@ class TestFrontendParity:
     def test_every_command_is_answered_by_the_terminal(self) -> None:
         assert _dispatchable() - _terminal_tokens() == set()
 
-    def test_every_command_is_answered_by_the_web(self) -> None:
-        assert _dispatchable() - _web_tokens() == set()
+    def test_every_command_says_how_the_page_reaches_it(self) -> None:
+        assert _dispatchable() == set(_ON_THE_PAGE)
+
+    def test_every_screen_it_names_exists(self) -> None:
+        assert _screens_named() - _web_screens() == set()
+
+    def test_every_endpoint_it_names_is_served(self) -> None:
+        served = {f"{method} {template}" for method, template in _api_surface()}
+        assert _endpoints_named() - served == set()
+
+    def test_every_row_says_which_of_the_three_it_is(self) -> None:
+        # A misspelt `screen:` would otherwise read as an endpoint and
+        # fail somewhere else, saying something that is not true.
+        for token, row in _ON_THE_PAGE.items():
+            reached = row.startswith(("screen:", "none:")) or row in _endpoints_named()
+            assert reached, f"{token} says {row!r}, which is none of the three shapes"
 
     def test_neither_frontend_answers_a_command_that_does_not_exist(self) -> None:
         assert _terminal_tokens() - _answerable() == set()
-        assert _web_tokens() - _answerable() == set()
+        assert _web_screens() - _answerable() == set()
 
 
 def _dispatchable() -> set[str]:
@@ -222,14 +288,31 @@ def _terminal_tokens() -> set[str]:
     return set(bindings.OPERATIONS) | set(bindings._INTERACTIVE)
 
 
-def _web_tokens() -> set[str]:
-    """The backend half is a dict; the screen half is a JavaScript
-    object literal, read as text — the same way this module reads the
-    import graph."""
+def _web_screens() -> set[str]:
+    """Every screen the page opens by token — a JavaScript object
+    literal, read as text, the same way this module reads the import
+    graph."""
     source = (_ROOT / "otaku" / "web" / "static" / "js" / "commands.js").read_text()
     body = source.split("const SCREENS = {", 1)[1].split("\n};", 1)[0]
-    screens = set(re.findall(r'^\s*"(/[a-z ]+)":', body, re.M))
-    return set(web_api.ANSWERS) | screens
+    return set(re.findall(r'^\s*"(/[a-z ]+)":', body, re.M))
+
+
+def _api_surface() -> set[tuple[str, str]]:
+    """Every method and path the code answers, whichever table holds it."""
+    return set(web_api.ROUTES) | set(web_api.FLOWS)
+
+
+def _screens_named() -> set[str]:
+    """The screens `_ON_THE_PAGE` says a command opens."""
+    return {
+        row.removeprefix("screen:") for row in _ON_THE_PAGE.values() if row.startswith("screen:")
+    }
+
+
+def _endpoints_named() -> set[str]:
+    """The endpoints it says a button calls — anything that is neither a
+    screen nor a declared gap."""
+    return {row for row in _ON_THE_PAGE.values() if not row.startswith(("screen:", "none:"))}
 
 
 class TestPageModules:
@@ -255,44 +338,54 @@ class TestPageModules:
         assert set(_PAGE) <= served
 
 
-# What each page module may import. `api`, `dom`, `format` and `table`
-# are the leaves; `browser` is what a screen is built from; one module
-# per screen; `commands` is the dispatch over all of them; `app` is the
-# composition root and may reach anything.
+# What each page module may import. `api`, `dom`, `format`, `table` and
+# `status` are the leaves; `browser` is what a screen is built from; one
+# module per screen; `commands` is the dispatch over all of them; `app`
+# is the composition root and may reach anything.
 _PAGE = {
     "api": set(),
     "dom": set(),
     "format": set(),
     "table": set(),
+    # The one line otaku speaks in. A leaf, so everything with something
+    # to say can reach it without reaching for a screen.
+    "status": {"dom"},
     "watch": {"dom"},
-    "transcript": {"api", "dom", "table"},
-    "browser": {"dom", "transcript"},
-    "shell": {"api", "dom", "transcript"},
+    "prose": {"dom"},
+    "transcript": {"api", "dom", "prose", "status", "table"},
+    "browser": {"dom", "status"},
+    # `format` for the runhead's story name: a title is cut the same way
+    # wherever the page writes one.
+    # `browser` for `guard` alone — the kit's one barricade, which every
+    # floating promise on this page goes through, the extraction Stop
+    # included. The kit is below the frame, so this is not a cycle.
+    "shell": {"api", "browser", "dom", "format", "status", "transcript"},
     "help": {"browser", "dom", "table"},
-    "stories": {"api", "browser", "dom", "format", "shell"},
-    "lore": {"api", "browser", "dom", "format", "transcript"},
-    "models": {"api", "browser", "dom", "shell", "transcript"},
-    "settings": {"api", "browser", "dom"},
-    "reports": {"api", "browser", "dom", "format", "transcript"},
-    "system": {"api", "browser", "dom", "shell"},
-    "transfer": {"api", "browser", "dom", "shell", "transcript"},
+    # `story` is the dossier under the browser: the browser reaches into
+    # it (Open story), never the other way — its route back is a command.
+    "story": {"api", "browser", "dom", "format", "prose", "shell"},
+    "stories": {"api", "browser", "dom", "format", "shell", "story", "transfer"},
+    "models": {"api", "browser", "dom", "shell"},
+    "settings": {"api", "browser", "dom", "table"},
+    "reports": {"api", "browser", "dom", "format"},
+    "transfer": {"api", "browser", "dom", "shell", "status"},
     "commands": {
         "api",
         "browser",
         "dom",
         "help",
-        "lore",
         "models",
         "reports",
         "settings",
         "shell",
+        "status",
         "stories",
-        "system",
+        "story",
         "table",
         "transcript",
         "transfer",
     },
-    "composer": {"api", "commands", "dom", "table", "transcript"},
+    "composer": {"api", "commands", "dom", "status", "table", "transcript"},
     "app": {
         "api",
         "browser",
@@ -325,28 +418,58 @@ class TestDemo:
     ships with a demo that silently cannot answer it."""
 
     def test_the_demo_routes_every_path_the_spec_lists(self) -> None:
-        spec = re.findall(r"^ {2}(/api/\S+):", (_ROOT / "docs" / "web_api.yaml").read_text(), re.M)
         router = (_ROOT / "demo" / "demo.js").read_text()
-        missing = [path for path in spec if path not in router]
+        missing = [path for path in _spec_paths() if path not in router]
         assert not missing, f"paths the demo does not route: {missing}"
 
 
 class TestWebApiSpec:
-    """`docs/web_api.yaml` is the HTTP surface as OpenAPI, maintained by
+    """`otaku/web/api.yaml` is the HTTP surface as OpenAPI, maintained by
     hand (CLAUDE.md, Web conventions). Its path list is held against the
     code's own tables — the file read as text, like everything else this
     module reads — so an endpoint added, renamed, or dropped without the
     spec fails the suite. The schemas' truth stays the review's."""
 
     def test_the_spec_lists_exactly_the_served_api(self) -> None:
-        text = (_ROOT / "docs" / "web_api.yaml").read_text()
-        spec = set(re.findall(r"^ {2}(/api/\S+):", text, re.M))
-        served = {"/api/alive", "/api/watch", "/api/play", "/api/command"}
-        # The reads: the table's rows plus the one read the server
-        # answers itself (the extraction poll never queues).
-        served |= {f"/api/read/{name}" for name in web_api.READS} | {"/api/read/extract"}
-        served |= {f"/api/do/{name}" for name in web_api.ACTIONS}
-        served |= {f"/api/do/{name}" for name in web_api.FLOWS}
-        assert spec == served, (
-            f"only in the spec: {sorted(spec - served)}; only in the code: {sorted(served - spec)}"
+        spec = set(_spec_paths())
+        assert spec == _served_paths(), (
+            f"only in the spec: {sorted(spec - _served_paths())}; "
+            f"only in the code: {sorted(_served_paths() - spec)}"
         )
+
+    def test_every_served_method_is_in_the_spec(self) -> None:
+        # A path can be in the spec with only some of its methods — a
+        # DELETE added to an existing path is exactly the change that
+        # slips through a path-only check.
+        text = _spec_text()
+        for method, template in {**web_api.ROUTES, **web_api.FLOWS}:
+            block = text.split(f"\n  {template}:", 1)
+            assert len(block) == 2, f"the spec does not list {template}"
+            under = block[1].split("\n  /", 1)[0]
+            listed = f"\n    {method.lower()}:" in under
+            assert listed, f"the spec does not list {method} {template}"
+
+
+def _spec_text() -> str:
+    return (_ROOT / "otaku" / "web" / "api.yaml").read_text()
+
+
+def _spec_paths() -> list[str]:
+    """Every path the hand-kept OpenAPI lists, in the order it lists
+    them — read as text, like everything else this module reads."""
+    return re.findall(r"^  (/api/\S+):", _spec_text(), re.M)
+
+
+def _served_paths() -> set[str]:
+    """Every path the code answers: both API tables, plus the four the
+    server holds itself — the heartbeat, the watch stream, the extraction
+    poll (a run's own channel-safe poll, never the session's thread) and
+    the two that PLAY, which answer with a stream rather than a payload."""
+    tables = {template for _, template in {**web_api.ROUTES, **web_api.FLOWS}}
+    return tables | {
+        "/api/alive",
+        "/api/watch",
+        "/api/stories/{story}/extraction",
+        "/api/play",
+        "/api/play/last",
+    }

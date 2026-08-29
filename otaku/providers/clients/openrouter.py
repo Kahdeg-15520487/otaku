@@ -2,6 +2,7 @@
 OpenAI protocol at https://openrouter.ai/api/v1. The base cloud listing
 already harvests each model's `context_length` from the catalog."""
 
+from otaku.formatting import Money
 from otaku.providers.base import CloudClient
 from otaku.settings.providers import ProviderConfig
 
@@ -40,17 +41,18 @@ class OpenRouterClient(CloudClient):
         # key is the user's to provide.
         return ProviderConfig(name=cls.kind, url="https://openrouter.ai/api/v1")
 
-    def balance(self, timeout: float = 10.0) -> str | None:
+    def balance(self, timeout: float = 10.0) -> Money | None:
         # /credits reports lifetime purchases and spend, in dollars.
         data = self._get_json("/v1/credits", timeout=timeout)
         credits = data.get("data") if isinstance(data, dict) else None
         if not isinstance(credits, dict):
             return None
-        total = credits.get("total_credits")
-        used = credits.get("total_usage")
-        if isinstance(total, int | float) and isinstance(used, int | float):
-            return f"${total - used:.2f}"
-        return None
+        total = Money.of(credits.get("total_credits"))
+        used = Money.of(credits.get("total_usage"))
+        if total is None or used is None:
+            return None
+        # What is LEFT: purchased minus spent, in the currency both are in.
+        return Money(total.amount - used.amount, total.currency)
 
     def _key_works(self, timeout: float) -> bool:
         # /credits answers only a working key — the catalog is public.

@@ -161,6 +161,7 @@ class Scene:
     title: str = ""
     summary: str = ""
     history: str = ""  # story-so-far through this scene; "" when not generated here
+    updated_at: str = ""  # audit column, surfaced for display alone ("extracted 4m ago")
 
 
 @dataclass(frozen=True)
@@ -170,6 +171,7 @@ class Character:
     aliases: tuple[str, ...] = ()
     description: str = ""
     card: str | None = None  # the import archive; None for extracted characters
+    updated_at: str = ""  # audit column, surfaced for display alone
 
 
 @dataclass(frozen=True)
@@ -182,3 +184,4 @@ class Journal:
     entry: str
     state: str
     history: str = ""
+    updated_at: str = ""  # audit column, surfaced for display alone

@@ -98,14 +98,18 @@ def land(session: Session, story_id: int, upto_message_id: int, action: LandActi
     return _landed(session)
 
 
-def fork(session: Session, raw: str = "") -> str:
-    """Continue in a copy of this story from here; the original stays.
+def fork(session: Session, raw: str = "", story_id: int | None = None) -> str:
+    """Continue in a copy of a story from its head; the original stays.
     `raw` is the optional TITLE — "" inherits a numbered one ("<title>
-    - N", or none when the story has none). Returns the notice. Raises
-    Refused when there is nothing to fork."""
-    if session.story_id is None or not session.messages:
+    - N", or none when the story has none). `story_id` names a story
+    that is not open, for a browser copying one from the outside — the
+    open story when it is None, which is the only form the terminal
+    ever uses. Returns the notice. Raises Refused when there is nothing
+    to fork."""
+    story_id = session.story_id if story_id is None else story_id
+    if story_id is None or not session._store.stories.get_messages(story_id):
         raise Refused("Nothing to fork yet — send a message first.")
-    forked = session._store.stories.fork(session.story_id, title=raw.strip() or None)
+    forked = session._store.stories.fork(story_id, title=raw.strip() or None)
     session._search_index = None
     session._switch_to(forked)
     # Named the way the browser's fork names it.
@@ -149,12 +153,27 @@ def set_title(session: Session, raw: str, story_id: int | None = None) -> str:
     return f'Story title set to "{title}".'
 
 
-def set_system(session: Session, text: str) -> str:
-    """Set this story's system prompt (the premise) to `text` verbatim;
-    "" reports the current one. It lives on the story, never on the
-    model. The terminal's file affordance (`/system FILE`) resolves the
-    file to text on ITS side — over HTTP a path must never name a
-    server-side file. Returns the confirmation (or the report)."""
+def get_system(session: Session, story_id: int) -> str:
+    """The system prompt — the premise — of ANY story, for a browser
+    reading one that is not open; the open story's arrives with the
+    session facts. Named for its writer, `set_system` below."""
+    return session._store.stories.get_system(story_id)
+
+
+def set_system(session: Session, text: str, story_id: int | None = None) -> str:
+    """Set a story's system prompt (the premise) to `text` verbatim; ""
+    reports the current one. It lives on the story, never on the model.
+    `story_id` names a story that is not open, for a browser correcting
+    one from the outside — the open story's own when it is None, which
+    is the only form the terminal ever uses. The terminal's file
+    affordance (`/system FILE`) resolves the file to text on ITS side —
+    over HTTP a path must never name a server-side file. Returns the
+    confirmation (or the report)."""
+    if story_id is not None and story_id != session.story_id:
+        if not text:
+            return f'System: "{session._store.stories.get_system(story_id)}"'
+        session._store.stories.set_system(story_id, text)
+        return f"System prompt set ({len(text)} chars)."
     if not text:
         return f'System: "{session.system}"' if session.system else "System: (none)"
     session._set_system(text)
@@ -173,11 +192,19 @@ def delete(session: Session, story_id: int) -> None:
         session._update_state()
 
 
-def edit_message(session: Session, message_id: int, body: str) -> None:
+def edit_message(session: Session, message_id: int, body: str, story_id: int | None = None) -> None:
     """The author's correction of one message — the session's in-memory
-    copy follows the store. Raises Refused on an empty body."""
+    copy follows the store. `story_id` is the story the caller believes
+    the message belongs to, and is CHECKED: a browser addresses any
+    story, and a correction that landed on a message of another one
+    would rewrite a story nobody was looking at. Raises Refused on an
+    empty body, or on a message that is not that story's."""
     if not body.strip():
         raise Refused("A message cannot be emptied — undo the exchange instead.")
+    if story_id is not None:
+        chain = session._store.stories.get_messages(story_id)
+        if not any(message.id == message_id for message in chain):
+            raise Refused("That message is not on the story's current chain.")
     session._store.messages.update(message_id, body)
     session._search_index = None
     for i, m in enumerate(session._messages):

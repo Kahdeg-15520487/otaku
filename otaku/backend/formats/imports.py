@@ -159,6 +159,8 @@ def write_story(store: Store, export: StoryExport) -> int:
     when the export names one; an import never invents a name. Whatever
     memory is missing, the next extraction pass builds. Returns the new
     story id."""
+    # A document imported twice is two stories: the second takes the
+    # next number, exactly as a fork does.
     story_id = store.stories.add(export.title or None)
     if export.system:
         store.stories.set_system(story_id, export.system)

@@ -1,0 +1,36 @@
+/* The demo's own reader-stylesheet — served as the page's custom.css,
+   which is exactly the contract a real reader's file uses
+   (docs/web_tokens.md): loaded last, so anything here wins. The one
+   element it styles that the product does not draw is the ribbon the
+   demo adds for itself. */
+
+/* A corner ribbon joins a point on the TOP edge to one on the RIGHT
+   edge, so its middle sits INSIDE the corner and both ends run off the
+   page — not on the corner itself, which would hang half the band in
+   space and clip the word. Width is fixed and the text centred in it,
+   so the word rides the diagonal whatever it says. */
+.demo-ribbon {
+  position: fixed;
+  /* Half the width must clear the inset, or an end stops mid-page
+     instead of running off: at 8rem the band overhangs both edges by
+     about a sixth of itself. */
+  width: 8rem;
+  right: -1.9rem;
+  top: 1.4rem;
+  z-index: 50;
+  transform: rotate(45deg);
+  padding: 0.26rem 0;
+  text-align: center;
+  background: var(--otk-accent, #b58900);
+  color: var(--otk-paper, #fff);
+  font: 600 0.72rem/1.4 var(--otk-font-mono, monospace);
+  letter-spacing: 0.16em;
+  text-indent: 0.16em; /* the last letter's tracking, given back */
+  text-transform: uppercase;
+  text-decoration: none;
+  box-shadow: 0 1px 6px rgb(0 0 0 / 0.25);
+}
+
+.demo-ribbon:hover {
+  filter: brightness(1.08);
+}

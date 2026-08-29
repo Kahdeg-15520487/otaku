@@ -445,10 +445,10 @@ class TestConfigMigration:
 
         cfg, _providers = load_config(app.paths)
         migrated = config_file.read_text()
-        assert "max_context = 65536" in migrated
+        assert "max_context = 0" in migrated
         assert "0 = the model's whole window" in migrated  # the comment rides it
         assert migrated.index("[context]") < migrated.index("max_context")
-        assert cfg.max_context == 65536
+        assert cfg.max_context == 0
         backups = sorted(app.paths.config_backups_dir.iterdir())
         load_config(app.paths)
         assert config_file.read_text() == migrated

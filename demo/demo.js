@@ -6,7 +6,7 @@
    static host untouched.
 
    The router mirrors `otaku/web/server.py` route for route and the
-   payloads mirror `docs/web_api.yaml`; `tests/test_architecture.py`
+   payloads mirror `otaku/web/api.yaml`; `tests/test_architecture.py`
    holds the spec's path list against this file, so an endpoint the demo
    forgot fails the suite. Nothing a visitor does leaves the tab. */
 
@@ -22,95 +22,135 @@ let version = "";
 const ready = (async () => {
   const load = async (name) =>
     (await realFetch(new URL(`./fixtures/${name}.json`, import.meta.url))).json();
-  const [commands, settings, river] = await Promise.all([
-    load("commands"),
+  const [syntax, settings, river] = await Promise.all([
+    load("syntax"),
     load("settings"),
     load("river"),
   ]);
   version = river.facts.version;
-  store.seed({ commands, settings, river });
+  store.seed({ syntax, settings, river });
 })();
 
 // ---------- the routes ----------
 
-// The read lane: name → payload. One row per row of `web.api.READS`,
-// plus the extraction poll the server answers itself.
-const READS = {
-  "/api/read/session": () => store.facts(version),
-  "/api/read/turns": () => store.turns(),
-  "/api/read/history": () => store.history(),
-  "/api/read/commands": () => store.commandsTable(),
-  "/api/read/stories": () => store.stories(),
-  "/api/read/search": (q) => store.search(q.get("q") ?? ""),
-  "/api/read/story": (q) => {
-    const id = q.get("id") ?? "";
-    if (!/^\d+$/.test(id)) return status(400);
-    return store.storyMessages(Number(id));
-  },
-  "/api/read/lore": () => store.lore(),
-  "/api/read/providers": () => store.providers(),
-  "/api/read/settings": () => store.settings(),
-  "/api/read/context": () => store.context(),
-  "/api/read/usage": (q) => store.usage(q.get("scope") ?? ""),
-  "/api/read/balance": () => store.balance(),
-  "/api/read/info": () => store.info(version),
-  "/api/read/export": () => store.exportDocument(),
-  "/api/read/extract": () => ({ report: extraction ? extraction.report : null }),
-};
-
-// The write lane's actions and flows: one row per row of
-// `web.api.ACTIONS` and `web.api.FLOWS`.
-const DOES = {
-  "/api/do/land": (b) => store.land(num(b.story), num(b.message), b.action || "resume"),
-  "/api/do/set-system": (b) => store.setSystem(String(b.text ?? "")),
-  "/api/do/rename-story": (b) => store.renameStory(num(b.story), String(b.title ?? "")),
-  "/api/do/delete-story": (b) => store.deleteStory(num(b.story)),
-  "/api/do/edit-message": (b) => store.editMessage(num(b.message), String(b.text ?? "")),
-  "/api/do/edit-lore": (b) => store.editLore(String(b.kind), num(b.target), String(b.text ?? "")),
-  "/api/do/switch-model": (b) => store.switchModel(String(b.provider), String(b.model)),
-  "/api/do/load-model": (b) => store.loadModel(String(b.model), Boolean(b.loaded)),
-  "/api/do/save-field": () => ({
+/* One row per row of `web.api.ROUTES`, keyed the same way: the METHOD
+   and a path template, `{name}` standing for one segment. The product's
+   server matches these the same way — longest pattern first, so a
+   literal segment is never eaten by a parameter. */
+const ROUTES = {
+  // Playing
+  "GET /api/play": () => ({ messages: store.turns() }),
+  "GET /api/play/syntax": () => store.syntax(),
+  "DELETE /api/play/last": () => store.undo(),
+  "GET /api/history": () => ({ lines: store.history() }),
+  "POST /api/history": (p, q, b) => store.recordHistory(String(b.line ?? "")),
+  // All stories
+  "GET /api/stories": (p, q) => ({ stories: store.stories(q.get("q") ?? "") }),
+  "POST /api/stories": (p, q, b) =>
+    made(
+      b.import
+        ? importDocument(String(b.import.text ?? ""), String(b.import.name ?? ""))
+        : store.newStory(String(b.title ?? "")),
+    ),
+  "GET /api/stories/{story}": (p) => store.story(num(p.story)),
+  "DELETE /api/stories/{story}": (p) => store.deleteStory(num(p.story)),
+  "PUT /api/stories/{story}/title": (p, q, b) => store.renameStory(num(p.story), String(b.title)),
+  "POST /api/stories/{story}/fork": (p, q, b) =>
+    made(
+      b.message == null
+        ? store.forkStory(num(p.story), String(b.title ?? ""))
+        : store.land(num(p.story), num(b.message), "fork"),
+    ),
+  "PATCH /api/stories/{story}/messages/{message}": (p, q, b) =>
+    store.editMessage(num(p.message), String(b.text)),
+  "GET /api/stories/{story}/export": (p) => store.exportDocument(num(p.story)),
+  // Inside a story
+  "PUT /api/stories/{story}/premise": (p, q, b) => store.setSystem(num(p.story), String(b.text)),
+  "PATCH /api/stories/{story}/scenes/{scene}": (p, q, b) =>
+    store.editLore(
+      num(p.story),
+      b.title != null ? "scene-title" : "scene-summary",
+      num(p.scene),
+      String(b.title ?? b.summary),
+    ),
+  "PATCH /api/stories/{story}/characters/{character}": (p, q, b) =>
+    store.editLore(
+      num(p.story),
+      b.card != null ? "card" : "description",
+      num(p.character),
+      String(b.card ?? b.description),
+    ),
+  "PUT /api/stories/{story}/characters/{character}/merge": () => ({
+    notice: `Merging characters is not in the demo — ${store.INSTALL}.`,
+    refused: true,
+  }),
+  "PATCH /api/stories/{story}/journals/{record}": (p, q, b) =>
+    store.editLore(
+      num(p.story),
+      b.state != null ? "state" : "entry",
+      num(p.record),
+      String(b.state ?? b.entry),
+    ),
+  // Extraction
+  "GET /api/stories/{story}/extraction": () => ({ report: extraction ? extraction.report : null }),
+  "POST /api/stories/{story}/extraction": () => startExtract(),
+  "DELETE /api/stories/{story}/extraction": () => stopExtract(),
+  // Cards
+  "POST /api/cards": () => ({ notice: `Card import is not in the demo — ${store.INSTALL}.` }),
+  "PUT /api/cards/{token}": () => ({ notice: "No card is waiting." }),
+  // Models
+  "GET /api/providers": (p, q) => store.providers(q.get("scope") ?? ""),
+  "GET /api/providers/{provider}": (p) => store.providers(p.provider),
+  "PATCH /api/providers/{provider}": () => ({
     notice: `Provider settings are not saved in the demo — ${store.INSTALL}.`,
   }),
-  "/api/do/record-history": (b) => store.recordHistory(String(b.line ?? "")),
-  "/api/do/import": (b) => importDocument(String(b.text ?? ""), String(b.name ?? "")),
-  "/api/do/prepare-card": () => ({
-    notice: `Card import is not in the demo — ${store.INSTALL}.`,
-  }),
-  "/api/do/add-card": () => ({ notice: "No card is waiting." }),
-  "/api/do/extract": () => startExtract(),
+  "PATCH /api/providers/{provider}/models/{model}": (p, q, b) =>
+    store.loadModel(p.model, Boolean(b.loaded)),
+  "PUT /api/session/model": (p, q, b) => store.switchModel(String(b.provider), String(b.model)),
+  "PUT /api/session/model/parameters/{name}": (p, q, b) => store.setParameter(p.name, b.value),
+  "DELETE /api/session/model/parameters/{name}": (p) => store.setParameter(p.name, "reset"),
+  "GET /api/machine": () => store.memory(),
+  // The session
+  "GET /api/session": () => store.facts(version),
+  "PUT /api/session/head": (p, q, b) =>
+    store.land(num(b.story), num(b.message), b.discard ? "truncate" : "resume"),
+  "GET /api/session/context": () => store.context(),
+  "GET /api/session/info": () => store.info(version),
+  "GET /api/balance": () => store.balance(),
+  "GET /api/usage": (p, q) => store.usage(q.get("scope") ?? ""),
+  // Settings
+  "GET /api/settings": () => store.settings(),
+  "PUT /api/settings/{setting}": (p, q, b) => store.setKnob(p.setting, b.value),
 };
 
-// The command lines this frontend answers with a sentence — the demo's
-// half of `web.api.ANSWERS`, over the same shared table.
-const ANSWERS = {
-  "/fork": (raw) => store.forkStory(raw),
-  "/new": (raw) => store.newStory(raw),
-  "/title": (raw) => store.setTitle(raw),
-  "/merge": () => ({ notice: `/merge is not in the demo — ${store.INSTALL}.`, refused: true }),
-  "/system": (raw) => store.setSystem(raw),
-  "/set think": (raw) => store.setThink(raw),
-  "/set parameter": (raw) => store.setParameter(raw),
-  "/set verbose": (raw) => store.setToggle("verbose", raw),
-  "/set autocorrect": (raw) => store.setToggle("autocorrect", raw),
-  "/set notification": (raw) => store.setToggle("notification", raw),
-  "/model": (raw) => store.switchSpec(raw),
-  "/undo": () => store.undo(),
-};
+// The path parameters that are row ids, as `web/server.py` declares
+// them. Every other parameter is a name and may be anything.
+const _NUMERIC = ["story", "message", "scene", "character", "record"];
 
-function command(line) {
-  // `backend.commands.find` + `raw_argument`, over the fixture's table:
-  // longest match first, argument verbatim from the first non-space.
-  const words = line.trim().split(/\s+/);
-  for (const depth of [2, 1]) {
-    const token = words.slice(0, depth).join(" ");
-    if (ANSWERS[token]) {
-      let rest = line;
-      for (let i = 0; i < depth; i++) rest = rest.trimStart().split(" ").slice(1).join(" ");
-      return ANSWERS[token](rest.trimStart());
-    }
+/* The templates, compiled once — longest first, exactly as the server
+   sorts them, so `/api/session/model` never matches as a `{setting}`. */
+const MATCHERS = Object.entries(ROUTES)
+  .map(([key, call]) => {
+    const [method, template] = key.split(" ");
+    // Row ids match DIGITS, as the product's router matches them: a
+    // page that lost its story addresses `/api/stories/null/…`, and the
+    // demo must 404 it exactly where otaku does.
+    const pattern = new RegExp(
+      `^${template.replace(/\{(\w+)}/g, (_, name) =>
+        `(?<${name}>${_NUMERIC.includes(name) ? "\\d+" : "[^/]+"})`,
+      )}$`,
+    );
+    return { method, pattern, call };
+  })
+  .sort((a, b) => b.pattern.source.length - a.pattern.source.length);
+
+function routed(method, path, query, body) {
+  for (const route of MATCHERS) {
+    if (route.method !== method) continue;
+    const found = route.pattern.exec(path);
+    if (found) return route.call(found.groups ?? {}, query, body);
   }
-  return store.unknownNotice(line);
+  return null;
 }
 
 // ---------- the flows that span requests ----------
@@ -131,11 +171,20 @@ function startExtract() {
   return { notice: "Extracting lore from the recent messages…", watching: true };
 }
 
+function stopExtract() {
+  // The page's door to what Ctrl+C does in the terminal: nothing
+  // half-done commits, and nothing running is an answer of its own.
+  if (!extraction || extraction.report !== null) return { notice: "No pass is running." };
+  extraction.report = "Cancelled — nothing half-done commits; already-closed scenes stay.";
+  store.setStatus("");
+  return { notice: extraction.report };
+}
+
 function importDocument(text, name) {
   if (!name.toLowerCase().endsWith(".txt")) {
     return {
       notice: `Only plain-text imports work in the demo — ${store.INSTALL} (SillyTavern chats and otaku exports included).`,
-      watching: false,
+      refused: true,
     };
   }
   const paragraphs = text
@@ -149,14 +198,15 @@ function importDocument(text, name) {
   const started = startExtract();
   return {
     notice: `Imported ${landed.count} message(s) → story ${landed.id}.`,
+    // Which story to poll the pass on, so the page need not ask again.
+    story: landed.id,
     watching: started.watching,
   };
 }
 
 // ---------- the reply stream ----------
 
-function play(body) {
-  const regenerate = Boolean(body.regenerate);
+function play(body, regenerate, signal) {
   if (regenerate && !store.hasTurns()) {
     return json({ notice: "Nothing to regenerate.", refused: true });
   }
@@ -185,8 +235,25 @@ function play(body) {
   const encoder = new TextEncoder();
   const frame = (controller, event) =>
     controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+  let over = false;
   const stream = new ReadableStream({
     start(controller) {
+      /* Stop is the reader taking the socket away, and the backend reads
+         that as cancel-and-keep: what arrived is recorded, the rest is
+         never asked for. `fetch` carries it as an abort signal, which
+         the fake has to honour itself — otherwise Stop waits out the
+         whole reply and `/regen` mid-reply blocks behind it. */
+      const abandon = () => {
+        if (over) return;
+        over = true;
+        clearTimeout(timer);
+        land();
+        controller.error(new DOMException("Aborted", "AbortError"));
+      };
+      if (signal) {
+        if (signal.aborted) return abandon();
+        signal.addEventListener("abort", abandon, { once: true });
+      }
       for (const event of events) frame(controller, event);
       const words = reply.split(/(?<=\s)/);
       let at = 0;
@@ -200,6 +267,7 @@ function play(body) {
             : "";
           land();
           frame(controller, { type: "done", stats });
+          over = true;
           controller.close();
           return;
         }
@@ -212,6 +280,7 @@ function play(body) {
       timer = setTimeout(tick, regenerate ? 350 : 650); // the wait before the first token
     },
     cancel() {
+      over = true;
       clearTimeout(timer);
       land();
     },
@@ -231,15 +300,14 @@ window.fetch = async (input, init) => {
   await ready;
   const query = new URLSearchParams(url.split("?")[1] ?? "");
   if (path === "/api/alive") return json({ status: store.status(), notices: [] });
-  if (path in READS) {
-    const payload = READS[path](query);
-    return payload instanceof Response ? payload : json(payload);
-  }
+  const method = (init && init.method) || "GET";
   const body = init && init.body ? JSON.parse(init.body) : {};
-  if (path === "/api/play") return play(body);
-  if (path === "/api/command") return json(command(String(body.line ?? "")));
-  if (path in DOES) return json(DOES[path](body));
-  return status(404);
+  // The two that answer with a STREAM rather than a payload.
+  if (method === "POST" && path === "/api/play") return play(body, false, init && init.signal);
+  if (method === "POST" && path === "/api/play/last") return play(body, true, init && init.signal);
+  const payload = routed(method, path, query, body);
+  if (payload === null) return status(404);
+  return payload instanceof Response ? payload : json(payload);
 };
 
 // The watch stream ("/api/watch") never has news in the demo: the
@@ -259,10 +327,18 @@ window.EventSource = class {
   close() {}
 };
 
-function json(payload) {
+/* A story that was MADE answers 201 and says where it now lives, as the
+   product's server does with a `Created`. A refusal stays 200: the
+   sentence is the whole answer and nothing was made. */
+function made(answer) {
+  if (answer.refused) return answer;
+  return json(answer, 201, { Location: `/api/stories/${store.openId()}` });
+}
+
+function json(payload, code = 200, headers = {}) {
   return new Response(JSON.stringify(payload), {
-    status: 200,
-    headers: { "Content-Type": "application/json; charset=utf-8" },
+    status: code,
+    headers: { "Content-Type": "application/json; charset=utf-8", ...headers },
   });
 }
 
@@ -284,5 +360,5 @@ ribbon.className = "demo-ribbon";
 ribbon.href = "https://otaku.sh";
 ribbon.target = "_blank";
 ribbon.rel = "noopener";
-ribbon.textContent = "demo · scripted model — get otaku";
+ribbon.textContent = "demo";
 document.addEventListener("DOMContentLoaded", () => document.body.append(ribbon));

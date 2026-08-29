@@ -116,12 +116,11 @@ def extract(session: Session) -> WorkerRun:
     return run
 
 
-def merge(session: Session, raw: str) -> str:
+def merge_raw(session: Session, raw: str) -> str:
     """`SOURCE into TARGET` (raw text, multi-word names surviving): fold
-    an extraction duplicate into the real character — speakers and
-    journals follow, SOURCE becomes an alias. Refused toward the
-    direction that would destroy an imported card's archive. Returns the
-    confirmation."""
+    an extraction duplicate into the real character. NAMES are what a
+    typed line carries, so resolving them is this function's whole job —
+    what it does with the two it finds is `merge_by_id` below."""
     if session.story_id is None:
         raise Refused(NO_STORY_HINT)
     src_raw, sep, dst_raw = raw.partition(" into ")
@@ -132,10 +131,25 @@ def merge(session: Session, raw: str) -> str:
     if source is None or target is None:
         missing = src_raw if source is None else dst_raw
         raise Refused(f"No character named '{missing.strip()}' in this story (see /cast).")
+    return merge_by_id(session, source.id, target.id)
+
+
+def merge_by_id(session: Session, source_id: int, target_id: int) -> str:
+    """Fold one character into another BY ID — speakers and journals
+    follow, the source becomes an alias. Refused toward the direction
+    that would destroy an imported card's archive. Returns the
+    confirmation. A surface that already holds the cast (a browser)
+    names the two rows; a typed line resolves names to ids first."""
+    if session.story_id is None:
+        raise Refused(NO_STORY_HINT)
+    # Resolved against THIS story's cast, so an id from another story is
+    # as refused as an id that is not there at all.
+    cast = {row.id: row for row in session._store.characters.list(session.story_id)}
+    source, target = cast.get(source_id), cast.get(target_id)
+    if source is None or target is None:
+        raise Refused("No such character in this story (see /cast).")
     if source.id == target.id:
-        raise Refused(
-            f"'{src_raw.strip()}' and '{dst_raw.strip()}' are already the same character."
-        )
+        raise Refused(f"'{source.name}' and '{target.name}' are already the same character.")
     if source.card:
         # A merge deletes the source row, its card archive with it — and
         # the card rows pointing at the target would send their typed
@@ -292,6 +306,26 @@ class LoreView:
             return ""
         return f"{start}-{end}"
 
+    def read_through(self) -> int:
+        """The last message a closed scene covers, as a 1-based chain
+        position — 0 when nothing has been read yet. Derived, never
+        stored: a scene closes at a message, so the newest scene's end
+        IS how far the extractor has read."""
+        ends = [self._ordinal.get(s.end_message_id, 0) for s in self.scenes]
+        return max(ends, default=0)
+
+    def unread(self) -> int:
+        """Messages played past the last closed scene. Not a fault: the
+        settle margin leaves the newest turns open on purpose, and a
+        forced pass is what closes them early."""
+        return max(0, self.total_messages - self.read_through())
+
+    def unread_span(self) -> str:
+        """Those messages as an "N-M" range, spelled like `scene_span`
+        so the two read as one vocabulary; "" when none are open."""
+        read = self.read_through()
+        return f"{read + 1}-{self.total_messages}" if self.total_messages > read else ""
+
     def vintage(self, row_id: int) -> str:
         """How current a journal row's state is, for the preview: its
         scene, and how far the story has moved past it."""
@@ -341,9 +375,12 @@ class LoreView:
         return "", None
 
 
-def view(session: Session) -> LoreView:
-    """The memory loaded whole. Raises Refused without a story."""
-    story_id = session.story_id
+def view(session: Session, story_id: int | None = None) -> LoreView:
+    """The memory loaded whole — the open story's, or `story_id`'s for a
+    browser reading one that is not open. Raises Refused without a
+    story to read."""
+    if story_id is None:
+        story_id = session.story_id
     if story_id is None:
         raise Refused(NO_STORY_HINT)
     store = session._store
@@ -362,14 +399,20 @@ def view(session: Session) -> LoreView:
     )
 
 
-def edit(session: Session, kind: FieldKind, target: int, text: str) -> str:
+def edit(
+    session: Session, kind: FieldKind, target: int, text: str, story_id: int | None = None
+) -> str:
     """Apply the author's correction: `kind` and `target` are a Field's
     address fields (the view row itself never travels back — display
-    state is not a write address). The store writers carry the
+    state is not a write address). `story_id` names the story the row
+    belongs to, for a browser correcting one that is not open; the open
+    story's own when it is None. The store writers carry the
     invalidation. Returns the notice; raises Refused for an edit the
     store refuses (a non-TOML card, a superseded state, an emptied
     summary, a derived `history` row)."""
     store = session._store
+    if story_id is None:
+        story_id = session.story_id
     if kind == "scene-title":
         store.scenes.update(target, title=text)
     elif kind == "scene-summary":
@@ -393,12 +436,10 @@ def edit(session: Session, kind: FieldKind, target: int, text: str) -> str:
     elif kind == "entry":
         store.journals.set_entry(target, text)
     elif kind == "state":
-        if session.story_id is None:
+        if story_id is None:
             raise Refused(NO_STORY_HINT)
         try:
-            store.journals.set_state(
-                target, text, session._store.stories.get_messages_ids(session.story_id)
-            )
+            store.journals.set_state(target, text, store.stories.get_messages_ids(story_id))
         except ValueError as e:
             raise Refused(f"{e}.".capitalize()) from e
     elif kind == "history":

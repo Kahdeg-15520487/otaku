@@ -1,17 +1,41 @@
-/* The input: what a submitted line becomes, and the menu that offers
-   the commands while one is being typed.
+/* The input: what a submitted line becomes, and the prefix menu that
+   offers the story's own typed openers.
 
    `submit` is the one door — Enter and the Send button both call it, so
-   the button never has to synthesize a keystroke to reach the logic. */
+   the button never has to synthesize a keystroke to reach the logic.
+
+   Everything submitted here is STORY. The menu offers the story's own
+   framing — the openers where a line begins, the inline words where the
+   caret is mid-sentence — and nothing else: a command is a button, and
+   the box has never been a place to type one. */
 
 import * as api from "./api.js";
 import { midReply, playLine, run } from "./commands.js";
 import { $, element, setValue, span } from "./dom.js";
-import { allSpecs, isCommand } from "./table.js";
-import { stopPlaying, tell } from "./transcript.js";
+import { rows as syntaxRows } from "./table.js";
+import { tell } from "./status.js";
+import { stopPlaying } from "./transcript.js";
 
-const composer = $(".otk-composer__input");
-const menu = $(".otk-completions");
+const composer = $(".otk-composer__input textarea");
+const menu = $(".otk-prefixes");
+
+/* What the menu says about each opener, and which half of the language it
+   belongs to. A menu row has one line to say what a word DOES — the sheet
+   (`/help`) is where the table's full sentence is read — so the caption is
+   written here, short and lowercase, and the two headings name the choice a
+   reader is actually making. Keyed by the bare token, so the inline form of
+   a word (`… /ooc`) reads the same as the opening one. */
+const _MENU = {
+  "/me": ["Take a turn", "your own action, narrated"],
+  "/you": ["Take a turn", "speak to someone present"],
+  "/ooc": ["Speak to the narrator", "a note, never played"],
+  "/cue": ["Speak to the narrator", "steer the next reply"],
+};
+
+/** The word itself, without the `… ` the table marks an inliner with: the
+    menu only ever offers one of the two forms, so the mark says nothing a
+    reader needs here. */
+const _bare = (token) => token.replace(/^…\s*/, "");
 
 let offered = [];
 let picked = 0;
@@ -30,6 +54,13 @@ let at = null;
 
 /** The store's recent lines, most recent first — called at every boot,
     because a restarted otaku may have played elsewhere since. */
+/** Put the caret back in the box. The page's resting state is a reader
+    about to write, so every screen that closes hands the keys back to
+    it — and a disabled box (otaku gone) is left alone. */
+export function focusComposer() {
+  if (!composer.disabled) composer.focus();
+}
+
 export function primeHistory(lines) {
   history.length = 0;
   history.push(...[...lines].reverse());
@@ -46,12 +77,15 @@ export function submit(line) {
   // Into the store's history too (blanks and immediate repeats are the
   // session's to skip) — fire-and-forget: the submission itself is the
   // event, and a lost record must not delay or fail it.
-  api.act("record-history", { line: said }).catch(() => {});
+  api.recordHistory(said).catch(() => {});
   at = null;
   setValue(composer, "");
   hideMenu();
-  if (isCommand(said)) run(said);
-  else playLine(said);
+  // Everything typed here is STORY. The framing words ride along inside
+  // the line and `context.syntax` reads them at the far end; a line that
+  // opens with an unknown slash word is prose that happens to start with
+  // a slash, not a command nobody spelled right.
+  playLine(said);
 }
 
 export function wire() {
@@ -67,6 +101,16 @@ export function wire() {
   // The same place, the other half of the turn: what the model is doing
   // is stopped where it was asked for.
   $(".otk-composer [data-stop]")?.addEventListener("click", stopPlaying);
+  // The hint that opens the menu by pointer — for the reader who has not
+  // found the slash yet.
+  $(".otk-composer [data-prefixes]")?.addEventListener("click", () => {
+    if (menu.hidden) {
+      composer.focus();
+      updateMenu({ everything: true });
+    } else {
+      hideMenu();
+    }
+  });
 }
 
 function onKey(event) {
@@ -75,15 +119,15 @@ function onKey(event) {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       picked = (picked + (event.key === "ArrowDown" ? 1 : offered.length - 1)) % offered.length;
-      updateMenu();
+      paintMenu();
       return;
     }
     /* Enter takes the highlighted row unless the line already IS that
-       row — a fully typed `/help` sends rather than re-completing. An
+       row — a fully typed `/me` sends rather than re-completing. An
        inline word never claims Enter: the reader is mid-sentence, and
        Enter there is how the sentence is sent. */
     const typed = composer.value.trim();
-    const settled = offered[picked]?.token.replace(_INLINE, "") === typed;
+    const settled = offered[picked]?.token === typed;
     if (event.key === "Tab" || (event.key === "Enter" && !settled && typed.startsWith("/"))) {
       event.preventDefault();
       accept(offered[picked]);
@@ -98,6 +142,14 @@ function onKey(event) {
   if (event.key === "Escape") {
     setValue(composer, "");
     at = null;
+    return;
+  }
+  /* The two verbs beside the box, on the keys the hints advertise —
+     answered only HERE, while the box has focus: anywhere else ctrl+r
+     belongs to whatever owns it (and ⌘R stays the browser's reload). */
+  if (event.ctrlKey && !event.metaKey && (event.key === "r" || event.key === "u")) {
+    event.preventDefault();
+    run(event.key === "r" ? "/regen" : "/undo");
     return;
   }
   if ((event.key === "ArrowUp" || event.key === "ArrowDown") && _walkable()) {
@@ -138,16 +190,24 @@ function _walk(step) {
   composer.setSelectionRange(composer.value.length, composer.value.length);
 }
 
-// ---------- the completion menu ----------
+// ---------- the prefix menu ----------
 
-/* The menu offers what the caret can take: a COMMAND while the line is
+/* The menu offers what the caret can take: a DIRECTION while the line is
    nothing but its slash word, and the INLINE words — `/ooc`, `/cue` —
    while the slash is inside a prompt somebody is writing. The rows come
-   from the shared table either way, so a new command appears here by
+   from the shared table either way, so the language appears here by
    existing; the `… ` prefix is how the table marks the inline half, and
    what a reader types is the bare word after it. */
 
 const _INLINE = "… ";
+
+function _prefixes() {
+  return syntaxRows().map((row) => ({
+    token: row.token.replace(_INLINE, ""),
+    inline: row.token.startsWith(_INLINE),
+    args: row.args,
+  }));
+}
 
 function typing() {
   /* The slash word the caret is in, and whether it opens the line. "" if
@@ -158,71 +218,76 @@ function typing() {
   return { word, opens: before.trimStart() === word && !composer.value.includes("\n") };
 }
 
-function updateMenu() {
+function updateMenu({ everything = false } = {}) {
+  /* `everything` is the hint button: the caret is not in a slash word,
+     so the position decides which half applies — an empty box or a line
+     being opened takes the directions, a sentence underway the inline
+     words. */
   const { word, opens } = typing();
   const was = offered.map((spec) => spec.token).join(" ");
-  offered = !word
-    ? []
-    : allSpecs().filter((spec) => {
-        const inline = spec.token.startsWith(_INLINE);
-        if (opens === inline) return false;
-        return (inline ? spec.token.slice(_INLINE.length) : spec.token).startsWith(word);
-      });
+  if (everything) {
+    const before = composer.value.slice(0, composer.selectionStart ?? composer.value.length);
+    const opening = !before.trim();
+    offered = _prefixes().filter((spec) => spec.inline !== opening);
+  } else {
+    offered = !word
+      ? []
+      : _prefixes().filter((spec) => spec.inline !== opens && spec.token.startsWith(word));
+  }
   // A different set of rows is a different question: keeping the old
-  // position would preselect a command nobody navigated to, and Enter
+  // position would preselect a prefix nobody navigated to, and Enter
   // would take it.
   if (offered.map((spec) => spec.token).join(" ") !== was) picked = 0;
   picked = Math.min(picked, Math.max(0, offered.length - 1));
   menu.hidden = offered.length === 0;
-  // Which half is on offer: the inline words are three characters and an
-  // argument, and a column cut for `/set parameter <name> <val>` would
-  // leave them stranded a third of the way across the row.
-  menu.dataset.of = opens ? "commands" : "inline";
-  menu.replaceChildren(
-    ...offered.map((spec, i) => {
-      const option = element("button", "otk-completions__row");
-      option.type = "button";
-      option.setAttribute("role", "option");
-      option.setAttribute("aria-selected", String(i === picked));
-      option.classList.toggle("is-selected", i === picked);
-      // Token and argument shape are ONE label, as the help sheet writes
-      // them: what you type, then what it takes.
-      const label = span("otk-completions__label", "");
-      // Mid-prompt the whole menu is inline words, so the table's `… `
-      // prefix — which is there to tell `/ooc` the command from `/ooc`
-      // the aside — has nothing left to distinguish.
-      label.append(span("otk-completions__token", spec.token.replace(_INLINE, "")));
-      if (spec.args) label.append(" ", span("otk-completions__args", spec.args));
-      option.append(label, span("otk-completions__desc", spec.description));
-      // The list is scrollable, so the row the arrows are on has to be
-      // brought to where the reader is looking.
-      if (i === picked) queueMicrotask(() => option.scrollIntoView({ block: "nearest" }));
-      option.onmousedown = (event) => {
-        event.preventDefault();
-        accept(spec);
-      };
-      return option;
-    }),
-  );
+  paintMenu();
+}
+
+function paintMenu() {
+  const rows = [];
+  let heading = null;
+  offered.forEach((spec, i) => {
+    const [group, means] = _MENU[_bare(spec.token)] ?? [null, spec.description];
+    // A caption between the rows, wherever the half of the language changes.
+    // It is not a row: the cursor walks `.otk-prefix` alone.
+    if (group && group !== heading) {
+      heading = group;
+      const caption = element("span", "otk-prefixes__group");
+      caption.append(span("otk-label", group));
+      rows.push(caption);
+    }
+    const option = element("button", "otk-prefix");
+    option.type = "button";
+    option.setAttribute("role", "option");
+    option.setAttribute("aria-selected", String(i === picked));
+    option.append(span("otk-prefix__token", _bare(spec.token)), span("otk-prefix__desc", means));
+    if (i === picked) queueMicrotask(() => option.scrollIntoView({ block: "nearest" }));
+    option.onmousedown = (event) => {
+      event.preventDefault();
+      accept(spec);
+    };
+    rows.push(option);
+  });
+  menu.replaceChildren(...rows);
 }
 
 function accept(spec) {
-  /* A row that takes an argument is chosen to be given one, so the space
-     comes with it; a bare command is ready to send as it stands. An
-     INLINE word replaces the slash word the caret is in and leaves the
-     prompt around it alone — that is the whole point of offering it
-     mid-line. */
-  const token = spec.token.startsWith(_INLINE) ? spec.token.slice(_INLINE.length) : spec.token;
-  const taken = spec.args ? `${token} ` : token;
+  /* A prefix is chosen to be written after, so the space comes with it.
+     It replaces the slash word the caret is in — or lands at the caret
+     when the menu was opened by the hint — and leaves the prompt around
+     it alone. */
+  const taken = `${spec.token} `;
   const caret = composer.selectionStart ?? composer.value.length;
   const before = composer.value.slice(0, caret);
-  const opened = before.length - (before.split(/\s/).pop() ?? "").length;
+  const word = before.split(/\s/).pop() ?? "";
+  const opened = word.startsWith("/") ? before.length - word.length : caret;
   setValue(composer, composer.value.slice(0, opened) + taken + composer.value.slice(caret));
   composer.focus();
   composer.setSelectionRange(opened + taken.length, opened + taken.length);
-  updateMenu();
+  hideMenu();
 }
 
 function hideMenu() {
   menu.hidden = true;
+  offered = [];
 }

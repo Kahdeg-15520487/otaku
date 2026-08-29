@@ -40,13 +40,14 @@ def main() -> None:
 
             row = next(r for r in web_api.stories(session) if r["open"])
             fixtures = {
-                "commands": web_api.commands_table(),
+                "syntax": web_api.syntax(),
                 "settings": web_api.settings(session),
                 "river": {
                     "facts": web_api.facts(session),
-                    "turns": web_api.turns(session),
                     "story": row,
-                    "lore": web_api.lore(session),
+                    # The story WHOLE — the one read the dossier makes,
+                    # so the demo seeds from the shape the page reads.
+                    "opened": web_api.story(session, session.story_id),
                     "context": web_api.context(session),
                 },
             }

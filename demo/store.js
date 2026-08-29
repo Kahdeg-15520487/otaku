@@ -12,8 +12,8 @@
 // the picker's switch, load and unload have something real to do.
 export const PROVIDER = "demo";
 const MODELS = [
-  { name: "scripted-model", loaded: true, can_load_unload: true, size: "4.7 GB", context: "8K" },
-  { name: "scripted-model-mini", loaded: false, can_load_unload: true, size: "1.9 GB", context: "32K" },
+  { name: "demo-model", loaded: true, can_load_unload: true, size: "4.7 GB", context: "8K" },
+  { name: "demo-model-mini", loaded: false, can_load_unload: true, size: "1.9 GB", context: "32K" },
 ];
 const WINDOW = 8192;
 const LIMIT = WINDOW - 1024; // approximates the real assembler's adaptive reply reserve
@@ -26,30 +26,33 @@ const state = {
   open: null, // the open story's id
   nextStory: 1,
   nextMessage: 1,
-  model: "scripted-model",
+  model: "demo-model",
   settings: null, // seeded from the settings fixture; values live here
   history: [], // the composer's ↑/↓ lines, most recent first
   usage: [], // one row per completed reply: {story, prompt, completion, seconds}
-  commands: null, // the shared table fixture, for usage lines and menus
+  syntax: null, // the story's typed language, for the menu and the sheet
   contextFixture: null, // the captured preview, served until the story moves
   contextStory: null, // …for this story only
   status: "", // what /api/alive reports the worker doing
 };
 
 export function seed(fixtures) {
-  const { river, settings, commands } = fixtures;
-  state.commands = commands;
+  const { river, settings, syntax } = fixtures;
+  state.syntax = syntax;
   state.settings = structuredClone(settings);
   const id = state.nextStory++;
   state.stories.set(id, {
     title: river.story.title || "",
-    system: river.facts.system || "",
-    turns: river.turns.map((t) => ({ ...t })),
+    system: river.opened.premise || "",
+    turns: river.opened.messages.map((t) => ({ ...t })),
     updatedAt: river.story.updated_at,
   });
-  state.lore.set(id, structuredClone(river.lore));
+  state.lore.set(id, {
+    scenes: structuredClone(river.opened.scenes),
+    characters: structuredClone(river.opened.characters),
+  });
   state.open = id;
-  state.nextMessage = Math.max(0, ...river.turns.map((t) => t.id)) + 1;
+  state.nextMessage = Math.max(0, ...river.opened.messages.map((t) => t.id)) + 1;
   state.contextFixture = river.context;
   state.contextStory = id;
 }
@@ -62,16 +65,11 @@ export function facts(version) {
   return {
     version,
     model: state.model,
-    engine: "scripted",
+    engine: "demo",
     context: model ? model.context : "",
     story: story ? label(story) : "",
     story_id: state.open,
     turns: story ? story.turns.length : 0,
-    system: story ? story.system : "",
-    think: state.settings.think,
-    verbose: state.settings.verbose,
-    autocorrect: state.settings.autocorrect,
-    notification: state.settings.notification,
   };
 }
 
@@ -84,12 +82,18 @@ export function history() {
   return [...state.history];
 }
 
-export function commandsTable() {
-  return state.commands;
+export function syntax() {
+  return state.syntax;
 }
 
-export function stories() {
+export function stories(q = "") {
+  const needle = q.trim().toLowerCase();
   return [...state.stories.entries()]
+    .filter(([id, s]) => {
+      if (!needle) return true;
+      const face = `${label(s)} ${storySoFar(id)} ${firstUser(s)} ${PROVIDER}/${state.model}`;
+      return `${face} ${s.turns.map((t) => t.body).join(" ")}`.toLowerCase().includes(needle);
+    })
     .sort((a, b) => (a[1].updatedAt < b[1].updatedAt ? 1 : -1))
     .map(([id, s]) => ({
       id,
@@ -99,37 +103,64 @@ export function stories() {
       first_user: firstUser(s),
       model: `${PROVIDER}/${state.model}`,
       updated_at: s.updatedAt,
-      messages: s.turns.length,
+      turns: s.turns.length,
       open: id === state.open,
     }));
 }
 
-export function search(q) {
-  const needle = q.trim().toLowerCase();
-  const ids = [];
-  for (const [id, s] of state.stories) {
-    const face = `${label(s)} ${storySoFar(id)} ${firstUser(s)} ${PROVIDER}/${state.model}`;
-    const chain = s.turns.map((t) => t.body).join(" ");
-    if (!needle || `${face} ${chain}`.toLowerCase().includes(needle)) ids.push(id);
+export function story(id) {
+  /* One story WHOLE — the one read the dossier makes. Three would let a
+     pass land between two of them, which is the product's reason too. */
+  const held = state.stories.get(id);
+  if (!held) return null;
+  const memory = state.lore.get(id) ?? { scenes: [], characters: [] };
+  const copy = structuredClone(memory);
+  const total = held.turns.length;
+  const read = copy.scenes.reduce((far, scene) => {
+    const end = Number(String(scene.span ?? "").split("-")[1] ?? 0);
+    return end > far ? end : far;
+  }, 0);
+  return {
+    id,
+    label: label(held),
+    title: held.title,
+    updated_at: held.updatedAt,
+    premise: held.system || "",
+    messages: held.turns.map((t) => ({ ...t })),
+    read_through: read,
+    unread: Math.max(0, total - read),
+    unread_span: total > read ? `${read + 1}-${total}` : "",
+    scenes: copy.scenes,
+    characters: copy.characters,
+  };
+}
+
+/* The machine's gauge, which the picker re-reads every second. There is
+   no machine here, so it drifts a little rather than standing still —
+   a figure that never moves would say the poll was not running. */
+export function memory() {
+  const used = 23.4 + (Math.round(Date.now() / 1000) % 7) / 10;
+  return { memory: `RAM: ${used.toFixed(1)} / 64.0 GB (${Math.round((100 * used) / 64)}%)` };
+}
+
+export function providers(scope = "") {
+  // The product answers in two phases — the local engines now, the
+  // cloud catalogs after. The demo has no cloud half, and says so with
+  // an empty second phase rather than doubled engines.
+  if (scope === "cloud") {
+    return { current: `${PROVIDER}/${state.model}`, memory: memory().memory, engines: [] };
   }
-  return ids.sort((a, b) => a - b);
+  const all = allProviders();
+  if (scope && scope !== "local") {
+    return { ...all, engines: all.engines.filter((engine) => engine.name === scope) };
+  }
+  return all;
 }
 
-export function storyMessages(id) {
-  const story = state.stories.get(id);
-  return story ? story.turns.map((t) => ({ ...t })) : [];
-}
-
-export function lore() {
-  const memory = state.lore.get(state.open);
-  if (!memory) return { notice: "No story yet — send a message first.", refused: true };
-  return structuredClone(memory);
-}
-
-export function providers() {
+function allProviders() {
   return {
     current: `${PROVIDER}/${state.model}`,
-    memory: "RAM: 23.4 / 64.0 GB (37%)",
+    memory: memory().memory,
     engines: [
       {
         name: PROVIDER,
@@ -248,12 +279,13 @@ export function usage(scope) {
     rows: [
       {
         purpose: "chat",
+        label: "Played turns", // `reports.USAGE_PURPOSES`, whose spelling this is
         provider: PROVIDER,
         model: state.model,
         requests: rows.length,
         prompt_tokens: prompt,
         completion_tokens: completion,
-        cached_tokens: 0, // the scripted model keeps no cache to read from
+        cached_tokens: 0, // the demo model keeps no cache to read from
         rate: seconds > 0 ? completion / seconds : 0,
       },
     ],
@@ -262,15 +294,24 @@ export function usage(scope) {
     completion_tokens: completion,
     cached_tokens: 0,
     total_tokens: prompt + completion,
+    note: `${prompt.toLocaleString("en-US")} asked, ${completion.toLocaleString("en-US")} answered.`,
   };
 }
 
 export function balance() {
+  // Nobody has a key in a browser tab, so every account says the same
+  // thing — and the total is null, as it is whenever nothing answered.
+  const nothing = (provider, label) => ({
+    provider,
+    label,
+    money: null,
+    note: "no key set",
+    value: "no key set",
+  });
   return {
-    rows: [
-      { provider: "openrouter", label: "OpenRouter", value: "—" },
-      { provider: "nanogpt", label: "NanoGPT", value: "—" },
-    ],
+    rows: [nothing("openrouter", "OpenRouter"), nothing("nanogpt", "NanoGPT")],
+    total: null,
+    note: `This story runs on ${PROVIDER}, which spends nothing. Paid providers are charged only when you switch to one.`,
   };
 }
 
@@ -287,7 +328,7 @@ export function info(version) {
       {
         rows: [
           ["Model", `${PROVIDER}/${state.model}`],
-          ["Backend", "scripted (a demo model that lives in the page)"],
+          ["Backend", "demo (a model that lives in the page)"],
           ["Context", modelRow().context],
           ["Thinking", "not supported"],
         ],
@@ -298,8 +339,8 @@ export function info(version) {
   };
 }
 
-export function exportDocument() {
-  const story = state.stories.get(state.open);
+export function exportDocument(storyId) {
+  const story = state.stories.get(storyId);
   if (!story || !story.turns.length) return { notice: "Nothing to export yet.", refused: true };
   const name = `${slug(label(story)) || "story"}.md`;
   const text = [
@@ -336,15 +377,17 @@ export function land(storyId, messageId, action) {
   return say(landed("Resumed"));
 }
 
-export function setSystem(text) {
-  const story = state.stories.get(state.open);
+export function setSystem(storyId, text) {
+  // The story the PATH named, which is not always the open one: the
+  // dossier edits any story from the outside.
+  const story = state.stories.get(storyId);
   if (!text) {
     const current = story && story.system;
     return say(current ? `System: "${current}"` : "System: (none)");
   }
   if (story) {
     story.system = text;
-    touch(state.open);
+    touch(storyId);
   }
   return say(`System prompt set (${text.length} chars).`);
 }
@@ -380,30 +423,32 @@ export function editMessage(messageId, body) {
   return say("Message edited.");
 }
 
-export function editLore(kind, target, text) {
-  if (kind === "history") return refuse("The history is derived — correct the entries and it rebuilds.");
+export function editLore(storyId, kind, target, text) {
+  /* One corrected row, addressed the way the product addresses it: the
+     PATH said which story and which row, the body said which of its
+     fields, and all three arrive here. */
   if (kind === "scene-summary" && !text.trim()) {
     return refuse("An emptied summary would swallow its scene — not saved.");
   }
-  const memory = state.lore.get(state.open);
+  const memory = state.lore.get(storyId);
   if (!memory) return refuse("No story yet — send a message first.");
   for (const scene of memory.scenes) {
     if (kind === "scene-title" && scene.id === target) scene.title = text;
     if (kind === "scene-summary" && scene.id === target) scene.summary = text;
-    for (const field of scene.fields) if (field.kind === kind && field.target === target) field.text = text;
   }
-  for (const person of memory.cast) {
+  for (const person of memory.characters) {
     if (kind === "description" && person.id === target) person.description = text;
-    for (const field of person.fields) {
-      if (field.kind === kind && field.target === target) {
-        field.text = text;
-        if (field.kind === "state" && person.fields.filter((f) => f.kind === "state").at(-1) === field) {
-          person.now = text;
-        }
+    if (kind === "card" && person.id === target) person.card = text;
+  }
+  // A journal record is one thing read from two sides, so both sides
+  // carry it and both must be corrected.
+  for (const group of [memory.scenes, memory.characters]) {
+    for (const item of group) {
+      for (const record of item.journals) {
+        if (record.id === target) record[kind] = text;
       }
     }
   }
-  refreshLoreLabels(memory);
   return say("Saved.");
 }
 
@@ -415,20 +460,6 @@ export function switchModel(provider, model) {
   }
   state.model = model;
   return say(`Switched to ${PROVIDER}/${state.model}.`);
-}
-
-export function switchSpec(raw) {
-  const [head, ...rest] = raw.trim().split("/");
-  const known = providers().engines.map((e) => e.name);
-  if (!known.includes(head) || !rest.length || !rest.join("/")) {
-    return refuse(
-      `Use PROVIDER/MODEL (providers: ${[...known].sort().join(", ")}), or /model with no args to pick.`,
-    );
-  }
-  if (head !== PROVIDER) {
-    return refuse(`Only the demo provider answers here — ${INSTALL}.`);
-  }
-  return switchModel(head, rest.join("/"));
 }
 
 export function loadModel(model, wanted) {
@@ -446,35 +477,28 @@ export function recordHistory(line) {
   return say("");
 }
 
-// ---------- the story-level operations (/api/command rows) ----------
+// ---------- the story-level writes ----------
 
 export function newStory(title) {
   const id = addStory(title.trim(), "", []);
   state.open = id;
-  if (!title.trim()) return say("Started a new story.");
-  return say(`Started a new story: "${cut(title.trim(), 50)}".`);
+  // The id it made, as the product's `Created` carries it: a page with
+  // no story addresses this one next.
+  const said = title.trim()
+    ? say(`Started a new story: "${cut(title.trim(), 50)}".`)
+    : say("Started a new story.");
+  return { ...said, story: id };
 }
 
-export function forkStory(title) {
-  const story = state.stories.get(state.open);
+export function forkStory(storyId, title) {
+  // The story the PATH named — a copy made from a browser row must not
+  // silently copy whatever happens to be open instead.
+  const story = state.stories.get(storyId);
   if (!story || !story.turns.length) return refuse("Nothing to fork yet — send a message first.");
   const id = addStory(title.trim() || numberedTitle(story.title), story.system, story.turns);
   state.open = id;
   const named = cut(label(state.stories.get(id)), 50);
   return say(named ? `Forked to: ${named}.` : "Forked.");
-}
-
-export function setTitle(raw) {
-  const title = raw.trim();
-  const story = state.stories.get(state.open);
-  if (!title) {
-    const current = story && story.title;
-    return say(current ? `Title: "${current}"` : "Usage: /title NEW-TITLE");
-  }
-  if (!story) return say(`Story title set to "${title}".`);
-  story.title = title;
-  touch(state.open);
-  return say(`Story title set to "${title}".`);
 }
 
 export function undo() {
@@ -488,74 +512,72 @@ export function undo() {
   return say(`Took back the last exchange (${popped.length} messages).`);
 }
 
-export function setToggle(name, raw) {
-  const value = raw.trim().toLowerCase();
-  const labels = { verbose: "Verbose", autocorrect: "Autocorrect", notification: "Notification" };
-  if (value) {
-    if (["on", "true", "yes"].includes(value)) state.settings[name] = true;
-    else if (["off", "false", "no"].includes(value)) state.settings[name] = false;
-    else return refuse(`Usage: /set ${name} on|off`);
-  }
-  return say(`${labels[name]}: ${state.settings[name] ? "on" : "off"}.`);
+export function setKnob(name, value) {
+  /* One session-wide knob, dispatched by name — the shape the server
+     answers `PUT /api/settings/{setting}` with, down to a raw string
+     each setter parses for itself. A knob the demo has never heard of
+     is refused here rather than silently kept. */
+  const raw = value === true ? "on" : value === false ? "off" : String(value);
+  const setter = _KNOBS[name];
+  if (!setter) return refuse(`Unknown setting '${name}'.`);
+  return setter(raw);
 }
 
-export function setThink(raw) {
-  const s = state.settings;
-  if (!raw.trim()) return say(`Think: ${s.think}.`);
-  const aliases = { on: "medium", off: "none" };
-  const value = aliases[raw.trim().toLowerCase()] || raw.trim().toLowerCase();
-  if (value === "default") {
-    s.think = "default";
-    return say("Think: default (nothing sent — the model decides).");
-  }
-  if (!s.think_levels.includes(value)) {
-    return refuse("Usage: /set think on|off|none|low|medium|high|max|default");
-  }
-  s.think = value;
-  return say(`Think: ${value}.`);
-}
-
-export function setParameter(raw) {
-  const tokens = raw.split(/\s+/).filter(Boolean);
-  const params = state.settings.parameters;
-  if (!tokens.length) {
-    const set = params.filter((p) => p.value);
-    if (!set.length) return say("No parameters set.");
-    return say(`Parameters:\n${set.map((p) => `  ${p.name} = ${p.value}.`).join("\n")}`);
-  }
-  const [name, ...restTokens] = tokens;
-  const row = params.find((p) => p.name === name);
-  if (!row) return refuse(`Unknown parameter '${name}'. Known: ${params.map((p) => p.name).join(", ")}.`);
-  const rest = restTokens.join(" ");
-  if (!rest) {
-    if (row.value) return say(`${name} = ${row.value}`);
-    return say(`Parameter ${name} is at the model's own default.`);
-  }
-  if (rest.toLowerCase() === "reset") {
+export function setParameter(name, value) {
+  // One per-model parameter; "reset" puts it back to the model's own
+  // default, which is what a DELETE on it means.
+  const row = state.settings.parameters.find((p) => p.name === name);
+  if (!row) return refuse(`Unknown parameter '${name}'.`);
+  const text = String(value).trim();
+  if (text.toLowerCase() === "reset") {
     if (!row.value) return say(`Parameter ${name} is already at its default.`);
     row.value = "";
     return say(`Parameter ${name} reset to default.`);
   }
-  if (row.type === "float" && Number.isNaN(Number.parseFloat(rest))) {
-    return refuse(`Could not parse '${rest}' as float.`);
+  if (row.type === "float" && Number.isNaN(Number.parseFloat(text))) {
+    return refuse(`Could not parse '${text}' as float.`);
   }
-  if (row.type === "int" && !/^-?\d+$/.test(rest)) return refuse(`Could not parse '${rest}' as int.`);
-  row.value = rest;
-  return say(`${name} = ${rest}.`);
+  if (row.type === "int" && !/^-?\d+$/.test(text)) return refuse(`Could not parse '${text}' as int.`);
+  row.value = text;
+  return say(`${name} = ${text}.`);
 }
 
-export function unknownNotice(line) {
-  // `backend.commands.unknown_notice`, mirrored over the fixture's table so
-  // the /set usage line is composed from the same rows.
-  const word = line.trim().split(" ")[0] || "";
-  if (word === "/set") {
-    const forms = state.commands.rows
-      .filter((r) => r.token.startsWith("/set "))
-      .map((r) => `${r.token} ${r.args}`.trim())
-      .join(" | ");
-    return refuse(`Usage: ${forms}`);
-  }
-  return refuse(`Unknown command: ${word}. Type /help.`);
+const _KNOBS = {
+  think: (raw) => {
+    const s = state.settings;
+    const aliases = { on: "medium", off: "none" };
+    const value = aliases[raw.trim().toLowerCase()] || raw.trim().toLowerCase();
+    if (value === "default") {
+      s.think = "default";
+      return say("Think: default (nothing sent — the model decides).");
+    }
+    if (!s.think_levels.includes(value)) {
+      return refuse("Usage: /set think on|off|none|low|medium|high|max|default");
+    }
+    s.think = value;
+    return say(`Think: ${value}.`);
+  },
+  verbose: (raw) => _toggle("verbose", "Verbose", raw),
+  autocorrect: (raw) => _toggle("autocorrect", "Autocorrect", raw),
+  notification: (raw) => _toggle("notification", "Notification", raw),
+  max_context: (raw) => {
+    const value = raw.trim().toLowerCase();
+    if (["off", "none", "0"].includes(value)) {
+      state.settings.max_context = 0;
+      return say("Max context: the model's whole window.");
+    }
+    if (!/^\d+$/.test(value)) return refuse("Usage: /set max_context TOKENS|off");
+    state.settings.max_context = Number.parseInt(value, 10);
+    return say(`Max context: ${state.settings.max_context} tokens.`);
+  },
+};
+
+function _toggle(name, label, raw) {
+  const value = raw.trim().toLowerCase();
+  if (["on", "true", "yes"].includes(value)) state.settings[name] = true;
+  else if (["off", "false", "no"].includes(value)) state.settings[name] = false;
+  else return refuse(`Usage: /set ${name} on|off`);
+  return say(`${label}: ${state.settings[name] ? "on" : "off"}.`);
 }
 
 // ---------- what the reply stream needs ----------
@@ -568,7 +590,18 @@ export function recordTurn(role, body) {
     state.open = id;
     story = state.stories.get(id);
   }
-  const turn = { id: state.nextMessage++, role, body };
+  const turn = {
+    id: state.nextMessage++,
+    role,
+    body,
+    kind: "dialogue",
+    // Absent is NULL here as it is in `web.api._turn`: a speaker the
+    // extractor has not named yet is a state the reader pane draws.
+    speaker: null,
+    provider: role === "assistant" ? PROVIDER : null,
+    model: role === "assistant" ? state.model : null,
+    template: null,
+  };
   story.turns.push(turn);
   touch(state.open);
   moved();
@@ -609,7 +642,7 @@ export function contextTokens() {
 // ---------- the lore pass ----------
 
 export function memoryOf(storyId) {
-  if (!state.lore.has(storyId)) state.lore.set(storyId, { scenes: [], cast: [] });
+  if (!state.lore.has(storyId)) state.lore.set(storyId, { scenes: [], characters: [] });
   return state.lore.get(storyId);
 }
 
@@ -671,26 +704,14 @@ function label(story) {
 }
 
 function storySoFar(id) {
-  const memory = state.lore.get(id);
-  const withHistory = memory?.cast.flatMap((c) => c.fields).filter((f) => f.kind === "history") ?? [];
-  // The captured lore carries the sample's story-so-far on its scenes'
-  // summaries; the listing wants the arc line, which the fixture's
-  // story row supplied at seed time — after that, the newest summary
-  // stands in.
-  const scenes = memory?.scenes ?? [];
-  return withHistory.at(-1)?.text || scenes.at(-1)?.summary || "";
+  // The arc a listing row shows: the newest scene's own rollup, and the
+  // newest summary where no rollup was composed here.
+  const scenes = state.lore.get(id)?.scenes ?? [];
+  return scenes.at(-1)?.history || scenes.at(-1)?.summary || "";
 }
 
 function firstUser(story) {
   return story.turns.find((t) => t.role === "user")?.body || "";
-}
-
-function refreshLoreLabels(memory) {
-  for (const scene of memory.scenes) {
-    const no = memory.scenes.indexOf(scene) + 1;
-    scene.label = [no, scene.span, flatten(scene.title)].filter(Boolean).join("  ");
-    for (const field of scene.fields) if (field.kind === "scene-title") field.text = scene.title;
-  }
 }
 
 function touch(id) {

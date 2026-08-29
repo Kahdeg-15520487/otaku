@@ -10,7 +10,7 @@ up without a restart and without a reload anybody has to remember.
 
 What a request MEANS is `web.api`'s: a handler looks a path up — in the
 asset table below, or in `api`'s own tables — and carries the result.
-The thread that owns the session is `web.runner`; everything above HTTP
+The thread that owns the session is `web.thread`; everything above HTTP
 (the banner, the tail, Ctrl+C, the wiring of all three) is `web.run`,
 which is also the only place anything is printed: the serving is handed
 one line per request worth showing (`Hooks`) and knows nothing about
@@ -22,11 +22,11 @@ What may be served is a CLOSED table: a request path is looked up, never
 joined onto a directory, so no request can compose its way to
 `configs/providers.toml`.
 
-The API is two prefixes, and the prefix IS the lane. `/api/read/…` only
-reads the session and is answered on the read queue — during a reply as
-well as between them, which is what keeps every screen answerable while
-the model talks. `/api/do/…`, `/api/command` and `/api/play` move the
-story and take the one thread in turn, in the order they arrived.
+The API is one table of methods and paths (`api.ROUTES`), and the METHOD
+is the lane. A GET only reads the session and is answered on the read
+queue — during a reply as well as between them, which is what keeps
+every screen answerable while the model talks. Every other method moves
+the story and takes the one thread in turn, in the order it arrived.
 
 The document, the stylesheet and the scripts are `no-store` — they are
 small, they are local, and a stale one costs more than the bytes ever
@@ -36,11 +36,12 @@ version numbers in their names instead.
 `custom.css` is the one asset that is NOT packaged: it comes from the
 state dir (`web/custom.css`), is absent by default, and is loaded last so
 that anything in it wins. The token contract it writes against is
-`docs/web_tokens.md`.
+`docs/web_tokens.md`, and the HTTP surface is `otaku/web/api.yaml`.
 """
 
 import contextlib
 import json
+import re
 import sys
 import threading
 import time
@@ -50,14 +51,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
-from otaku.backend import commands
 from otaku.backend.api.play import PlayEvent
 from otaku.backend.session import Refused, Session
 from otaku.settings.config import WebSettings
 from otaku.web import api
-from otaku.web.runner import SessionRunner, StoppingError
+from otaku.web.thread import SessionRunner, StoppingError
 
 __all__ = ["LOOPBACK", "Hooks", "bind"]
 
@@ -75,59 +75,101 @@ _EVENT_STREAM = "text/event-stream"
 _JSON = "application/json; charset=utf-8"
 _WOFF2 = "font/woff2"
 
-# The two lanes, spelled in the URL. Everything under `/api/read/` only
-# READS the session and is answered on the read queue — during a reply as
-# well as between them; everything under `/api/do/` (and `/api/command`,
-# and `/api/play`) moves the story and waits its turn. A handler that
-# needed the other lane would be in the wrong prefix, which is the point
-# of having two.
-_READ = "/api/read/"
-_DO = "/api/do/"
+# The lane is the METHOD. A GET only READS the session and is answered on
+# the read queue — during a reply as well as between them, which is what
+# keeps every screen answerable while the model talks; every other method
+# moves the story and waits its turn. HTTP already draws that line, so a
+# handler cannot be filed under the wrong one by accident.
+_READING = "GET"
+
+# The path parameters that are ROW IDS. They match digits alone, so a
+# page that lost its story cannot address `/api/stories/null/…`: no route
+# matches, the answer is a plain 404, and no handler is ever handed a
+# number that is not one. Every other parameter is a NAME — a provider, a
+# model, a card token — and names may be anything a segment can hold.
+_NUMERIC = ("story", "message", "scene", "character", "record")
+
+
+def _pattern(template: str) -> "re.Pattern[str]":
+    """One path template as a regex — declared here, above the constant
+    it builds, because that constant is the only thing that needs it."""
+
+    def segment(found: "re.Match[str]") -> str:
+        name = found.group(1)
+        return f"(?P<{name}>" + (r"\d+" if name in _NUMERIC else "[^/]+") + ")"
+
+    return re.compile("^" + re.sub(r"\{(\w+)}", segment, template) + "$")
+
+
+# Both API tables are keyed by template. One regex per template, compiled
+# once: `{name}` matches a single segment and reaches the handler as
+# `ask.params[name]`. Longest first, so a literal segment is never eaten
+# by a parameter that could also match it. A flow keeps its own mark,
+# because it is the one kind of row that also needs `Pending`.
+_Row = tuple[str, "re.Pattern[str]", Any, bool]
+
+_ROUTES: tuple[_Row, ...] = tuple(
+    sorted(
+        (
+            (method, _pattern(template), call, flow)
+            for table, flow in ((api.ROUTES, False), (api.FLOWS, True))
+            for (method, template), call in table.items()
+        ),
+        key=lambda row: -len(row[1].pattern),
+    )
+)
+
+# The extraction poll: a GET the server answers itself, so it is not a
+# row in either table and needs its own pattern.
+_EXTRACTION = re.compile(r"^/api/stories/\d+/extraction$")
 
 # A local page is never worth a stale byte; the fonts change about once
 # per Plex release and their names change with them.
 _NO_STORE = "no-store, no-cache, must-revalidate, max-age=0"
 _IMMUTABLE = "public, max-age=31536000, immutable"
 
-_SCRIPTS = (
-    "app.js",
-    "js/api.js",
-    "js/browser.js",
-    "js/commands.js",
-    "js/composer.js",
-    "js/dom.js",
-    "js/format.js",
-    "js/help.js",
-    "js/lore.js",
-    "js/models.js",
-    "js/reports.js",
-    "js/settings.js",
-    "js/shell.js",
-    "js/stories.js",
-    "js/system.js",
-    "js/table.js",
-    "js/transcript.js",
-    "js/transfer.js",
-    "js/watch.js",
-)
+# Where the reader's own typefaces are asked for, and what may be one.
+# Under a prefix of its own rather than `/fonts/`, so a name of theirs can
+# never shadow one of ours — the packaged table is looked up first, and a
+# reader debugging their own stylesheet should not have to know that.
+_CUSTOM_FONTS = "/web-fonts/"
+_FONT_SUFFIXES = {".woff2": _WOFF2, ".woff": "font/woff", ".ttf": "font/ttf", ".otf": "font/otf"}
 
-_FONTS = (
-    "IBMPlexMono-400.woff2",
-    "IBMPlexMono-500.woff2",
-    "IBMPlexMono-600.woff2",
-    "IBMPlexSans-400.woff2",
-    "IBMPlexSans-500.woff2",
-    "IBMPlexSans-600.woff2",
-)
 
-# request path -> (packaged file, content type, cache policy). Adding an
-# asset means adding a row: that is the point.
+def _packaged(*where: str, suffix: str) -> tuple[str, ...]:
+    """Every packaged file of one kind, listed from the directory it
+    lives in — sorted, so the table is built the same way twice.
+
+    Read at import, which is what makes the table below CLOSED: its keys
+    are exactly the files that shipped, and a request path is looked up
+    in it rather than joined onto a directory. Listing rather than typing
+    them out is only about who keeps the inventory: adding a script or a
+    font is then one file, not one file and one row. A file added while
+    otaku is running needs a restart to be served — editing one does
+    not, because the bytes are read per request."""
+    directory = _STATIC_PATH.joinpath(*where)
+    prefix = "".join(f"{part}/" for part in where)
+    if not directory.is_dir():
+        return ()
+    return tuple(
+        sorted(f"{prefix}{found.name}" for found in directory.iterdir() if found.suffix == suffix)
+    )
+
+
+# The page's own modules and its typefaces, both taken from the package.
+_SCRIPTS = ("app.js", *_packaged("js", suffix=".js"))
+_FONTS = _packaged("fonts", suffix=".woff2")
+
+# request path -> (packaged file, content type, cache policy). A path is
+# LOOKED UP here and never joined onto a directory, which is what keeps a
+# request from composing its way to `configs/providers.toml`. That is a
+# property of the lookup, not of who wrote the list — so the two families
+# that grow are listed from disk above.
 _ASSETS: dict[str, tuple[str, str, str]] = {
     "/": ("index.html", _HTML, _NO_STORE),
     "/app.css": ("app.css", _CSS, _NO_STORE),
-    "/overrides.css": ("overrides.css", _CSS, _NO_STORE),
     **{f"/{name}": (name, _JS, _NO_STORE) for name in _SCRIPTS},
-    **{f"/fonts/{name}": (f"fonts/{name}", _WOFF2, _IMMUTABLE) for name in _FONTS},
+    **{f"/{name}": (name, _WOFF2, _IMMUTABLE) for name in _FONTS},
 }
 
 # The page's beat. Neither lane, because it never takes the session's
@@ -304,31 +346,88 @@ class _Handler(BaseHTTPRequestHandler):
         path = self._path()
         if path == _ALIVE:
             self._beat()
-        elif path.startswith(_READ):
-            self._reading(path[len(_READ) :])
+        elif path == _WATCH:
+            self._watch_stream()
+        elif _EXTRACTION.match(path):
+            # The one read that never queues: the answer may be "the pass
+            # that owns the session's thread is still running", and a
+            # run's `poll` is channel-safe by contract, so this thread
+            # answers it.
+            run = self.server.pending.extraction
+            self._json({"report": run.poll() if run is not None else None})
+        elif path.startswith("/api/"):
+            self._route()
         elif path in _ASSETS:
             name, content_type, cache = _ASSETS[path]
             self._send(self._asset(name), content_type, cache)
         elif path == "/custom.css":
             self._send(self._custom_css(), _CSS, _NO_STORE)
-        elif path == _WATCH:
-            self._watch_stream()
+        elif path.startswith(_CUSTOM_FONTS):
+            self._own_font(path.removeprefix(_CUSTOM_FONTS))
         else:
             self.send_error(404)
 
     def do_POST(self) -> None:
-        if not self._from_this_machine() or not self._from_our_page():
+        if not self._writing():
             return
-        path = self._path()
-        body = self._body()
+        path, body = self._path(), self._body()
+        # The two that answer with a STREAM rather than a payload, so
+        # neither can be a row in the table.
         if path == "/api/play":
-            self._play(str(body.get("line", "")), regenerate=bool(body.get("regenerate")))
-        elif path == "/api/command":
-            self._command(str(body.get("line", "")))
-        elif path.startswith(_DO):
-            self._doing(path[len(_DO) :], body)
+            self._play(str(body.get("line", "")))
+        elif path == "/api/play/last":
+            self._play("", regenerate=True)
         else:
+            self._route(body)
+
+    def do_PUT(self) -> None:
+        if self._writing():
+            self._route(self._body())
+
+    def do_PATCH(self) -> None:
+        if self._writing():
+            self._route(self._body())
+
+    def do_DELETE(self) -> None:
+        if self._writing():
+            self._route(self._body())
+
+    def _writing(self) -> bool:
+        """Every method but GET moves the story, so every one of them
+        answers to both guards."""
+        return self._from_this_machine() and self._from_our_page()
+
+    def _route(self, body: dict[str, Any] | None = None) -> None:
+        """One request against the API tables: the first template this
+        method and path match wins, and what the path captured reaches
+        the handler as its `params`. The METHOD decides the lane, which
+        is what lets a GET be answered while a reply streams."""
+        work = self._match(body or {})
+        if work is None:
             self.send_error(404)
+            return
+        self._answer(work, reading=self.command == _READING)
+
+    def _match(self, body: dict[str, Any]) -> Callable[[Session], Any] | None:
+        """The work this request names, ready to run on the session's
+        thread — a flow taking the cross-request state as well, which is
+        the only way the two kinds differ once matched."""
+        path = self._path()
+        for method, pattern, call, flow in _ROUTES:
+            found = pattern.match(path) if method == self.command else None
+            if found is None:
+                continue
+            named = {name: unquote(value) for name, value in found.groupdict().items()}
+            ask = api.Ask(params=named, query=self._query(), body=body)
+            return self._work(call, ask, flow=flow)
+        return None
+
+    def _work(self, call: Any, ask: api.Ask, *, flow: bool) -> Callable[[Session], Any]:
+        """One matched row as the single-argument job the runner takes —
+        a flow given the cross-request state it declared it needs."""
+        if flow:
+            return lambda session: call(session, ask, self.server.pending)
+        return lambda session: call(session, ask)
 
     def _beat(self) -> None:
         """The page's "are you still there", and what it can be told
@@ -340,54 +439,6 @@ class _Handler(BaseHTTPRequestHandler):
         the same way a terminal does, rather than finding the lore there
         later."""
         self._json({"status": self.server.hooks.working(), "notices": self.server.hooks.sayings()})
-
-    def _reading(self, name: str) -> None:
-        """Everything under the read prefix — one lane, which is what
-        lets any of these be answered while a reply streams. A read
-        takes its argument as a query, never a path segment: what it
-        names is a value, not a place."""
-        if name == "extract":
-            # The one read that is not a row: it must not queue for the
-            # session's thread (the answer may be "the pass that owns
-            # that thread is still running"), and a run's `poll` is
-            # channel-safe by contract, so the handler answers it here.
-            run = self.server.pending.extraction
-            self._json({"report": run.poll() if run is not None else None})
-            return
-        read = api.READS.get(name)
-        if read is None:
-            self.send_error(404)
-            return
-        query = self._query()
-        self._answer(lambda session: read(session, query), reading=True)
-
-    def _doing(self, name: str, body: dict[str, Any]) -> None:
-        """One write a screen performed — a flow when its result must
-        outlive the request, a plain action otherwise. Both are rows;
-        which table answers is this method's whole decision."""
-        flow = api.FLOWS.get(name)
-        if flow is not None:
-            pending = self.server.pending
-            self._answer(lambda session: flow(session, pending, body))
-            return
-        action = api.ACTIONS.get(name)
-        if action is None:
-            self.send_error(404, f"no action {name}")
-            return
-        self._answer(lambda session: {"notice": action(session, body)})
-
-    def _command(self, line: str) -> None:
-        """One command line the page routed here. Which rows this
-        frontend answers, and what each returns, is `api.answering`'s —
-        resolved before anything queues, so a line no row matches is
-        answered from this thread: with the shared unknown-command
-        sentence (`backend.commands.unknown_notice`), as the refusal it is —
-        the page shows it verbatim, exactly as the terminal does."""
-        call = api.answering(line)
-        if call is None:
-            self._json({"notice": commands.unknown_notice(line), "refused": True})
-            return
-        self._answer(call)
 
     # ---------- who is asking ----------
 
@@ -495,13 +546,44 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_error(503, "otaku is stopping")
         except Refused as e:
             self._json({"notice": str(e), "refused": True})
-        except (KeyError, ValueError) as e:
-            # A field the page did not send, or one it sent wrong: a
-            # malformed request wherever it came from.
-            self.send_error(400, f"{type(e).__name__}: {e}")
+        except (KeyError, TypeError, ValueError) as e:
+            # A field the page did not send, or one it sent wrong — a
+            # null where a number belongs included. Malformed wherever it
+            # came from, and never a crash to file: anything that scans
+            # this port can send one.
+            self._failed(400, e)
         except Exception as e:
             self.server.crashed(f"web {self.command} {self._path()}", e)
-            self.send_error(500, f"{type(e).__name__}: {e}")
+            self._failed(500, e)
+        else:
+            self._answered(payload)
+
+    def _failed(self, status: int, why: Exception) -> None:
+        """A failure as a BODY, never as the status line. The reason is a
+        story title, a character name, a provider's own error text — and
+        the status line is latin-1, so putting it there answers a reader
+        writing in Cyrillic or Japanese with a dropped connection and
+        nothing else.
+
+        Written for a DEVELOPER, not for the reader: the page logs this
+        to the console and shows a sentence of its own (`api.js`),
+        because a fault has no wording anybody chose. `refused` is
+        absent, which is what tells the two apart — a refusal is an
+        answer and comes back 200."""
+        self._json({"notice": f"{type(why).__name__}: {why}"}, status=status)
+
+    def _answered(self, payload: object) -> None:
+        """What a handler gave back, as a reply. A bare sentence is a
+        notice; a `Created` is 201 and says in `Location` where the thing
+        it made now lives; anything else is the payload itself."""
+        if isinstance(payload, api.Created):
+            self._json(
+                {"notice": payload.notice, **payload.extra},
+                status=201,
+                headers=(("Location", payload.location),),
+            )
+        elif isinstance(payload, str):
+            self._json({"notice": payload})
         else:
             self._json(payload)
 
@@ -538,7 +620,7 @@ class _Handler(BaseHTTPRequestHandler):
             # only place left to say what happened.
             self.server.crashed(f"web {self.command} {self._path()}", e)
             if not self._streaming:
-                self.send_error(500, f"{type(e).__name__}: {e}")
+                self._failed(500, e)
 
     def _pump(self, events: Iterator[PlayEvent], session: Session) -> None:
         """Write the stream out, on the session's thread. Whatever ends
@@ -603,7 +685,10 @@ class _Handler(BaseHTTPRequestHandler):
         self._frame(None, retry=_RETRY_MS)
         try:
             for name in _changes(_STATIC_PATH, self.server.custom_web_dir):
-                self._frame(name)
+                if name is None:
+                    self._ping()
+                else:
+                    self._frame(name)
         except (BrokenPipeError, ConnectionResetError):
             return
 
@@ -617,6 +702,31 @@ class _Handler(BaseHTTPRequestHandler):
         for part in name.split("/"):
             target = target / part
         return target.read_bytes()
+
+    def _own_font(self, name: str) -> None:
+        """A typeface of the reader's own, from `web/fonts/` in the state
+        dir — what makes `custom.css` a whole theme and not a palette:
+        `@font-face { src: url("/web-fonts/Mine.woff2") }` and it is
+        theirs. Their directory, their files.
+
+        Looked up the way the packaged assets are: the directory is
+        LISTED and the name must be one of its entries, so nothing a
+        request carries is ever joined onto a path — `..` is not a name
+        `iterdir` returns. Not cached, unlike the packaged fonts: those
+        carry a version in the name and these do not."""
+        directory = self.server.custom_web_dir / "fonts"
+        try:
+            found = next(
+                (f for f in directory.iterdir() if f.name == name and f.suffix in _FONT_SUFFIXES),
+                None,
+            )
+            if found is None:
+                return self.send_error(404)
+            self._send(found.read_bytes(), _FONT_SUFFIXES[found.suffix], _NO_STORE)
+        except OSError:
+            # No such directory is the normal case, and a file that went
+            # away between the listing and the read is the same answer.
+            self.send_error(404)
 
     def _custom_css(self) -> bytes:
         """The reader's own stylesheet, or nothing. Absent is the normal
@@ -641,14 +751,23 @@ class _Handler(BaseHTTPRequestHandler):
         traceback in the day's error log for something that is not a
         bug."""
         try:
-            length = int(self.headers.get("Content-Length", 0) or 0)
+            # Never negative: `read(-1)` reads to EOF, which for a
+            # connection a browser holds open is forever — one held
+            # thread and socket per request, answering nothing.
+            length = max(0, int(self.headers.get("Content-Length", 0) or 0))
             parsed = json.loads(self.rfile.read(length) or b"{}")
         except (ValueError, json.JSONDecodeError):
             return {}
         return parsed if isinstance(parsed, dict) else {}
 
-    def _json(self, payload: object) -> None:
-        self._send(json.dumps(payload).encode(), _JSON, _NO_STORE)
+    def _json(
+        self,
+        payload: object,
+        *,
+        status: int = 200,
+        headers: tuple[tuple[str, str], ...] = (),
+    ) -> None:
+        self._send(json.dumps(payload).encode(), _JSON, _NO_STORE, status=status, headers=headers)
 
     def _frame(self, data: str | None, *, retry: int | None = None) -> None:
         """One server-sent event, flushed — a stream nobody flushes is a
@@ -658,11 +777,30 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(f"{head}{body}\n".encode())
         self.wfile.flush()
 
-    def _send(self, body: bytes, content_type: str, cache: str) -> None:
-        self.send_response(200)
+    def _ping(self) -> None:
+        """A comment frame, which the browser ignores. It is here for the
+        WRITE: a stream that only writes when a file changes never finds
+        out that its reader closed the tab, and would hold this thread
+        and its socket for the life of the process — one of each per
+        reload. A file changes rarely; a tab is closed constantly."""
+        self.wfile.write(b": \n\n")
+        self.wfile.flush()
+
+    def _send(
+        self,
+        body: bytes,
+        content_type: str,
+        cache: str,
+        *,
+        status: int = 200,
+        headers: tuple[tuple[str, str], ...] = (),
+    ) -> None:
+        self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", cache)
+        for name, value in headers:
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -677,10 +815,12 @@ def _named(host: str) -> str:
 # ---------- the watch poller ----------
 
 
-def _changes(*watched: Path) -> Iterator[str]:
+def _changes(*watched: Path) -> Iterator[str | None]:
     """Each file of the page's that changed, forever — written, added or
     removed. A deletion counts: the browser would otherwise keep running
-    a script that is no longer there.
+    a script that is no longer there. A tick where nothing changed yields
+    None, so the caller can write to its socket often enough to notice a
+    reader that has gone.
 
     Polled rather than watched, because a dependency on a file watcher
     buys nothing here: a browser reload is slower than the interval, and
@@ -689,13 +829,15 @@ def _changes(*watched: Path) -> Iterator[str]:
     while True:
         time.sleep(_WATCH_INTERVAL)
         now = _stamps(watched)
-        for path in now.keys() | seen.keys():
-            if now.get(path) != seen.get(path):
-                # The NAME, not where it lives: all the page does with it
-                # is tell a stylesheet from everything else, and a
-                # server's own paths are nothing to hand a browser.
-                yield path.name
+        # The NAME, not where it lives: all the page does with it is tell
+        # a stylesheet from everything else, and a server's own paths are
+        # nothing to hand a browser.
+        moved = now.keys() | seen.keys()
+        changed = [path.name for path in moved if now.get(path) != seen.get(path)]
         seen = now
+        if not changed:
+            yield None
+        yield from changed
 
 
 def _stamps(watched: tuple[Path, ...]) -> dict[Path, float]:

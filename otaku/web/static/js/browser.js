@@ -1,19 +1,24 @@
-/* The shapes every screen is built from: the list-and-preview browser,
+/* The shapes every screen is built from: the list-and-detail browser,
    the editors that open where the text already is, and the ask dialogs.
 
    The browser takes its rows and its drawing callbacks and owns nothing
    else — the terminal needed a base class with hooks for the same job,
    and a page does not. A grouped list (the model picker) hands in
    `groupOf`/`drawGroup` and the captions are drawn between the rows
-   without ever being rows: the cursor walks `.otk-row` alone. */
+   without ever being rows: the cursor walks `.otk-row` alone.
+
+   The kit finds its parts by structural hooks, not by look: `[data-list]`
+   is the scroller it fills, `[data-detail]` the pane beside it,
+   `[data-note]` the footer's one slot — the fact this view stands on. A
+   panel with two lists on two tabs hands in `root`, the pane the
+   browser lives in. */
 
 import { $, $$, autosize, element, span } from "./dom.js";
-import { tell } from "./transcript.js";
+import { tell } from "./status.js";
 
-/* Every popup in the markup, by the command that opens it, and the two
-   slots of its footer. They live here because a screen module must not
-   have to import chrome from a sibling screen module — `browser.js` is
-   what a screen is built FROM. */
+/* Every popup in the markup, by the command that opens it. They live here
+   because a screen module must not have to import chrome from a sibling
+   screen module — `browser.js` is what a screen is built FROM. */
 export const popups = new Map($$("dialog[data-popup]").map((d) => [d.dataset.popup, d]));
 
 export function closeAll() {
@@ -21,23 +26,15 @@ export function closeAll() {
 }
 
 export function footnote(popup, text) {
-  /* The footer's right-hand slot: the panel's own standing fact, set
-     every time a screen opens — and what a WRITE answered with, carried
-     into the redraw the write triggers, or the standing fact would go
-     back over the answer milliseconds after it appeared. Says whether
-     there was a slot at all: a popup without a footer is a real shape
-     (the ask dialogs), and its notices go to the flow instead. */
-  const slot = $$(".otk-popup__foot span", popup).at(-1);
+  /* The footer's fact slot: the panel's own standing fact, set every
+     time a screen opens — and what a WRITE answered with, carried into
+     the redraw the write triggers, or the standing fact would go back
+     over the answer milliseconds after it appeared. Says whether there
+     was a slot at all: a popup without a footer is a real shape (the
+     ask dialogs), and its notices go to the flow instead. */
+  const slot = $("[data-note]", popup);
   if (slot) slot.textContent = text;
   return Boolean(slot);
-}
-
-export function hint(popup, text) {
-  /* The footer's left-hand slot: the keys this VIEW answers to. One
-     popup can be two views — a story list and one story's messages —
-     and a footer advertising the other one's keys is a footer lying. */
-  const slot = $(".otk-popup__foot span", popup);
-  if (slot) slot.textContent = text;
 }
 
 /** A screen's own action, answered for. Every `on*` handler and every
@@ -71,8 +68,8 @@ function failed(e) {
   tell(sentence, "otk-error");
 }
 
-/** One live wiring per popup: a screen built again — a drill-in, a lens,
-    a save — drops the last one's listeners before adding its own. The
+/** One live wiring per popup: a screen built again — a tab, a lens, a
+    save — drops the last one's listeners before adding its own. The
     controller hangs on the popup because the popup is what outlives the
     call; several screens rely on that, so it is declared once, here. */
 export function wiring(popup) {
@@ -84,10 +81,10 @@ export function wiring(popup) {
     ladder is innermost-first, and a filter with text in it is a depth
     of its own: Esc empties it and goes no further — not even to the
     popup's own keydown, which is why this must be registered BEFORE it.
-    `/` walks in from anywhere that is not already a field. A popup with
+    `/` walks in from anywhere that is not already a field. A view with
     no filter gets nothing. */
-export function wireFilter(popup, { refilter, focus }, signal) {
-  const filter = $(".otk-filter", popup);
+export function wireFilter(popup, { refilter, focus }, signal, root = popup) {
+  const filter = $(".otk-filter", root);
   if (!filter) return;
   filter.value = "";
   filter.addEventListener("input", () => refilter(filter.value), { signal });
@@ -113,7 +110,7 @@ export function browser(popup, options) {
   /* Every callback a screen hands in is answered for, once, here — a
      row opened, a row deleted, a lens switched: all of them reach the
      session, and any of them can fail. */
-  const { rows, drawRow, drawPreview, groupOf, drawGroup, search, onKey } = options;
+  const { rows, drawRow, drawPreview, groupOf, drawGroup, search, onKey, empty } = options;
   const onOpen = guard(options.onOpen);
   const onDelete = guard(options.onDelete);
   const onEdit = guard(options.onEdit);
@@ -121,10 +118,20 @@ export function browser(popup, options) {
   const onPivot = guard(options.onPivot);
   const onMove = options.onMove;
   const onBack = guard(options.onBack);
-  const list = $(".otk-list", popup);
-  const preview = $(".otk-preview", popup);
+  // The pane this browser lives in: the whole popup for a single-view
+  // panel, one `[data-pane]` of it for a tabbed one.
+  const root = options.root ?? popup;
+  const list = $("[data-list]", root);
+  const preview = $("[data-detail]", root);
+  /* The verbs under the pane. They are filled by `drawPreview`, which is
+     the SELECTED row's — so with no row selected they must be empty:
+     verbs left standing over an empty list still act on whatever was
+     highlighted before, and Delete cannot be aimed at a row nobody can
+     see. */
+  const actions = $("[data-actions]", root);
   let shown = rows;
   let cursor = 0;
+  let filtering = "";
 
   const signal = wiring(popup);
 
@@ -139,11 +146,9 @@ export function browser(popup, options) {
     // is what keeps a grouped list's index math straight.
     const drawn = $$(".otk-row", list);
     drawn.forEach((row, i) => {
-      row.classList.toggle("is-selected", i === cursor);
       row.setAttribute("aria-selected", String(i === cursor));
     });
-    // A screen without a per-row preview (the model picker draws its
-    // provider panel once, beside the list) keeps whatever it drew.
+    // A screen without a per-row preview keeps whatever it drew.
     if (drawPreview) preview.replaceChildren(...(shown.length ? drawPreview(shown[cursor]) : []));
     if (shown.length) onMove?.(shown[cursor], cursor, shown.length);
     drawn[cursor]?.scrollIntoView({ block: "nearest" });
@@ -156,12 +161,25 @@ export function browser(popup, options) {
 
   function paint() {
     const nodes = [];
+    /* A list with nothing in it says WHAT is missing and the way out —
+       a first run and a filter that matched nothing are different
+       absences, and a blank column tells a reader neither. */
+    if (!shown.length && empty) {
+      const { line, hint: way } = empty(Boolean(filtering));
+      const box = element("div", "otk-empty");
+      box.append(span("otk-empty__line", line));
+      if (way) box.append(span("otk-empty__hint", way));
+      list.replaceChildren(box);
+      if (drawPreview) preview.replaceChildren();
+      actions?.replaceChildren();
+      return;
+    }
     shown.forEach((item, i) => {
       // A grouped list gets its caption before the first row under it —
       // drawn, never selected (see `mark`). A filter narrows the rows,
       // and a group with no row left drops out with them.
       if (groupOf && (i === 0 || groupOf(item) !== groupOf(shown[i - 1]))) {
-        nodes.push(drawGroup(groupOf(item)));
+        nodes.push(...[drawGroup(groupOf(item))].flat());
       }
       const button = drawRow(item);
       button.addEventListener("click", () => {
@@ -187,10 +205,11 @@ export function browser(popup, options) {
        popup, not to us). */
     const mine = ++asked;
     const needle = raw.trim().toLowerCase();
+    filtering = needle;
     let matched;
     if (search && needle) {
       /* The whole filter, answered below both frontends: buried content
-         OR the row's own face — `api.stories.search` owns the union, so
+         OR the row's own face — the listing's own `q` owns the union, so
          this browser and the terminal's can never find different
          stories. A screen without a `search` filters its rows' own
          haystack instead. */
@@ -206,7 +225,7 @@ export function browser(popup, options) {
   }
 
   // Registered first, so the filter's Esc outranks the ladder below.
-  wireFilter(popup, { refilter, focus: () => list.focus() }, signal);
+  wireFilter(popup, { refilter, focus: () => list.focus() }, signal, root);
   popup.addEventListener(
     "keydown",
     (event) => {
@@ -225,18 +244,14 @@ export function browser(popup, options) {
       // not a reset, and `preventDefault` on one is taking it.
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (event.target.matches("input, textarea")) return;
-      // A row in the preview — a field, a message's edit — carries its
-      // own Enter, and every one of them says "enter to edit" on its
-      // face. Taking the key here would run the LIST's action instead.
-      if (event.target.closest(".otk-preview")) return;
+      // A control in the detail pane — a field, a message's edit —
+      // carries its own Enter. Taking the key here would run the LIST's
+      // action instead.
+      if (event.target.closest("[data-detail], [data-reading], [data-margin]")) return;
       if (event.key === "ArrowRight" && onPivot && shown.length) {
-        // The lore footer's `→`: the same door the row's own pivot
-        // button opens, for the reader who is on the keys.
         event.preventDefault();
         onPivot(shown[cursor]);
       } else if (event.key === "Tab" && onTab) {
-        // The lore footer advertises it, and a list is not a form: with
-        // the rows focused there is nothing else here to tab to.
         event.preventDefault();
         onTab();
       } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -270,7 +285,7 @@ export function browser(popup, options) {
      deliberately ignored — unless something claims it with `autofocus`,
      which is the platform's own way to say "start here". The direct
      call covers the other case: a browser rebuilt on a popup that is
-     already open (a drill-in, a lens, a save). */
+     already open (a tab, a lens, a save). */
   list.setAttribute("autofocus", "");
   list.focus();
   return {
@@ -293,67 +308,65 @@ export function browser(popup, options) {
   };
 }
 
-/** The edit-in-place discipline every editor shares: whatever ends it
-    ends it once. A blur AFTER a save must not put the old row back over
-    the redraw the save is doing, so the first end — Esc, a click
-    elsewhere, the save itself — settles it. Esc is stopped where it is
-    answered, because the innermost layer unwinds first: the dialog
-    above must not take a half-edited field for a close. `saves` names
-    the save key, because the shapes disagree — Ctrl+S in a block of
-    text, where Enter is a newline; Enter in a one-line field. */
-export function editingKeys(field, { saves, save, cancel }) {
-  let settled = false;
-  const done = () => {
-    if (settled) return;
-    settled = true;
-    cancel();
-  };
-  field.addEventListener("blur", done);
+/** A text that is edited where it is READ: the field IS the text. It
+    carries the same class the paragraph would have, so it inherits that
+    face, that measure and that box exactly — a summary, a journal entry
+    and a description all edit identically and nothing reflows when a
+    reader puts the caret in one. At rest a faint underline says it can
+    be edited; with the caret in it, a white ground says it is open.
+
+    Ctrl+S saves. Esc puts the stored text back, and so does clicking
+    away: a field left unsaved is left alone, which is the promise every
+    field in the app makes. `caption` is the line beside it, which says
+    what state the field is in for as long as it is dirty. */
+export function editable(className, { text, save: write, readonly = false, line = false }) {
+  const save = guard(write);
+  const field = element("textarea", `${className} otk-editable`.trim());
+  field.value = text ?? "";
+  field.readOnly = readonly;
+  if (readonly) return field;
+  field.spellcheck = false;
+
+  field.addEventListener("blur", () => {
+    // Clicking away is leaving it alone: the stored text comes back.
+    field.value = text ?? "";
+  });
   field.addEventListener("keydown", async (event) => {
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
-      done();
-    } else if (save && saves(event)) {
+      field.value = text ?? "";
+      field.blur();
+      return;
+    }
+    // A value that is one line long is finished by Enter; a passage of
+    // prose needs Enter for its paragraphs, and is finished by ctrl+s.
+    const commit =
+      (line && event.key === "Enter" && !event.shiftKey) ||
+      (event.key === "s" && (event.metaKey || event.ctrlKey));
+    if (commit) {
       event.preventDefault();
-      settled = true;
-      await save();
+      if (field.value === text) return field.blur();
+      await save(field.value);
     }
   });
+  return field;
 }
 
-/** Edit a text where it is displayed: the row becomes the editor, Ctrl+S
-    saves, Esc puts the row back. */
-export function inlineEditor(anchor, { text, caption, save: write, readonly = false }) {
-  const save = guard(write);
-  const editor = element("div", "otk-editor");
-  const area = element("textarea", "otk-editor__input");
-  area.value = text;
-  // A derived field opens to be READ: the same block, the same keys to
-  // leave it by, and nothing that pretends it could be saved.
-  area.readOnly = readonly;
-  const foot = element("p", "otk-editor__foot", caption);
-  foot.append(span("otk-meta", readonly ? " esc close" : " ctrl+s save · esc cancel"));
-  editor.append(area, foot);
-  anchor.replaceWith(editor);
-  area.focus();
-  autosize(area);
-  /* Clicking away is cancelling: a field left without saving is left
-     alone, which is the same promise the picker's fields and the
-     settings panel's make. */
-  editingKeys(area, {
-    saves: (event) => !readonly && event.key === "s" && (event.metaKey || event.ctrlKey),
-    save: () => save(area.value),
-    cancel: () => {
-      editor.replaceWith(anchor);
-      // The focused textarea has just left the document, so focus falls
-      // to `body` — outside the dialog, where none of the keys this
-      // screen advertises would arrive. Give it back to the rows, or to
-      // the row the editor replaced, which is a button and takes focus.
-      const dialog = anchor.closest?.("dialog");
-      ($(".otk-list", dialog) ?? $("[tabindex]", dialog) ?? anchor)?.focus?.();
-    },
-  });
+/** A field with the line that belongs under it: the name of what it
+    holds while it rests, and how to commit it while the caret is in it.
+    The swap is the browser's own (`:focus-within`), so there is no state
+    to keep, and the keys named here are the ones `editable` binds. */
+export function edited(field, name) {
+  const box = element("div", "otk-edit");
+  const editing = element("span", "otk-edit__hint otk-edit__hint--editing");
+  editing.append(
+    span("", "editing"),
+    span("otk-edit__key", "ctrl+s saves"),
+    span("otk-edit__key", "esc discards"),
+  );
+  box.append(field, element("span", "otk-edit__hint otk-edit__hint--resting", name), editing);
+  return box;
 }
 
 /** One of the markup's ask dialogs, by name. Its buttons carry
@@ -375,6 +388,24 @@ export function ask(name, fill) {
         signal: wired.signal,
       });
     }
+    /* Enter is the dialog's ACTION, wherever the focus is — the button
+       a reader would press. It never cancels: leaving without answering
+       is Esc's, and only Esc's. A textarea keeps its own Enter, because
+       there the key is a newline. */
+    dialog.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key !== "Enter" || event.shiftKey) return;
+        if (event.target.matches("textarea")) return;
+        const action = $$("[data-choice]", dialog).findLast(
+          (button) => button.dataset.choice !== "cancel",
+        );
+        if (!action) return;
+        event.preventDefault();
+        settle(action.dataset.choice);
+      },
+      { signal: wired.signal },
+    );
     dialog.addEventListener("close", () => settle(null), { signal: wired.signal, once: true });
     dialog.showModal();
   });
