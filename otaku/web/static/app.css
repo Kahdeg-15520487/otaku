@@ -8,12 +8,9 @@
    ========================================================================== */
 
 /* --- the three faces, bundled ---------------------------------------------
-   Archivo and Newsreader are variable files (weight, and Newsreader's optical
-   size, live in the file). Literata is the prose face's fallback for the
-   scripts Newsreader does not cover: only its extended subsets are declared,
-   so Latin never leaves the primary face, and size-adjust matches its visual
-   size — the figure is tuned by eye, and applies wherever Literata stands in.
-   IBM Plex Sans plays the same part for Archivo. */
+   Literata and IBM Plex Sans cover the scripts Newsreader and Archivo do not:
+   only their extended subsets are declared, so Latin never leaves the primary
+   face. Literata's size-adjust matches it to Newsreader, by eye. */
 @font-face { font-family: 'Archivo'; font-style: normal; font-weight: 400 800; font-display: swap; src: url('fonts/Archivo-v25-latin.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
 @font-face { font-family: 'Archivo'; font-style: normal; font-weight: 400 800; font-display: swap; src: url('fonts/Archivo-v25-latin-ext.woff2') format('woff2'); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
 @font-face { font-family: 'Newsreader'; font-style: normal; font-weight: 400 600; font-display: swap; src: url('fonts/Newsreader-v26-latin.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
@@ -59,7 +56,7 @@
   --otk-accent:      oklch(0.55 0.13 55);     /* rules, marks, selection     */
   --otk-accent-ink:  oklch(0.51 0.125 50);    /* accent used as text         */
   --otk-accent-tint: oklch(0.55 0.13 55 / 0.08);
-  --otk-dialogue:    oklch(0.48 0.11 255);    /* spoken lines                */
+  --otk-dialogue:    oklch(0.47 0.13 244);    /* spoken lines                */
   --otk-dialogue-weight: inherit;             /* their weight, if not the prose's */
   --otk-em:          inherit;                 /* the model's *emphasis*: italic, no colour of its own */
   --otk-strong:      inherit;                 /* its **weight** mark, likewise */
@@ -90,6 +87,7 @@
   --otk-leading-page:  1.68;
   --otk-leading-read:  1.72;
   --otk-leading-row:   1.35;
+  --otk-row-h:         29px;    /* one list row, whatever face fills it     */
 
   --otk-track-eyebrow: 0.18em;  /* panel title                              */
   --otk-track-label:   0.22em;  /* section head                             */
@@ -115,7 +113,8 @@
 
   /* -- panel ladder ------------------------------------------------------- */
   --otk-scrollbar-w:  10px;    /* the app styles its own scrollbars        */
-  --otk-scrollbar-thumb: oklch(0.80 0.008 165);
+  --otk-scrollbar-thumb: oklch(0.60 0.011 165);  /* ink-family: it reads as drawn */
+  --otk-scrollbar-track: oklch(0.945 0.006 165); /* the channel it runs in   */
   --otk-size-display: 31px;    /* a reading column's own title            */
   --otk-col-lamp:     10px;    /* the resident/answering lamp gutter      */
   --otk-col-size:     66px;    /* a model's size column                   */
@@ -157,8 +156,9 @@
   --otk-accent:      oklch(0.68 0.13 55);
   --otk-accent-ink:  oklch(0.74 0.12 55);
   --otk-accent-tint: oklch(0.68 0.13 55 / 0.14);
-  --otk-dialogue:    oklch(0.76 0.10 255);
-  --otk-scrollbar-thumb: oklch(0.42 0.008 165);
+  --otk-dialogue:    oklch(0.76 0.12 244);
+  --otk-scrollbar-thumb: oklch(0.50 0.01 165);
+  --otk-scrollbar-track: oklch(0.30 0.008 90);
   --otk-shadow-page:  none;
   --otk-shadow-panel: 0 24px 80px oklch(0 0 0 / 0.5);
   --otk-shadow-slip:  0 8px 24px oklch(0 0 0 / 0.4);
@@ -181,8 +181,9 @@
     --otk-accent:      oklch(0.68 0.13 55);
     --otk-accent-ink:  oklch(0.74 0.12 55);
     --otk-accent-tint: oklch(0.68 0.13 55 / 0.14);
-    --otk-dialogue:    oklch(0.76 0.10 255);
-    --otk-scrollbar-thumb: oklch(0.42 0.008 165);
+    --otk-dialogue:    oklch(0.76 0.12 244);
+    --otk-scrollbar-thumb: oklch(0.50 0.01 165);
+    --otk-scrollbar-track: oklch(0.30 0.008 90);
     --otk-shadow-page:  none;
     --otk-shadow-panel: 0 24px 80px oklch(0 0 0 / 0.5);
     --otk-shadow-slip:  0 8px 24px oklch(0 0 0 / 0.4);
@@ -207,18 +208,18 @@ a { color: var(--otk-accent-ink); text-decoration: none; }
 a:hover { color: var(--otk-accent); }
 ::selection { background: var(--otk-accent-tint); }
 
-/* The app styles its own scrollbars: a squared thumb on the band, a hairline
-   track edge, no arrows — so a scrolling edge still reads as a ruled margin.
-   NOTE: Chrome ignores ::-webkit-scrollbar as soon as scrollbar-width is set,
-   so the standard properties are given only to engines that lack it. */
-*::-webkit-scrollbar { width: var(--otk-scrollbar-w); height: var(--otk-scrollbar-w); background: var(--otk-band); }
-*::-webkit-scrollbar-track { background: var(--otk-band); border-left: var(--otk-hair) solid var(--otk-line-soft); }
-*::-webkit-scrollbar-thumb { background: var(--otk-scrollbar-thumb); border: 2px solid var(--otk-band); }
-*::-webkit-scrollbar-thumb:hover { background: var(--otk-muted); }
-*::-webkit-scrollbar-thumb:active { background: var(--otk-ink); }
-*::-webkit-scrollbar-corner { background: var(--otk-band); }
-@supports not selector(::-webkit-scrollbar) {
-  * { scrollbar-width: thin; scrollbar-color: var(--otk-scrollbar-thumb) var(--otk-band); }
+/* The standard properties are unconditional; only an engine without them
+   falls through to the ::-webkit- pseudo-elements. Do not invert the test —
+   querying the webkit SELECTOR instead sends Safari down the legacy branch
+   and leaves it unstyled. */
+* { scrollbar-width: thin; scrollbar-color: var(--otk-scrollbar-thumb) var(--otk-scrollbar-track); }
+@supports not (scrollbar-color: auto) {
+  *::-webkit-scrollbar { width: var(--otk-scrollbar-w); height: var(--otk-scrollbar-w); background: var(--otk-scrollbar-track); }
+  *::-webkit-scrollbar-track { background: var(--otk-scrollbar-track); }
+  *::-webkit-scrollbar-thumb { background: var(--otk-scrollbar-thumb); border: 2px solid var(--otk-scrollbar-track); }
+  *::-webkit-scrollbar-thumb:hover { background: var(--otk-muted); }
+  *::-webkit-scrollbar-thumb:active { background: var(--otk-ink); }
+  *::-webkit-scrollbar-corner { background: var(--otk-scrollbar-track); }
 }
 /* every scrolling column reserves the gutter, so columns stay aligned */
 .otk-col__scroll, .otk-detail__scroll, .otk-index__list, .otk-reading, .otk-margin,
@@ -262,60 +263,84 @@ a:hover { color: var(--otk-accent); }
 .otk-section__count { margin-left: auto; font-family: var(--otk-font-mono); font-size: var(--otk-size-small); font-weight: 400; letter-spacing: 0.04em; color: var(--otk-faint); }
 
 /* Editing happens in place: the field IS the text, inheriting whatever face
-   the element it carries sets — so a summary, a journal entry and a
-   description all edit identically and nothing reflows. Declared here, above
-   every component, so a component's own type always outranks the reset. It
-   carries no rule of its own in any state: what says a field can be edited is
-   the line under it (`.otk-edit`), which names it. */
+   the element it carries sets, so nothing reflows when it opens. Declared
+   above every component, so a component's own type outranks this reset. */
 .otk-editable {
   display: block; margin: 0; padding: 0;
   font: inherit; color: inherit; line-height: inherit; letter-spacing: inherit;
   background: none; border: 0;
   border-radius: 0; resize: none; field-sizing: content; overflow: hidden;
-  /* A form control in a flex column has no content-based minimum the way a
-     paragraph does: without this, a reading column taller than its box
-     squeezes the heading it starts with down to a single pixel. */
+  /* a form control has no content-based minimum, so a flex column would
+     squeeze it to a pixel */
   flex: none;
 }
-/* The BOX has to outrank the component's, where the type above must not: a
-   lede brings its own rule and padding, and a field wearing that class is
-   the text, not a boxed copy of it. Qualifying by element wins on
-   specificity, so this holds wherever the rule sits in the file. */
+/* Element-qualified, so the BOX outranks the component's where the type above
+   must not: a field wearing `.otk-reading__lede` is the text, not a boxed
+   copy of it, and must not bring that class's rule and padding. */
 textarea.otk-editable { margin: 0; padding: 0; border: 0; }
-/* A rendering standing in for a field: it keeps the newlines the field
-   would have shown, so the two occupy the same box and opening one moves
-   nothing. `.otk-reader` holds both, only ever one of them visible. */
+/* What stands in for the field while it is closed: same box, same newlines,
+   so opening moves nothing. `.otk-reader` holds both, one visible at a time. */
 .otk-typeset { white-space: pre-wrap; }
 .otk-reader { display: flex; flex-direction: column; }
-/* Open for typing: a white ground, and NOT ONE WORD MOVES. The ground is a
-   spread shadow, not padding — padding would eat the measure and rewrap the
-   prose under the caret, and a padding shorthand would overwrite whatever box
-   the field's own class gave it (the lede's, for one) and drag the page up
-   behind it. A shadow is painted outside the border box and costs no layout
-   at all, so every field opens the same way whatever its own box. It is kept
-   to the 4px a passage leaves between its rubric and its text: a ground that
-   reached further would print over the label above it. */
+/* Open for typing: a white ground, and not one word moves. The ground is a
+   spread shadow rather than padding — padding would eat the measure and
+   rewrap the prose under the caret, where a shadow costs no layout at all.
+   4px is what a passage leaves between its rubric and its text; further would
+   print over the label above. */
 .otk-editable:focus {
   outline: none;
   background: var(--otk-edit-bg);
   box-shadow: 0 0 0 4px var(--otk-edit-bg);
 }
-/* On a leader the value sizes to its own text, so an empty one would be a
-   field nobody can see: it keeps a floor, and figures stay where they belong. */
+/* the value sizes to its own text, so an empty one would be a field nobody
+   can see: it keeps a floor */
 .otk-leader .otk-editable { min-width: 9ch; text-align: right; }
-/* An empty field stands at its default, and a default is an absent value:
-   it is said in words, in the same face `.otk-absent` says every other one
-   — whether the field was never set or was just cleared. */
+/* An empty field stands at its default, and a default is an absent value —
+   said in words, in the face `.otk-absent` says every other one in. */
 .otk-leader .otk-editable::placeholder { font-family: var(--otk-font-prose); font-style: italic; color: var(--otk-faint); opacity: 1; }
 
-/* The line under an editable value: what it is at rest, how to commit it
-   while the caret is in it. The swap is the browser's — no state to keep. */
+/* The label line under an editable value: one row at a fixed height in every
+   state, so opening a field moves nothing above or below it. */
 .otk-edit { display: flex; flex-direction: column; gap: 6px; max-width: var(--otk-measure); }
-.otk-edit__hint { display: flex; align-items: baseline; gap: 12px; font-family: var(--otk-font-mono); font-size: var(--otk-size-label); letter-spacing: 0.06em; text-transform: uppercase; color: var(--otk-faint); }
-.otk-edit__hint--editing { display: none; }
-.otk-edit:focus-within .otk-edit__hint--resting { display: none; }
-.otk-edit:focus-within .otk-edit__hint--editing { display: flex; }
-.otk-edit__key { color: var(--otk-faint); }
+.otk-edit__hint {
+  display: flex; align-items: baseline; gap: 16px; height: 20px;
+  font-family: var(--otk-font-mono); font-size: var(--otk-size-label);
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--otk-faint);
+}
+/* anchored right, so swapping one verb for two moves neither */
+.otk-edit__verbs { margin-left: auto; display: flex; align-items: baseline; gap: 16px; }
+/* A verb is a button, and the UA stylesheet resets casing and tracking on
+   form controls — taken back from the line, so label and verbs stay one row. */
+.otk-edit__verb {
+  color: var(--otk-faint); cursor: pointer;
+  text-transform: inherit; letter-spacing: inherit;
+}
+.otk-edit__verb:hover { color: var(--otk-ink); }
+/* save is the one that commits, so it is the one that is emphasised */
+.otk-edit__verb--save { color: var(--otk-accent-ink); }
+/* At rest only the way in exists, and it comes out under the pointer. Faded
+   rather than hidden: a hidden verb is not tabbable, and while the field is
+   closed it is out of the tab order, so this is the keyboard's only way in. */
+.otk-edit__verb--edit { opacity: 0; }
+.otk-edit:hover .otk-edit__verb--edit,
+.otk-edit__verb--edit:focus-visible { opacity: 1; }
+.otk-edit__verb--save, .otk-edit__verb--cancel { display: none; }
+.otk-edit[data-editing] .otk-edit__verb--edit { display: none; }
+.otk-edit[data-editing] .otk-edit__verb--save,
+.otk-edit[data-editing] .otk-edit__verb--cancel { display: inline; }
+/* two modes, two elements in one box: a paragraph to read, a field to type in */
+.otk-edit:not([data-editing]) .otk-reader > textarea { display: none; }
+.otk-edit[data-editing] .otk-reader > .otk-typeset { display: none; }
+/* The paragraph wears the field's own class, so it must be flattened the same
+   way — or a component with padding of its own shifts the text on open. */
+.otk-reader > .otk-typeset { margin: 0; padding: 0; border: 0; }
+
+/* The wrapper takes the heading's margins, so the label line sits tight under
+   the title. Sized to CONTENT so the verbs rest at the end of the title
+   rather than out at the measure, with max-content as the floor. */
+.otk-edit--title { margin: 10px 0 6px; width: fit-content; max-width: var(--otk-measure); }
+.otk-edit--title .otk-reading__title { margin: 0; }
+.otk-edit--title .otk-edit__hint { width: 100%; min-width: max-content; }
 
 /* one box for every button */
 .otk-btn {
@@ -343,7 +368,6 @@ textarea.otk-editable { margin: 0; padding: 0; border: 0; }
   letter-spacing: 0.1em; text-transform: uppercase; color: var(--otk-faint);
 }
 
-/* an editable value */
 .otk-field {
   display: block; width: 100%;
   font-family: var(--otk-font-prose); font-size: var(--otk-size-note);
@@ -366,7 +390,6 @@ textarea.otk-editable { margin: 0; padding: 0; border: 0; }
   letter-spacing: 0.14em; text-transform: uppercase; color: var(--otk-faint);
 }
 
-/* a value that does not exist yet */
 .otk-pending {
   border: var(--otk-hair) dashed var(--otk-line-soft); padding: 6px 9px;
   font-family: var(--otk-font-prose); font-size: var(--otk-size-note);
@@ -445,14 +468,13 @@ textarea.otk-editable { margin: 0; padding: 0; border: 0; }
   padding: 22px var(--otk-page-pad) 30px;
 }
 .otk-prose { margin: 0; font-family: var(--otk-font-prose); font-size: var(--otk-size-page); line-height: var(--otk-leading-page); color: var(--otk-body); text-wrap: pretty; overflow-wrap: anywhere; }
-/* The model's own marks are the TEXT, italic or heavy — no colour of
-   their own, so they take whatever they stand in: the body's ink in
-   narration, the spoken colour inside a quote. */
+/* The model's own marks take no colour of their own: they read in whatever
+   they stand in — the body's ink in narration, the spoken colour in a quote. */
 .otk-prose em { font-style: italic; color: var(--otk-em); }
 .otk-prose strong { font-weight: var(--otk-strong-weight); color: var(--otk-strong); }
-/* spoken lines: one colour of their own, so recolouring speech does not
-   recolour every link and rubric on the page */
-.otk-quote, .otk-prose--dialogue { font-style: italic; color: var(--otk-dialogue); font-weight: var(--otk-dialogue-weight); }
+/* Spoken lines take a colour of their own, and stay UPRIGHT: the quotation
+   marks already mark them, and italic belongs to the model's `*emphasis*`. */
+.otk-quote, .otk-prose--dialogue { color: var(--otk-dialogue); font-weight: var(--otk-dialogue-weight); }
 
 /* one reply: its paragraphs flow like the transcript's own children */
 .otk-reply { display: flex; flex-direction: column; gap: 24px; }
@@ -466,10 +488,8 @@ textarea.otk-editable { margin: 0; padding: 0; border: 0; }
 /* =============================================================================
    GENERATING, AND THE OTHER TWO KINDS OF LINE
 
-   The waiting state and the streaming state are ONE state, not two: the
-   answer's place is held by a blinking accent block, and text grows in front
-   of it. Nothing spins — the caret is the only moving thing in the design,
-   which is right, because it is the only thing actually happening.
+   Waiting and streaming are ONE state: a blinking caret holds the answer's
+   place and text grows in front of it. Nothing else on the page moves.
    ========================================================================== */
 @keyframes otk-blink { 0%, 45% { opacity: 1; } 55%, 100% { opacity: 0; } }
 @keyframes otk-creep { 0% { background-position: 0 0; } 100% { background-position: 22px 0; } }
@@ -481,16 +501,24 @@ textarea.otk-editable { margin: 0; padding: 0; border: 0; }
   animation: otk-blink 1.1s steps(1, end) infinite;
 }
 
-/* the reply as it arrives: a normal paragraph, and the status beneath it */
-.otk-generating { display: flex; flex-direction: column; gap: 10px; }
+/* The reply as it arrives: its paragraphs, and the status beneath them. The
+   block IS the reply (the article carries `.otk-reply` too), so it sets no gap
+   of its own — a paragraph must not sit closer while it streams than it will
+   once the story is drawn again from the store. Whatever sits nearer than that
+   24px rhythm pulls up against it: the status row here, verbose below. */
+.otk-generating { display: flex; flex-direction: column; }
 .otk-generating__status {
   position: relative; display: flex; align-items: center; gap: 0;
-  flex: none; height: 18px;
+  flex: none; height: 18px; margin-top: -14px;   /* the 24px gap less 14 leaves 10 */
   font-family: var(--otk-font-mono); font-size: var(--otk-size-label);
   letter-spacing: var(--otk-track-foot); text-transform: uppercase; color: var(--otk-muted);
 }
-/* the words sit on paper over the rule, so the left end of the creep is
-   covered by them — nothing appears out of nowhere at an edge */
+/* A reply that failed before a word arrived loses its empty paragraph when
+   the turn settles: with nothing above it, the pull would reach into the
+   turn before this one. */
+.otk-generating__status:first-child { margin-top: 0; }
+/* the words sit on paper over the rule, so the creep never appears out of
+   nowhere at an edge */
 .otk-generating__text { position: relative; padding-right: 14px; background: var(--otk-paper); }
 .otk-generating__text:last-of-type { padding-right: 18px; }
 .otk-generating__rule {
@@ -498,14 +526,13 @@ textarea.otk-editable { margin: 0; padding: 0; border: 0; }
   background: repeating-linear-gradient(90deg, var(--otk-accent) 0 6px, transparent 6px 22px);
   animation: otk-creep 1.4s linear infinite;
 }
-/* idle: the slot keeps its height, so the transcript does not shift when a
-   reply lands and the words go */
+/* idle: the slot keeps its height, so nothing shifts when a reply lands */
 .otk-generating--idle .otk-generating__status { visibility: hidden; }
 .otk-generating--idle .otk-caret { display: none; }
 .otk-generating__elapsed { font-variant-numeric: tabular-nums; color: var(--otk-body); }
 
-/* the model's own reasoning, while it streams: not the story, and never
-   mistaken for it — the one line of the reply that is set as a note */
+/* the model's own reasoning, while it streams: not the story, and set as a
+   note so it never reads as one */
 .otk-thinking {
   margin: 0; font-family: var(--otk-font-prose); font-size: var(--otk-size-note);
   font-style: italic; line-height: 1.55; color: var(--otk-faint);
@@ -513,10 +540,17 @@ textarea.otk-editable { margin: 0; padding: 0; border: 0; }
   overflow-wrap: anywhere;
 }
 
-/* verbose: what the terminal prints after a reply. Machine, so mono. */
+/* Verbose: what the terminal prints after a reply. Machine, so mono — and
+   ONE LINE always, ellipsised rather than wrapped, so a long stats line
+   cannot push the turn below it out of rhythm. It reports on the reply above
+   it and is pulled up against it: 24px of rhythm less 17 leaves 7. */
 .otk-verbose {
-  margin: -12px 0 0; font-family: var(--otk-font-mono); font-size: var(--otk-size-mono-sm);
-  line-height: 1.5; color: var(--otk-faint); font-variant-numeric: tabular-nums;
+  flex: none;                  /* a shrinkable item beside overflow: hidden
+                                  is a line that can be squashed */
+  margin: -17px 0 0; max-width: var(--otk-measure);
+  font-family: var(--otk-font-mono); font-size: var(--otk-size-mono-sm);
+  line-height: 1.45; color: var(--otk-faint); font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 /* an error is not a turn: it never reads as the story */
@@ -553,8 +587,8 @@ textarea.otk-editable { margin: 0; padding: 0; border: 0; }
 .otk-status--offline { color: var(--otk-danger); }
 .otk-status--offline .otk-status__lamp { background: var(--otk-danger); border-radius: 0; }
 .otk-status--idle .otk-status__lamp { background: var(--otk-line); }
-/* a sentence said here is still the backend's: the line carries it, and the
-   lamp is left to say what the SESSION is doing */
+/* the line carries the backend's sentence; the lamp says what the session
+   is doing */
 .otk-status--said { color: var(--otk-body); }
 .otk-status--error { color: var(--otk-danger); }
 
@@ -574,6 +608,10 @@ textarea.otk-editable { margin: 0; padding: 0; border: 0; }
 .otk-composer__verbs { flex: 0 1 auto; margin-left: auto; display: flex; align-items: center; gap: 7px; }
 .otk-hints { margin: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 16px; font-family: var(--otk-font-mono); font-size: var(--otk-size-tag); letter-spacing: var(--otk-track-foot); text-transform: uppercase; color: var(--otk-faint); }
 .otk-hints > * { white-space: nowrap; }
+/* A hint that is a button reads as one of the row, not as a control in it:
+   the UA stylesheet resets casing and tracking on a form control, so they
+   are taken back from the line. */
+.otk-hints > button { text-transform: inherit; letter-spacing: inherit; }
 
 /* the prefix menu: the story's own typed openers, grouped by what they reach */
 .otk-prefixes { position: absolute; left: 14px; bottom: 100%; margin-bottom: 8px; width: 428px; max-width: calc(100% - 28px); display: flex; flex-direction: column; padding: 4px 0 6px; background: var(--otk-paper); border: var(--otk-hair) solid var(--otk-line); box-shadow: var(--otk-shadow-slip); }
@@ -590,13 +628,11 @@ textarea.otk-editable { margin: 0; padding: 0; border: 0; }
    Every panel, docket and dialog is a native <dialog>; the scrim is its
    backdrop, so stacking and focus are the platform's.
    ========================================================================== */
-/* `overflow` is part of the UA's dialog box and has to go with the rest of
-   it: a docket carries its shadow on the section INSIDE the dialog, and the
-   dialog shrink-wraps that section exactly — left to clip, it cuts the
-   shadow off at the paper's edge. A panel sets its own `overflow: hidden`. */
+/* `overflow` goes with the rest of the UA's dialog box: a docket carries its
+   shadow on the section inside, which the dialog shrink-wraps exactly, so
+   clipping cuts the shadow off. A panel sets its own `overflow: hidden`. */
 dialog { margin: auto; padding: 0; border: 0; background: none; color: inherit; overflow: visible; max-width: none; max-height: none; }
-/* The author layer sets display on the panel classes, which would beat the
-   UA's own `dialog:not([open])` — so the closed state is restated here. */
+/* the panel classes set display, which would beat the UA's `:not([open])` */
 dialog:not([open]) { display: none; }
 dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk-scrim-blur)); }
 
@@ -612,8 +648,8 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
 .otk-panel--read { width: min(var(--otk-panel-read), calc(100vw - 48px)); height: calc(100dvh - 48px); }
 
 .otk-panel__head { flex: none; display: flex; align-items: center; gap: 14px; padding: 14px var(--otk-panel-pad) 10px; }
-/* the FIRST button takes the auto margin; the rest sit beside it, so a header's
-   controls read as one group at the right rather than spreading across it */
+/* the FIRST button takes the auto margin and the rest sit beside it, so a
+   header's controls read as one group at the right */
 .otk-panel__head .otk-btn:first-of-type { margin-left: auto; }
 .otk-panel__head > .otk-push ~ .otk-btn { margin-left: 0; }
 .otk-panel__head .otk-eyebrow { min-width: 0; overflow: hidden; white-space: nowrap; }
@@ -650,15 +686,18 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
 .otk-maker--flush { padding-left: var(--otk-panel-pad); }
 .otk-maker::after { content: ""; flex: 1; height: var(--otk-hair); background: var(--otk-line-soft); }
 
-/* a row: selection is an accent rule plus a tint, never colour alone */
-.otk-row { display: flex; align-items: baseline; gap: 14px; width: 100%; padding: 5px var(--otk-panel-pad); border-left: var(--otk-mark) solid transparent; }
+/* A row: selection is an accent rule plus a tint, never colour alone. Its
+   height is DECLARED — every cell states the same line-height and the row a
+   floor — or a list of mixed scripts ripples, Cyrillic standing taller than
+   Latin. */
+.otk-row { display: flex; align-items: center; gap: 14px; width: 100%; min-height: var(--otk-row-h); padding: 3px var(--otk-panel-pad); border-left: var(--otk-mark) solid transparent; }
 .otk-row--indent { padding-left: 40px; }
 .otk-row[aria-selected="true"] { border-left-color: var(--otk-accent); background: var(--otk-accent-tint); }
-.otk-row__title { flex: 1 1 0%; min-width: 132px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--otk-font-prose); font-size: var(--otk-size-row); color: var(--otk-body); }
-.otk-row__id { width: 26px; flex: none; text-align: right; font-family: var(--otk-font-mono); font-size: var(--otk-size-mono-sm); color: var(--otk-faint); font-variant-numeric: tabular-nums; }
-.otk-row__who { width: 58px; flex: none; overflow: hidden; text-overflow: ellipsis; font-family: var(--otk-font-mono); font-size: var(--otk-size-label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--otk-faint); }
+.otk-row__title { flex: 1 1 0%; min-width: 132px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--otk-font-prose); font-size: var(--otk-size-row); line-height: var(--otk-leading-row); color: var(--otk-body); }
+.otk-row__id { width: 26px; flex: none; text-align: right; font-family: var(--otk-font-mono); font-size: var(--otk-size-mono-sm); line-height: var(--otk-leading-row); color: var(--otk-faint); font-variant-numeric: tabular-nums; }
+.otk-row__who { width: 58px; flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--otk-font-mono); font-size: var(--otk-size-label); line-height: var(--otk-leading-row); letter-spacing: 0.14em; text-transform: uppercase; color: var(--otk-faint); }
 .otk-row__who--you { color: var(--otk-accent-ink); }
-.otk-row__num { flex: none; text-align: right; font-family: var(--otk-font-mono); font-size: var(--otk-size-mono-sm); color: var(--otk-muted); font-variant-numeric: tabular-nums; }
+.otk-row__num { flex: none; text-align: right; font-family: var(--otk-font-mono); font-size: var(--otk-size-mono-sm); line-height: var(--otk-leading-row); color: var(--otk-muted); font-variant-numeric: tabular-nums; }
 .otk-row--mono .otk-row__title { font-family: var(--otk-font-mono); font-size: var(--otk-size-mono); }
 .otk-row[aria-selected="true"] .otk-row__title { color: var(--otk-ink); }
 /* loaded is bold, unloaded is dim — only where loading is a thing that happens */
@@ -678,9 +717,9 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
 .otk-index__item { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 9px 8px; border-left: var(--otk-mark) solid transparent; }
 .otk-index__item[aria-selected="true"] { border-left-color: var(--otk-accent); background: var(--otk-paper); }
 .otk-index__item--pending { border: var(--otk-hair) dashed var(--otk-line-soft); margin-top: 4px; }
-.otk-index__title { font-family: var(--otk-font-prose); font-size: var(--otk-size-row); color: var(--otk-body); }
+.otk-index__title { font-family: var(--otk-font-prose); font-size: var(--otk-size-row); line-height: var(--otk-leading-row); color: var(--otk-body); }
 .otk-index__item[aria-selected="true"] .otk-index__title { color: var(--otk-ink); }
-.otk-index__sub { font-family: var(--otk-font-mono); font-size: var(--otk-size-label); color: var(--otk-faint); }
+.otk-index__sub { font-family: var(--otk-font-mono); font-size: var(--otk-size-label); line-height: var(--otk-leading-row); color: var(--otk-faint); }
 .otk-index__note { flex: 0 0 auto; margin: 12px 16px 0; padding-top: 11px; border-top: var(--otk-hair) solid var(--otk-line-soft); }
 
 /* the extraction pass: a background job, so it needs a state and not a button */
@@ -703,10 +742,18 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
 .otk-passage__body { margin: 0; font-family: var(--otk-font-prose); font-size: var(--otk-size-read); line-height: 1.66; color: var(--otk-body); overflow-wrap: anywhere; }
 .otk-margin { flex: 0 1 var(--otk-reader-w); min-width: 180px; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 20px 18px; border-left: var(--otk-hair) solid var(--otk-line); }
 .otk-margin__fact { display: flex; flex-direction: column; gap: 3px; }
-.otk-margin__value { font-family: var(--otk-font-prose); font-size: 18px; line-height: 1.5; color: var(--otk-body); }
+/* Some values are paragraphs (one wraps, and `present` carries a button per
+   name), so the class owns its box: left alone, the UA's `1em 0` stands every
+   fact a whole line off its key. */
+.otk-margin__value { margin: 0; font-family: var(--otk-font-prose); font-size: 18px; line-height: 1.5; color: var(--otk-body); }
 .otk-margin__value--mono { font-family: var(--otk-font-mono); font-size: var(--otk-size-mono); }
 .otk-margin__key { font-family: var(--otk-font-mono); font-size: var(--otk-size-label); letter-spacing: 0.1em; text-transform: uppercase; color: var(--otk-faint); }
 .otk-margin__block { padding-top: 10px; border-top: var(--otk-hair) solid var(--otk-line-soft); }
+/* A derived value stands off its key where a plain fact sits tight under it:
+   the ruled inset is a quotation from the extractor and needs air to read as
+   one. Scoped here — `.otk-derived` is also a row in the message detail and a
+   block in a report, and neither wants the space. */
+.otk-margin__fact > .otk-derived { margin: 16px 0; }
 
 /* the detail pane of a panel: a body that scrolls, and verbs that do not */
 .otk-detail { min-height: 0; overflow: hidden; display: flex; flex-direction: column; padding: 22px var(--otk-panel-pad); }
@@ -719,8 +766,8 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
 .otk-fact:last-child { border-bottom: 0; }
 .otk-fact > :first-child { color: var(--otk-muted); }
 .otk-fact > :last-child { color: var(--otk-body); overflow-wrap: anywhere; text-align: right; }
-/* pinned to the foot of its pane, so a taller or shorter body above never
-   moves the buttons — the one thing a reader aims at without looking */
+/* pinned to the foot of its pane: a taller or shorter body above never moves
+   the buttons */
 .otk-actions { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: auto; padding-top: 14px; border-top: var(--otk-hair) solid var(--otk-line-soft); }
 .otk-actions__note { flex-basis: 100%; margin: 0; }
 
@@ -759,19 +806,15 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
 /* =============================================================================
    DOCKET — a torn slip for every small report
    ========================================================================== */
-/* A slip is as tall as what it has to say — it is torn to length, and an
-   empty half-page under the last line is a slip that says nothing there.
-   Only the desk bounds it. */
+/* a slip is torn to length: as tall as what it has to say, bounded by the desk */
 .otk-docket { display: flex; flex-direction: column; width: var(--otk-docket-w); max-height: calc(100dvh - 80px); max-width: calc(100vw - 32px); background: var(--otk-paper); box-shadow: var(--otk-shadow-panel); }
 .otk-docket--narrow { --otk-docket-w: 416px; }
 .otk-docket--wide   { --otk-docket-w: 568px; }
-/* …except the one whose figures arrive one per provider, after the slip is
-   already open: it is torn to a set length, because a slip that grows under
-   the pointer has moved what was clicked. */
+/* …except balance, whose figures arrive one per provider after the slip is
+   open: a slip that grows under the pointer has moved what was clicked */
 .otk-docket--fixed  { height: min(var(--otk-docket-h), calc(100dvh - 80px)); }
-/* Between the click and the figures. The slip is torn to its content, so
-   showing it empty would open a small box and then grow it under the
-   pointer: the scrim answers the click, and the slip arrives whole. */
+/* between the click and the figures: the scrim answers, and the slip arrives
+   whole rather than opening small and growing */
 .otk-docket.is-waiting { visibility: hidden; }
 .otk-docket__tear { flex: 0 0 auto; height: 9px; background: radial-gradient(circle at 6px 0, transparent 0 5px, var(--otk-paper) 5.5px) 0 0/12px 9px repeat-x; }
 .otk-docket__tear--bottom { background: radial-gradient(circle at 6px 9px, transparent 0 5px, var(--otk-paper) 5.5px) 0 0/12px 9px repeat-x; }
@@ -819,9 +862,9 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
 .otk-outcome { margin: 0; font-family: var(--otk-font-prose); font-size: var(--otk-size-note); line-height: 1.5; color: var(--otk-body); border-left: var(--otk-hair) solid var(--otk-line); padding-left: 11px; }
 
 /* =============================================================================
-   THE UTILITY LAYER — small, named, and closed. Every one of these exists
-   because two or more components need it; nothing here is a one-off, and no
-   markup carries a style attribute.
+   THE UTILITY LAYER — small, named, and closed: every one of these exists
+   because two or more components need it, and no markup carries a style
+   attribute.
    ========================================================================== */
 
 /* a vertical stack on a four-step scale */
@@ -849,8 +892,10 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
 /* a typed key, and a row of them against its meaning */
 .otk-key { font-family: var(--otk-font-mono); font-size: var(--otk-size-mono-sm); color: var(--otk-ink); border: var(--otk-hair) solid var(--otk-line); padding: 3px 9px; }
 .otk-keys { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
-.otk-keys__plus { font-family: var(--otk-font-mono); font-size: var(--otk-size-label); color: var(--otk-faint); }
-.otk-keys-grid { display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: 11px 18px; align-items: baseline; }
+/* left only: it stands off the key box it follows, and stays with the key
+   or the argument shape it introduces */
+.otk-keys__plus { padding-left: 6px; font-family: var(--otk-font-mono); font-size: var(--otk-size-label); color: var(--otk-faint); }
+.otk-keys-grid { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 11px 30px; align-items: baseline; }
 .otk-keys__meaning { font-family: var(--otk-font-prose); font-size: var(--otk-size-read); color: var(--otk-muted); }
 
 /* inside a docket */
@@ -884,8 +929,8 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
 .otk-col--messages .otk-col__pinned { padding: 11px 0 0; margin-left: 14px; border-top: 0; }
 
 /* =============================================================================
-   WHAT THE WALKTHROUGH DOES NOT DRAW — the editors a click opens, and the
-   empty state of a list nothing answered for.
+   FIELDS AND EMPTY STATES — the editors a click opens, and what a list says
+   when it holds nothing.
    ========================================================================== */
 
 /* a name and its value, the row itself the control that opens it */

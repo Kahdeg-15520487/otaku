@@ -1,16 +1,15 @@
 /* The help docket: the language, and the two keys that go with it.
 
-   What a reader needs written down is what they cannot see on the
-   page: the words a line may open or close with, and the two verbs
-   that have a key. Everything else IS on the page — a row in the
-   contents, a button on the panel it belongs to, a hint under the box
-   — which is what the footer says.
+   What a reader needs written down is what they cannot see on the page:
+   the words a line may open or close with, and the two verbs that have
+   a key. Everything else IS on the page — a row in the contents, a
+   button on its panel, a hint under the box — which is what the footer
+   says.
 
    Every token, argument shape and group name is read from `table.js`,
    the language's one home on this side. What each row MEANS is written
-   here: a sheet has room for a caption, not for the table's full
-   sentence, and a caption is lowercase and reads the same length as its
-   neighbours. */
+   here, lowercase: a sheet has room for a caption, not for the table's
+   full sentence. */
 
 import { popups, wiring } from "./browser.js";
 import { $, element, span } from "./dom.js";

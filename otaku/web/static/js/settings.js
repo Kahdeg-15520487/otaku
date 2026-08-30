@@ -12,8 +12,8 @@ import * as api from "./api.js";
 import { editable, footnote, guard, popups, wiring } from "./browser.js";
 import { $, $$, element, span } from "./dom.js";
 
-// What a parameter nobody has set reads as — the model's own value,
-// which is an absence and is drawn like one.
+// What a knob nobody has set reads as — the model's own value, or its
+// whole window. Either is an absence, and is drawn like one.
 const DEFAULT_VALUE = "default";
 
 export async function openSettings(answered = "") {
@@ -42,11 +42,16 @@ export async function openSettings(answered = "") {
     );
   }
 
-  // One number, edited where it is read; an emptied field just cancels
-  // — 0 is the spelled form of "the model's whole window".
-  const limit = editableLeader("max_context", String(knobs.max_context), (value) =>
-    value.trim() ? setKnob("max_context", value.trim()) : openSettings(),
+  /* One number, edited where it is read. No cap is the model's whole
+     window, which the backend spells 0 — an absence, so the field is
+     EMPTY and says `default` the way an unset parameter does. Clearing
+     it sets it: 0 goes out, and the same absence comes back. */
+  const limit = editableLeader(
+    "max_context",
+    knobs.max_context ? String(knobs.max_context) : "",
+    (value) => setKnob("max_context", value.trim() || "0"),
   );
+  limit.lastElementChild.placeholder = DEFAULT_VALUE;
   global.append(knob(limit, element("p", "otk-note", about("max_context"))));
 
   const perModel = element("div", "otk-v otk-v--md");
@@ -122,21 +127,18 @@ function toggle(on, set) {
 }
 
 function editableLeader(label, value, save) {
-  /* A value edited where it is READ: the figure IS the field, in the
-     same face and the same place. A knob is one line long, so Enter
-     finishes it and Esc puts it back — and neither is written down: a
-     slip that explains its own keys is a slip that moved its figures to
-     make room for the explanation. */
+  /* A value edited where it is READ: the figure IS the field. A knob is
+     one line long, so Enter finishes it and Esc puts it back — neither
+     written down, a slip having no room to explain its own keys. */
   const row = element("div", "otk-leader");
   row.append(span("", label), editable("", { text: value, save, line: true }));
   return row;
 }
 
-/** The caption under a knob, in the design's own words. A slip has room
-    for a caption and not for a sentence: `/help` prints the table's full
-    row for the same command, and this says the same thing in the space a
-    leader leaves under it. Lowercase, because a caption does not open
-    with a capital. */
+/** The caption under a knob. A slip has room for a caption and not for
+    a sentence: `/help` prints the table's full row for the same
+    command, and this says it in the space a leader leaves. Lowercase,
+    as a caption is. */
 const _ABOUT = {
   verbose: "the stats line after each reply",
   autocorrect: "settle names to the cast's spelling",
@@ -150,8 +152,7 @@ function about(name) {
 
 function knobKeys(popup) {
   /* A slip is a column of controls, so the arrows move focus between
-     them and Enter presses the one you are on — which is what a button
-     does by itself, once something is focused. Without this the docket
+     them and Enter presses the one you are on. Without this the docket
      opens with `Close` focused and Enter shuts it. */
   const signal = wiring(popup);
   const controls = () => $$("button:not(.otk-close)", popup);
@@ -172,12 +173,11 @@ function knobKeys(popup) {
     },
     { signal },
   );
-  /* Not the close button, which is what `showModal` would otherwise
-     focus — and then Enter would close the docket the reader came to
-     edit in. Focused outright as well as marked: every control here is
-     a write, and a write rebuilds the slip, which drops the focused
-     control and with it the whole keyboard — `showModal` on an
-     already-open dialog honours no autofocus. */
+  /* Not the close button, which `showModal` would focus — and then
+     Enter closes the docket the reader came to edit in. Focused
+     outright as well as marked: every control here is a write, a write
+     rebuilds the slip and drops the focused control, and an already-open
+     dialog honours no autofocus. */
   const first = controls()[0];
   first?.setAttribute("autofocus", "");
   first?.focus();

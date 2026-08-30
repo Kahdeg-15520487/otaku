@@ -307,11 +307,27 @@ class TestManagedPicker:
         app = launch(tmp_path / "state", server, spec="ollama/alpha")
         return app, server
 
+    def settled_pick(self, app: App) -> str | None:
+        """`pick`, but not run until its rows are in. The picker lists
+        every provider in the background now, and `run_screen` queues its
+        keys before the app starts — so a key would otherwise act on an
+        empty list. Built HERE, inside the app session, because
+        prompt_toolkit binds an Application's input when it is built; the
+        queued keys wait in the pipe meanwhile."""
+        engines = api_providers.engines(app.session)
+        picker = screen_models.ModelPicker(
+            app.session, engines, [], initial_spec="ollama/alpha", fetch=["ollama"]
+        )
+        deadline = time.monotonic() + 5
+        while picker.pending and time.monotonic() < deadline:
+            time.sleep(0.02)
+        return picker.run()
+
     def test_l_loads_the_model_after_a_confirm(self, tmp_path) -> None:
         app, server = self.launch_managed(tmp_path)
         try:
             with contextlib.suppress(EOFError):
-                run_screen("ly" + ESC, lambda: screen_models.pick(app.session))
+                run_screen("ly" + ESC, lambda: self.settled_pick(app))
             assert server.loaded == {"alpha"}
             # The load request carried the provider's keep_alive.
             load = next(r for r in server.requests if r.get("prompt") == "")
@@ -341,7 +357,7 @@ class TestManagedPicker:
         server.loaded = {"alpha"}
         try:
             with contextlib.suppress(EOFError):
-                run_screen("uy" + ESC, lambda: screen_models.pick(app.session))
+                run_screen("uy" + ESC, lambda: self.settled_pick(app))
             assert server.loaded == set()
             unload = next(r for r in server.requests if r.get("keep_alive") == 0)
             assert unload["model"] == "alpha"
@@ -352,7 +368,7 @@ class TestManagedPicker:
     def test_enter_on_a_not_loaded_model_loads_it_first(self, tmp_path) -> None:
         app, server = self.launch_managed(tmp_path)
         try:
-            notice = run_screen(ENTER, lambda: screen_models.pick(app.session))
+            notice = run_screen(ENTER, lambda: self.settled_pick(app))
             # The pick EXECUTES the switch and answers with its notice —
             # here a no-op notice, since the launch already stood on it.
             assert notice is not None and "ollama/alpha" in notice

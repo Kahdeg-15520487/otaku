@@ -1,17 +1,15 @@
 /* The one line otaku speaks in: the reserved row at the foot of the
    contents. Everything the app has to SAY arrives here — what a command
-   answered, what the background worker is doing, that the server went
-   away — because the transcript is the story, and a story is only what
-   was played into it.
+   answered, what the worker is doing, that the server went away —
+   because the transcript is the story, and a story is only what was
+   played into it.
 
-   The line is one component with three parts and never moves: a lamp
-   that says what the SESSION is doing, the sentence, and at most one
-   action. It holds its height when it has nothing to say, so nothing on
-   the page jumps.
+   Three parts that never move: a lamp for what the SESSION is doing,
+   the sentence, and at most one action. It holds its height with
+   nothing to say, so nothing on the page jumps.
 
-   A leaf on purpose: it knows how to draw a line and nothing about what
-   otaku is, so every module that has something to say can reach it
-   without reaching for a screen. */
+   A leaf on purpose — it knows how to draw a line and nothing about
+   what otaku is — so anything with something to say can reach it. */
 
 import { $ } from "./dom.js";
 
@@ -28,10 +26,9 @@ let gone = false;
 let busy = false;
 let heard = false;
 
-/* What the line reads when otaku has nothing to say. A reserved row that
-   is blank looks broken; a word there says the session is up and waiting.
-   It is about the MEDIUM — the state of the page, not an answer — which
-   is why it is the frontend's own and not a backend sentence. */
+/* What the line reads when otaku has nothing to say: a blank reserved
+   row looks broken, where a word says the session is up and waiting.
+   About the MEDIUM, which is why it is the frontend's own word. */
 const _RESTING = "Ready";
 
 export function tell(sentence, kind = "") {
@@ -47,9 +44,8 @@ export function tell(sentence, kind = "") {
 }
 
 /** What is on the line right now — for the beat, which takes its own
-    sentence down when the pass it was about is over, and leaves
-    anything said since alone. The resting word is not something said,
-    so it reads as nothing. */
+    sentence down when the pass it was about is over and leaves anything
+    said since alone. The resting word reads as nothing. */
 export function told() {
   const said = text?.textContent ?? "";
   return said === _RESTING ? "" : said;

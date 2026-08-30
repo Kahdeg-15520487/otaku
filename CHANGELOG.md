@@ -24,27 +24,13 @@ changes.
   address `configs/config.toml`'s new `[web]` section names (loopback and port 9600 by default, so
   reaching it from another machine is an edit somebody made on purpose), and everything the
   terminal does is there: the story plays in a transcript, replies stream, and everything the
-  terminal answers as a command is a button or a screen. The browsers — stories and their
-  messages, lore and cast, the model picker with its providers, the settings knobs — are the same
-  screens in a page's medium, and the reports keep their shapes: the context window as a diagram,
-  usage as a table, the session as a definition list. A reply is typeset as it arrives — spoken
-  lines take their own colour in both conventions writers use (paired quotes, and the dash that
-  opens a line and hands over to the attribution), and the model's `*emphasis*`, `**weight**` and
-  `` `code` `` are rendered rather than shown as characters. The prompt takes prose alone: `/me`,
-  `/you`, `/ooc` and `/cue` are the story's own framing and go to the model inside the line, while
-  everything a command used to do is a thing on the page to press.
-
-  It is a single-reader, local page by design: nothing it is made of is cached and nothing is a
-  build step, so a file that changes on disk changes what the browser has — the page replaces
-  itself when one does, and a stylesheet is swapped without losing your place. The reader's own
-  `web/custom.css` in the state dir is loaded last, against a token contract documented in
-  `docs/web_tokens.md`, with typefaces of their own beside it in `web/fonts/`. While a
-  reply is streaming the page stays answerable — screens open, lists load — because reads are
-  served in the gaps of the reply rather than queued behind it.
-
-  It listens on loopback and answers only requests addressed to this machine, and a write must
-  come from otaku's own page: a page on another site cannot drive your otaku from the browser you
-  left it open in.
+  terminal answers as a command is a button or a screen.
+- `/web` serves the running session to a browser without leaving the terminal: it prints the
+  address and how to stop, and Ctrl+C hands the session straight back to the prompt you left —
+  nothing redrawn, because nothing started over. Nothing is served in parallel and nothing is
+  copied: it is one session, played through whichever frontend you are in front of. It exists
+  because `otaku web` is a thing you have to already know about, where a command is in the menu
+  that opens when you type a slash, and under a heading of its own in `/help`.
 - Windows is a supported platform, with an installer of its own: `install.ps1`, run as
   `powershell -ExecutionPolicy Bypass -c "irm https://otaku.sh/install.ps1 | iex"`. It is
   `install.sh` in PowerShell and makes the same promises — it fetches uv, installs otaku with it,
@@ -76,12 +62,6 @@ changes.
   section gains the line on the first launch after upgrading, so the setting is there to see and
   edit. The verbose stats line shows `cached N tok` per reply, `/usage` grows a CACHED column, and
   `/info` reports the setting.
-- `/web` serves the running session to a browser without leaving the terminal: it prints the
-  address and how to stop, and Ctrl+C hands the session straight back to the prompt you left —
-  nothing redrawn, because nothing started over. Nothing is served in parallel and nothing is
-  copied: it is one session, played through whichever frontend you are in front of. It exists
-  because `otaku web` is a thing you have to already know about, where a command is in the menu
-  that opens when you type a slash, and under a heading of its own in `/help`.
 - `[terminal]`'s new `theme` setting decides which shades otaku paints in: `"light"` or `"dark"`
   settles it, and `"auto"` — the default — asks the terminal as before. What changed underneath is
   the answer when the terminal will not say: it used to read as light, and now reads as dark, which
@@ -149,6 +129,10 @@ changes.
   palette slots: they used to be "blue" and "magenta", which every terminal shades to taste, and
   they are now exact shades that come out the same everywhere. `dialogue_color` still takes a
   palette name if you would rather your own scheme decided.
+- The break rule between exchanges is dimmed. At full intensity it read as a hairline on a light
+  terminal and bloomed on a dark one, light-on-dark strokes carrying more weight than the same
+  line does the other way round. Reduced intensity settles both, where a grey would be a guess
+  against a background otaku cannot see.
 - `[context] tail_messages` is now `min_tail_messages`, saying what it always meant: the tail
   never holds fewer than it — a scene ending exactly at the tail's first message stays verbatim,
   its whole span riding with the tail. Config.toml renames the key itself, the set value kept.

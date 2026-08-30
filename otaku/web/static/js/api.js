@@ -11,11 +11,10 @@
    That is the whole reason a read is never written as a POST here. */
 
 /* Every answer is proof that otaku is there, and every connection that
-   cannot be made is proof it is not — so whether the page believes it
-   is connected is settled HERE, on every request, rather than at each
-   call site, where it was raised and never lowered. A 404 or a 500 is
-   not a loss: the server answered, and answered badly, which is a bug
-   to show and not a state to draw. */
+   cannot be made is proof it is not, so the page's connected state is
+   settled HERE on every request rather than at each call site. A 404 or
+   a 500 is not a loss: the server answered, and answered badly, which
+   is a bug to show and not a state to draw. */
 let onReach = () => {};
 let onLost = () => {};
 
@@ -38,10 +37,9 @@ async function ask(path, options) {
   onReach();
   if (!response.ok) {
     /* A fault, not a refusal — a refusal comes back 200 with the
-       backend's own sentence. There is no sentence for this one, so the
-       page says the only thing it is entitled to say: something about
-       the MEDIUM. The address and the code go to the console, which is
-       where a bug is read, not to the reader. */
+       backend's own sentence. There is none for this, so the page says
+       the only thing it is entitled to: something about the MEDIUM. The
+       address and the code go to the console, where a bug is read. */
     console.error(`${path} — ${response.status}`, await response.text());
     throw new Error("otaku could not answer that.");
   }
@@ -73,10 +71,8 @@ const query = (pairs) => {
 
 /** The beat: is otaku there, what is the background worker doing, and
     what has it said since the last one. Answered by the server itself,
-    so it is true of a session in the middle of a reply as much as an
-    idle one — and it is the ONLY request the page makes that nobody
-    asked for. Reaching it at all is the first answer, which `ask` above
-    turns into the page's connected state. */
+    so it is true mid-reply as much as idle — and it is the only request
+    the page makes that nobody asked for. */
 export const alive = () => get("/api/alive");
 
 // ---------- playing ----------
@@ -171,10 +167,9 @@ export const resetParameter = (name) =>
 /** Play a line, or regenerate the standing reply. Returns either the
     refusal — checked before anything is recorded — or the event stream. */
 export async function play(line, { regenerate = false, signal } = {}) {
-  /* The stream is a POST like any other as far as reaching otaku goes;
-     what is different is the body, which is read frame by frame below.
-     `signal` is how a reader gives up on it: aborting takes the socket
-     away, which is the backend's cancel-and-keep door. */
+  /* A POST like any other; what differs is the body, read frame by
+     frame below. `signal` is how a reader gives up: aborting takes the
+     socket away, which is the backend's cancel-and-keep door. */
   const response = await ask(regenerate ? "/api/play/last" : "/api/play", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -193,9 +188,8 @@ async function* events(response) {
      is left over stays in the buffer until the rest of it arrives.
 
      However this loop is left — the last frame, a throw while drawing,
-     a caller that stops asking — the reader is cancelled, which is what
-     takes the socket away. The backend's cancel-and-keep is on the
-     other end of that socket: without this it would wait for a reply
+     a caller that stops asking — the reader is cancelled, and that is
+     what takes the socket away. Without it the backend waits on a reply
      nobody is reading. */
   const reader = response.body.getReader();
   const decoder = new TextDecoder();

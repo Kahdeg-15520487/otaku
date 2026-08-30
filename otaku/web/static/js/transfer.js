@@ -22,8 +22,7 @@ export async function importDocument() {
   await landed(answer.notice, { redraw: "always" });
   // The memoryless shapes build their memory now, through the same
   // forced pass a manual close runs. A native export arrives with its
-  // memory and starts none — polling for a report it will never file
-  // would run for the life of the tab.
+  // memory and starts none, so nothing polls for a report never filed.
   if (answer.watching) watchExtraction(answer.story);
 }
 
@@ -136,11 +135,10 @@ async function encode(file) {
 }
 
 export async function exportStory({ storyId = null } = {}) {
-  // Any story exports from where it is read; without one, the open story
-  // is the one on screen. With no story at all there is no document and
-  // nothing to address — the sentence is the backend's own, copied
-  // because the language barrier is the whole reason it is needed here
-  // (`backend.api.transfer.export`, which says it for every other case).
+  // Any story exports from where it is read; without one, the open
+  // story. With no story at all there is nothing to address, and no id
+  // to ask with — so the sentence is COPIED from its home
+  // (`backend.api.transfer.export`), which says it in every other case.
   const id = storyId ?? (await api.facts()).story_id;
   if (id === null) {
     tell("Nothing to export yet.", "otk-error");

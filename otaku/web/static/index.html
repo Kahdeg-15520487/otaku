@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>otaku</title>
-<!-- A placeholder mark until the app has its own again: the accent square,
-     and the greyed copy `shell.disconnected` swaps in when otaku stops. -->
+<!-- The tab's mark: the accent square, and the greyed copy
+     `shell.disconnected` swaps in when otaku stops. -->
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Crect%20x='3'%20y='3'%20width='10'%20height='10'%20fill='%23b06636'/%3E%3C/svg%3E" data-offline="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Crect%20x='3'%20y='3'%20width='10'%20height='10'%20fill='%23a0a0a0'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="app.css">
 <!-- The reader's own styles, loaded last so anything in them wins. Served from
@@ -77,12 +77,12 @@
         <span class="otk-runhead__folio" data-fact="turns"></span>
       </header>
 
-      <!-- Turns are appended here, all of them ordinary flow children: an
-           assistant reply is an <article class="otk-reply"> of prose (its
-           `.otk-generating__status` under it while it arrives), a played
-           line a .otk-turn interjection, a failure an .otk-error block, and
-           the .otk-gap after an undo is the space the flow holds open so
-           the page does not move under the reader. -->
+      <!-- Turns are appended here as ordinary flow children: a reply is an
+           <article class="otk-reply"> of prose, carrying its `.otk-verbose`
+           stats line and its `.otk-generating__status` pulled up against
+           it; a played line is a .otk-turn interjection; a failure an
+           .otk-error block; and .otk-gap is the space the flow holds open
+           after an undo, so the page does not move under the reader. -->
       <div class="otk-transcript" role="log" aria-live="polite">
       </div>
 
@@ -110,7 +110,7 @@
         <p class="otk-hints">
           <span>enter send</span><span>shift+enter newline</span><span>&uarr;/&darr; history</span>
           <span>ctrl+r regenerate</span><span>ctrl+u undo</span>
-          <button type="button" class="otk-accent-ink" data-prefixes>/ commands</button>
+          <button type="button" data-prefixes>/ commands</button>
           <span>esc clear</span>
         </p>
       </footer>

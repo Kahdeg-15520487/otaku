@@ -74,9 +74,12 @@ PROMPT_CONTINUATION = "... "
 CLOUD_PROMPT_PREFIX = "$ "
 
 # The rule the chat screen draws where the played sequence stops
-# continuing. A fine dotted line in the terminal's own text color: the
-# character carries the lightness, so the line reads at normal weight and
-# stays legible on any theme without a color to shade.
+# continuing. A fine dotted line in the terminal's own text color,
+# DIMMED — reduced intensity rather than a grey guessed against an
+# unknown background, the same treatment secondary text gets (see
+# `theme.Theme`). At full intensity the row reads as a hairline on a
+# light background and blooms on a dark one, which is the whole reason
+# this is not left to the character alone.
 _RULE_CHAR = "┈"
 
 _ASK_DEADLINE = 0.2
@@ -104,7 +107,7 @@ def user_block(text: str) -> str:
 def break_rule(width: int) -> str:
     """The break rule, `width` columns wide — one row, printed by the
     caller (the ledger, which decides where a break falls)."""
-    return _RULE_CHAR * width
+    return f"{DIM}{_RULE_CHAR * width}{RESET}"
 
 
 def error_line(text: str) -> str:

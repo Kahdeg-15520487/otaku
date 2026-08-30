@@ -105,8 +105,13 @@ Two lines give the whole transcript a different voice:
 :root { --otk-dialogue: #2f5fa8; --otk-dialogue-weight: 600; }
 ```
 
-Emphasis inside prose (`*like this*`) is not speech and keeps the
-accent.
+Spoken lines are UPRIGHT: the quotation marks already mark them as
+speech, and italic is the model's own `*emphasis*`, which is a different
+thing. There is no token for that — a stylesheet that wants its dialogue
+slanted sets `font-style` on `.otk-quote, .otk-prose--dialogue` itself.
+
+Emphasis inside prose (`*like this*`) is not speech: it takes whatever
+colour it stands in, so inside a quote it is spoken too.
 
 One accent. The primary button is **ink, not accent** — a stamp, not a
 highlight. Colour is never the only signal, so an override cannot break
@@ -151,6 +156,10 @@ Leading: `--otk-leading-page` · `--otk-leading-read` · `--otk-leading-row`.
 Tracking: `--otk-track-eyebrow` (panel title) · `--otk-track-label` (section) ·
 `--otk-track-foot` (footers) · `--otk-track-tag`.
 
+`--otk-row-h` is a list row's height, declared rather than left to whatever
+fills it: every cell states `--otk-leading-row` and the row states this floor,
+so a list of mixed scripts does not ripple. Raise both together.
+
 ## Boxes
 
 | Token | Rule |
@@ -192,7 +201,13 @@ the platform's chrome.
 | Token | Used by |
 |---|---|
 | `--otk-scrollbar-w` | the track width |
-| `--otk-scrollbar-thumb` | the thumb, inset by its own border |
+| `--otk-scrollbar-thumb` | the thumb — ink-family, so it reads as drawn |
+| `--otk-scrollbar-track` | the channel it runs in |
+
+`--otk-scrollbar-w` reaches only an engine that lacks `scrollbar-color`:
+the standard `scrollbar-width`/`scrollbar-color` pair is what every
+current browser is given, and `thin` is its own width. The two colour
+tokens reach both.
 
 ## Depth
 

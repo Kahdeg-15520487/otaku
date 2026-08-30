@@ -275,6 +275,9 @@ def story(session: Session, story_id: int) -> dict[str, Any]:
                 # The archive an IMPORTED character carries; "" for one
                 # the extractor named out of the story itself.
                 "card": character.card or "",
+                # Their arc SO FAR — derived, so no write takes it, the
+                # way a scene's `history` above is derived.
+                "history": view.character_history(character.id),
                 # When the extractor last wrote them — display alone.
                 "updated_at": character.updated_at,
                 "journals": [

@@ -26,7 +26,10 @@ The right side is the provider panel: each engine's caption with its
 `URL:` and `API key:` fields, the key's value never displayed, the
 cloud catalogs' url fixed (shown dimmed, never walkable). Tab switches
 sides; ↑/↓ walk the fields; Enter edits the highlighted one in place
-(←/→ move the cursor, paste works, Enter saves); a paste onto a CLOSED
+(←/→ move the cursor, paste works, Enter saves) while TYPING replaces
+it — the editor opens empty with the keystroke in it, because typing
+over a highlighted value is what replacing one looks like everywhere
+else, and Esc restores from either way in; a paste onto a CLOSED
 field (Cmd+V, Ctrl+V) sets it outright — a url or a key is pasted whole
 rather than composed — while inside the editor a paste is an ordinary
 paste; Delete on an api key, outside the editor, clears it. Saves go
@@ -83,38 +86,27 @@ def pick(session: Session, initial_spec: str | None = None) -> str | None:
     choosing — silently: at launch the session opens model-less and the
     first turn explains itself, from /model everything stays as it was.
     Opens even with nothing to list — the panel is the one door to
-    configuring an engine. Only the local engines are waited for: the
-    screen opens on their answers, and each cloud catalog's rows arrive
-    when it responds."""
-    engines = api_providers.engines(session)
-    catalogs = [engine.name for engine in engines if not engine.local]
-    rows, reachable = api_providers.get_providers(session, skip=set(catalogs))
-    entries: list[ModelEntry] = []
-    for row in rows:
-        for model in row.models:
-            entries.append(
-                ModelEntry(
-                    full_spec=f"{row.config.name}/{model.name}",
-                    provider_name=row.config.name,
-                    model=model.name,
-                    # An engine you can't load/unload serves its models
-                    # statically, so they are ALWAYS available — shown
-                    # loaded, and Enter picks them directly.
-                    loaded=model.loaded if row.can_load_unload else True,
-                    can_load_unload=row.can_load_unload,
-                    size_bytes=model.size,
-                    context=model.context,
-                    cloud=not row.local,
-                )
-            )
-    order = {engine.name: i for i, engine in enumerate(engines)}
+    configuring an engine.
+
+    NOTHING is waited for: the screen opens on an empty list and every
+    configured provider answers into it, each saying "loading…" in the
+    panel until it does. A local engine is usually quick, but usually is
+    not always — a laptop that has gone to sleep, an ollama that is
+    starting, a url pointing at nothing — and a picker that opens after
+    the slowest of them reads as a hang. The rows land as they arrive,
+    and a remembered model takes the cursor whenever its provider is the
+    one that answered."""
     picker = ModelPicker(
         session,
-        engines,
-        _ordered(entries, order),
+        api_providers.engines(session),
+        [],
         initial_spec=initial_spec,
-        fetch=catalogs,
-        connected=reachable,
+        # Every CONFIGURED provider, not every engine: one with no section
+        # has nothing to ask and would spend a thread learning it, while a
+        # section under a name of the reader's own is not an engine at all
+        # and still holds models.
+        fetch=sorted(api_providers.configured(session)),
+        connected=set(),
     )
     return picker.run()
 
@@ -246,13 +238,15 @@ class ModelPicker(ListScreen):
         self._picked: ModelEntry | None = None
         self.app = self._build_app()
 
-        # The named providers (the cloud catalogs) answer after the screen
-        # is up: each fetch merges its rows in and leaves the pending set.
-        self.pending: set[str] = set(fetch or [])
-        # A snapshot: a fetch that fails instantly (a keyless catalog)
-        # discards from the live set while this loop still walks it.
-        for name in list(self.pending):
+        # Every provider answers after the screen is up: each listing
+        # marks itself pending, merges its rows in, and clears the mark.
+        self.pending: set[str] = set()
+        for name in fetch or []:
             self._refresh_provider(name)
+        # Nothing to ask and nothing to show — a machine with no provider
+        # configured at all opens on the panel, without waiting for an
+        # answer that is never coming.
+        self._settle_side()
 
     def run(self) -> str | None:
         # An empty screen still runs: the provider panel is the one door
@@ -307,7 +301,16 @@ class ModelPicker(ListScreen):
         # self.filtered, and the column lists must match the row loop.
         rows = self.filtered
         if not rows:
-            msg = "(no matches)" if self.query else "(no models)"
+            # An empty list while a provider is still answering is not an
+            # answer — it is the question, not yet returned. Saying "no
+            # models" there would be a verdict the screen has not earned,
+            # and one it would take back a moment later.
+            if self.query:
+                msg = "(no matches)"
+            elif self.pending:
+                msg = "(loading…)"
+            else:
+                msg = "(no models)"
             return [("class:muted", "  " + msg)]
 
         # Every row spans one width: the model name on the left, cut to
@@ -492,6 +495,25 @@ class ModelPicker(ListScreen):
         # Letters and the `/` filter belong to the models side.
         if self.side == "models":
             super()._type(data)
+            return
+        # On a field, a keystroke IS the edit: it opens on an empty value
+        # with what was typed already in it. Typing over a highlighted
+        # field is replacing what is there — the same as everywhere else
+        # a value is selected — and Enter on the field is the other way
+        # in, for correcting rather than replacing. Esc restores either.
+        self._start_field_edit(blank=True)
+        if self.editing:
+            self.edit_buffer.insert_text(data)
+
+    def _settle_side(self) -> None:
+        """Move to the provider panel once every provider has answered and
+        none of them offered a model. The models side is then a message
+        rather than a list, and the panel is the one door to fixing that —
+        so the cursor is already on it rather than one Tab away. Only
+        while nobody is still answering: an empty list mid-listing is the
+        question, not the answer."""
+        if not self.pending and not self.all:
+            self.side = "providers"
 
     def _toggle_side(self) -> None:
         self.notice = ""
@@ -626,6 +648,14 @@ class ModelPicker(ListScreen):
     def _on_escape(self) -> None:
         if self.side == "providers":
             self.notice = ""
+            # Back to the models side — unless there is no models side to
+            # go back to. A picker that listed nothing and has nothing
+            # left to hear from moved the cursor here itself, and Esc
+            # there means leave: stepping onto an empty list first is a
+            # keystroke spent on nothing.
+            if not self.pending and not self.all:
+                get_app().exit()
+                return
             self.side = "models"
             return
         if not self._clear_filter():
@@ -640,7 +670,10 @@ class ModelPicker(ListScreen):
 
     # ---------- provider field editing ----------
 
-    def _start_field_edit(self) -> None:
+    def _start_field_edit(self, *, blank: bool = False) -> None:
+        """Open the inline editor on the highlighted field. `blank` is the
+        way in that a keystroke takes: it replaces rather than corrects,
+        so the value it starts from is nothing."""
         if not self.fields:
             return
         name, attr = self.fields[self.field_cursor]
@@ -648,18 +681,23 @@ class ModelPicker(ListScreen):
         self.editing = True
         # The url edits in place; the api key always starts blank — its
         # current value is never displayed, not even to edit.
-        prefill = api_providers.section(self.session, name).url if attr == "url" else ""
-        self.edit_buffer.document = Document(prefill, 0)
+        edits_in_place = attr == "url" and not blank
+        prefill = api_providers.section(self.session, name).url if edits_in_place else ""
+        # The cursor lands at the END: Enter is for correcting a value,
+        # and correcting one starts from its last character, not before
+        # its first. A blank field puts the two in the same place.
+        self.edit_buffer.document = Document(prefill, len(prefill))
 
     def _finish_field_edit(self, *, save: bool) -> None:
+        """Close the editor, saving what is in it unless `save` is off.
+        Neither leaving without saving nor saving nothing says anything:
+        the field is back on screen showing what it holds, which is the
+        whole report. The strip below is for what the SCREEN cannot show
+        — a refusal, or a value the file would not take."""
         self.editing = False
         value = self.edit_buffer.text.strip()
         self.edit_buffer.reset()
-        if not save:
-            self.notice = "(cancelled)"
-            return
-        if not value:
-            self.notice = "(empty — not saved)"
+        if not save or not value:
             return
         name, attr = self.fields[self.field_cursor]
         try:
@@ -716,9 +754,17 @@ class ModelPicker(ListScreen):
         return rows
 
     def _refresh_provider(self, name: str) -> None:
-        """Re-list one provider after any of its settings changed, so the
-        models side follows the edit without a relaunch — a provider that
-        stopped answering simply loses its rows."""
+        """Re-list one provider — at the open, and again whenever its
+        settings change, so the models side follows an edit without a
+        relaunch; a provider that stopped answering simply loses its rows.
+
+        Marked pending BEFORE the thread starts, and by this method rather
+        than by its callers: every listing is one of these, so every
+        listing says so in the panel and nothing has to remember to. The
+        add is under the lock the worker's discard takes, or a fetch that
+        answers instantly could clear the mark before it was made."""
+        with self._lock:
+            self.pending.add(name)
 
         def worker() -> None:
             try:
@@ -748,6 +794,7 @@ class ModelPicker(ListScreen):
                 self.all = _ordered(entries + rows, self._order)
                 self.pending.discard(name)
                 self._refilter()
+                self._settle_side()
                 # A remembered model whose rows just arrived gets the
                 # cursor, unless the user already moved it somewhere.
                 if self._initial_spec and self.cursor == 0:

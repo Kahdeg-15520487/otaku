@@ -1,23 +1,18 @@
 /* How a turn looks — stored or arriving.
 
-   Bodies cross from the backend VERBATIM. Where a paragraph breaks, what
-   a slash token is drawn as, and where the caret rides are decided here
-   and nowhere else; nothing in this file rewrites the text itself.
+   Bodies cross from the backend VERBATIM: this file decides where a
+   paragraph breaks, how a slash token is drawn and where the caret
+   rides, and rewrites none of the text itself.
 
-   The page draws the story as a book draws one: the reply is prose in
-   the flow, and a played line is a centred interjection under a mono
-   rubric — the same meaning as the terminal's `>` band, in this
-   medium's shape. Waiting and streaming are ONE state: the caret holds
-   the answer's place and text grows in front of it, with a status line
-   under it while it runs.
+   The page draws the story as a book does: a reply is prose in the flow,
+   a played line a centred interjection under a mono rubric — the
+   terminal's `>` band in this medium's shape. Waiting and streaming are
+   ONE state. Three kinds of line are not the story and never read as
+   it: the model's thinking, the verbose stats line, and a failure.
 
-   Three kinds of line are not the story and never read as it: the
-   model's thinking, the verbose stats the terminal prints after a
-   reply, and a failure. Each has its own voice.
-
-   It renders the undo/regen bar but does not know what those do: the
-   buttons carry `data-turn`, and whoever owns commands listens. That
-   keeps the transcript a drawing, not a controller. */
+   It draws the undo/regen bar without knowing what those do — the
+   buttons carry `data-turn` and whoever owns commands listens — which
+   keeps this a drawing, not a controller. */
 
 import * as api from "./api.js";
 import { $, $$, element, span } from "./dom.js";
@@ -29,17 +24,16 @@ const transcript = $(".otk-transcript");
 const stop = $("[data-stop]");
 const send = $("[data-send]");
 
-// The reply in flight, so Stop has something to stop — and a promise
-// that keeps until it is over, for whoever asked it to stop.
+// The reply in flight, so Stop has something to stop, and a promise that
+// keeps until it is over, for whoever asked it to stop.
 let arriving = null;
 let settled = Promise.resolve();
 
-// One turn at a time, as in the terminal: a session plays one line, and
-// the composer waits for it.
+// one turn at a time, as in the terminal
 let playing = false;
 
-// The ordinal the NEXT drawn turn takes — the rubric's number, counted
-// the way the story browser counts messages.
+// the rubric's number for the NEXT drawn turn, counted the way the story
+// browser counts messages
 let ordinal = 0;
 
 export const isPlaying = () => playing;
@@ -48,8 +42,7 @@ export const isPlaying = () => playing;
 
 export function showTurns(turns, { keepPlace = false } = {}) {
   /* `keepPlace` is for a redraw the reader did not ask to be moved by —
-     an undo, a regenerate: the turns change, the scroll does not, and
-     what was taken away simply leaves the space it was in. */
+     an undo, a regenerate: the turns change, the scroll does not. */
   ordinal = turns.length;
   const drawn = turns.map((turn, i) => drawTurn(turn, i + 1));
   if (keepPlace) {
@@ -74,9 +67,8 @@ function turnOver(streaming) {
 }
 
 /** Give up on the reply that is arriving, and answer when it is over.
-    The connection going away IS the backend's cancel-and-keep door —
-    the same one a closed tab goes through — so what has streamed stays
-    in the story. */
+    The connection going away IS the backend's cancel-and-keep door — the
+    one a closed tab takes — so what streamed stays in the story. */
 export function stopPlaying() {
   arriving?.abort();
   return settled;
@@ -84,24 +76,18 @@ export function stopPlaying() {
 
 /* ---------- holding the reader's place ----------
 
-   Taking turns away shortens the flow, and a shorter flow moves under
-   whoever is reading it: the browser clamps a scroll position that no
-   longer exists and everything above jumps. So the space is held open —
-   an empty block after the last turn, exactly as tall as the position
-   needs to stay legal and not one pixel taller:
+   Taking turns away shortens the flow, and the browser clamps a scroll
+   position that no longer exists — everything above jumps. So an empty
+   block is held open after the last turn, exactly as tall as the
+   position needs to stay legal:
 
        held = (where we are) + (what we can see) - (what is left)
 
-   which is zero the moment the flow grows back into it, and never more
-   than one screenful however much is taken away. A BLOCK rather than
-   padding on the flow itself: padding is part of the scroller's own
-   box, and a scroller that grows takes the page with it.
-
-   The space is given back as new text fills it, and once it is gone the
-   flow follows the text down again — for a reader who was at the tail
-   when they asked for it. `overflow-anchor` is off in the stylesheet, so
-   Chrome and Firefox do not fight this with anchoring of their own;
-   nothing here needs a feature Safari lacks. */
+   It is zero the moment the flow grows back into it, and never more than
+   one screenful. A BLOCK rather than padding on the flow: padding is
+   part of the scroller's own box, and a scroller that grows takes the
+   page with it. `overflow-anchor` is off in the stylesheet so Chrome and
+   Firefox do not fight this with anchoring of their own. */
 
 let holdAt = null; // the scroll position being protected, null when none
 
@@ -119,8 +105,7 @@ function reserve() {
   const needed = Math.max(0, holdAt + transcript.clientHeight - transcript.scrollHeight);
   gap.style.height = `${needed}px`;
   transcript.scrollTop = holdAt;
-  // Caught up: the flow is tall enough to be read where it was, and
-  // holding it does nothing but keep a scrollbar longer than the story.
+  // caught up: holding now only keeps a scrollbar longer than the story
   if (!needed) release();
 }
 
@@ -143,17 +128,14 @@ function room() {
 function atTail() {
   const gap = $(".otk-gap", transcript);
   const empty = gap ? gap.getBoundingClientRect().height : 0;
-  // The held space is not story: a reader sitting above it is at the
-  // tail of what there is to read.
+  // held space is not story: a reader sitting above it is at the tail
   return transcript.scrollHeight - empty - transcript.scrollTop - transcript.clientHeight < 120;
 }
 
 function toBottom({ force = false } = {}) {
-  /* Only when the reader is already there. A story being read further up
-     must not be yanked down because a turn was taken back or a reply was
-     re-run — the two things that change what is BELOW the fold without
-     the reader asking for a new line. `force` is for the one case that
-     is the reader asking: a line they just sent. */
+  /* Only when the reader is already there: a story being read further up
+     must not be yanked down by an undo or a re-run. `force` is the one
+     case that is the reader asking — a line they just sent. */
   if (force || atTail()) transcript.scrollTop = transcript.scrollHeight;
 }
 
@@ -174,9 +156,9 @@ function drawTurn(turn, position) {
 }
 
 function withSlashTokens(line) {
-  /* The typed line, with its command words picked out — as the terminal
-     highlights them in the played block. Split on whitespace runs so the
-     line comes back exactly as it went in, spaces and all. */
+  /* The typed line with its command words picked out, as the terminal
+     highlights them. Split on whitespace runs, so the line comes back
+     exactly as it went in. */
   return line.split(/(\s+)/).map((piece) => {
     if (!isToken(piece)) return document.createTextNode(piece);
     return element("span", "otk-slash", piece);
@@ -191,14 +173,13 @@ function drawProse(article, text, { streaming = false } = {}) {
   const drawn = $$(".otk-prose", article);
   paragraphs.forEach((paragraph, i) => {
     const p = drawn[i] ?? article.insertBefore(element("p"), $(".otk-generating__status", article));
-    // Two shapes of the same accent: a paragraph that is nothing but
-    // speech takes it whole, and a mixed one takes it a run at a time.
+    // one accent, two shapes: an all-speech paragraph takes it whole, a
+    // mixed one a run at a time
     const { spoken, nodes } = typeset(paragraph.trim());
     p.className = spoken ? "otk-prose otk-prose--dialogue" : "otk-prose";
     p.replaceChildren(...nodes);
   });
-  // The caret rides the end of what has arrived — the one moving thing
-  // on the page, and the only one actually happening.
+  // the caret rides the end of what has arrived
   $(".otk-caret", article)?.remove();
   if (streaming) {
     const caret = element("span", "otk-caret");
@@ -208,16 +189,13 @@ function drawProse(article, text, { streaming = false } = {}) {
 }
 
 function showTurnBar() {
-  /* undo and regenerate belong to the last exchange and to no other —
-     the terminal offers them for the same one turn. They live under the
-     PROMPT, not under the turn: they are what you do next, and next is
-     where the cursor is. Drawn once in the markup, so this only decides
-     whether there is anything to act on. */
+  /* undo and regenerate belong to the last exchange and to no other, as
+     in the terminal. They live under the PROMPT rather than the turn:
+     they are what you do next, and next is where the cursor is. Drawn
+     once in the markup, so this only decides what there is to act on. */
   const turns = $$(".otk-turn, .otk-reply", transcript).length;
-  /* Both act on the last exchange, so both are off when there is no
-     exchange to act on. Regenerate answers mid-reply as well — it means
-     "not this one" and takes the same door Stop does; undo cannot,
-     because the turn it would take back has not landed yet. */
+  /* Regenerate answers mid-reply too — it means "not this one" and takes
+     the door Stop does; undo cannot, the turn having not landed yet. */
   const undo = $("[data-turn='undo']");
   const regen = $("[data-turn='regen']");
   undo?.setAttribute("aria-disabled", String(!turns || playing));
@@ -234,9 +212,8 @@ function showTurnBar() {
 /** Play a line and draw the reply as it streams. `line` is null for a
     regenerate, where the prompt is already on screen and in the store. */
 export async function play(line, { regenerate = false } = {}) {
-  // One turn at a time. Without this a second play starts while the
-  // first is in flight, and the first to finish unlocks the composer
-  // for both — leaving prose on screen that the store never took.
+  // Without this the first of two plays to finish unlocks the composer
+  // for both, leaving prose on screen that the store never took.
   if (playing) return;
   const turn = beginTurn(regenerate);
   let refused = null;
@@ -246,8 +223,8 @@ export async function play(line, { regenerate = false } = {}) {
     // sentence comes back instead, and the story is untouched.
     if (answer.refused) {
       refused = answer.refused;
-      // A refused regenerate keeps its reply: the backend promised the
-      // story is untouched, so the screen has to say the same.
+      // the backend promised the story is untouched, so the screen says
+      // the same and the refused regenerate keeps its reply
       if (regenerate) showTurns(await api.turns(), { keepPlace: true });
       return;
     }
@@ -255,23 +232,21 @@ export async function play(line, { regenerate = false } = {}) {
       draw(turn, happened);
     }
   } catch (e) {
-    // Stopping is not failing: the reader asked for the socket to go
-    // away, and what streamed before it did is already in the story.
+    // stopping is not failing: what streamed is already in the story
     if (e?.name !== "AbortError") throw e;
   } finally {
     endTurn(turn);
-    // Said AFTER the turn is settled, or the cleanup's own clearing
-    // would sweep the refusal away before anyone read it.
+    // said AFTER the turn settles, or its cleanup sweeps the refusal
+    // away before anyone reads it
     if (refused) tell(refused, "otk-error");
   }
 }
 
 function beginTurn(regenerate) {
-  /* A played line is the reader asking for something new at the bottom.
-     A regenerate is not: it redraws what is already on screen, into the
-     space the old take was read in — and only once it has FILLED that
-     space does it follow the text down, and then only for a reader who
-     was at the tail to begin with. Measured now, before anything
+  /* A played line is the reader asking for something new at the bottom;
+     a regenerate is not — it redraws into the space the old take was
+     read in, and follows the text down only once that space is filled,
+     and only for a reader who was at the tail. Measured before anything
      moves. */
   const tail = atTail();
   playing = true;
@@ -280,26 +255,21 @@ function beginTurn(regenerate) {
   settled = new Promise((resolve) => (over = resolve));
   turnOver(true);
   tell("");
-  // Stopping a reply is the composer's own button, right where it was
-  // asked for — so the status line says only that something is running.
+  // Stop is the composer's own button, where the reply was asked for, so
+  // the status line says only that something is running
   working(true);
   showTurnBar();
   const article = element("article", "otk-reply otk-generating is-streaming");
-  /* The transcript is a polite live region, and a reply rewrites its
-     text several times a second: without this a screen reader is asked
-     to re-announce a growing paragraph forty times and says nothing
-     useful. `aria-busy` is the standard answer — hold the subtree, and
-     announce it once when it settles. */
+  /* The transcript is a polite live region and a reply rewrites its text
+     several times a second: `aria-busy` holds the subtree, so a screen
+     reader announces it once when it settles instead of forty times. */
   article.setAttribute("aria-busy", "true");
-  /* Waiting and writing are ONE state: the caret holds the answer's
-     place from the first moment, and text grows in front of it. Under
-     it, the line that says the model has the turn and for how long. */
+  // Waiting and writing are ONE state: the caret holds the answer's
+  // place from the first moment, with the status line under it.
   const held = element("p", "otk-prose");
   const caret = element("span", "otk-caret");
   caret.setAttribute("aria-hidden", "true");
   held.append(caret);
-  /* The rule runs BEHIND the words, which sit on paper over it — so the
-     creep never appears out of nowhere at an edge. */
   const state = element("span", "otk-generating__text", "waiting");
   const elapsed = element("span", "otk-generating__text otk-generating__elapsed", "0.0s");
   const status = element("div", "otk-generating__status");
@@ -310,12 +280,10 @@ function beginTurn(regenerate) {
   const ticking = setInterval(() => {
     elapsed.textContent = `${((Date.now() - started) / 1000).toFixed(1)}s`;
   }, 100);
-  /* A regenerate takes the standing reply off the screen NOW, before the
-     request is even away: the reader asked for another take, and the one
-     they are replacing must not sit there while the model thinks. The
-     backend validates a regenerate eagerly, so a refusal comes back
-     before any of it is lost — and `showTurns` puts the story back as
-     the store has it. */
+  /* A regenerate takes the standing reply off the screen before the
+     request is away: the take being replaced must not sit there while
+     the model thinks. The backend validates a regenerate eagerly, so a
+     refusal comes back before anything is lost. */
   if (regenerate) holdSpace(dropLastReply);
   showTurnBar();
   return { article, status, state, ticking, over, tail, thinking: null, prose: "" };
@@ -323,11 +291,11 @@ function beginTurn(regenerate) {
 
 function draw(turn, happened) {
   // A regenerate sends no Recorded — its prompt is already on screen —
-  // so the reply's own block joins the flow at the first sign of it, or
-  // it would stream into nothing.
+  // so the block joins the flow at the first sign of the reply, or it
+  // would stream into nothing.
   if (!turn.article.isConnected) transcript.append(turn.article);
   DRAW[happened.type]?.(turn, happened);
-  // What arrives goes into the space the old take was read in.
+  // what arrives goes into the space the old take was read in
   reserve();
   follow(turn);
 }
@@ -358,17 +326,23 @@ const DRAW = {
     turn.article.append(failure("The reply stopped", happened.reason));
   },
   done(turn, happened) {
-    // The stats line the terminal prints after a reply, verbatim — off
-    // unless the reader asked for it (`/set verbose`).
-    if (happened.stats) turn.article.append(element("p", "otk-verbose", happened.stats));
+    /* The stats line the terminal prints after a reply, verbatim — off
+       unless the reader asked for it (`/set verbose`). It goes BEFORE
+       the status row, which stays and keeps its height once a reply
+       lands: appended after it, the line would sit against the row
+       rather than against the answer it reports on. */
+    if (!happened.stats) return;
+    turn.article.insertBefore(
+      element("p", "otk-verbose", happened.stats),
+      $(".otk-generating__status", turn.article),
+    );
   },
 };
 
 function failure(label, reason) {
   /* A failure is not a turn and never reads as the story: its own rule,
-     its own voice, and the two doors out of it. The LABEL names the
-     state (the medium's own word); the sentence under it is the
-     backend's, unchanged. */
+     its own voice, two doors out. The LABEL is the medium's own word;
+     the sentence under it is the backend's, unchanged. */
   const box = element("div", "otk-error");
   const actions = element("div", "otk-error__actions");
   const again = element("button", "otk-btn", "Try again");
@@ -387,37 +361,33 @@ function failure(label, reason) {
 }
 
 function endTurn(turn) {
-  // Whatever ended it — the last event, the reader's Stop, or a
-  // connection that went away mid-reply — the turn stops looking like
-  // it is still arriving.
+  // Whatever ended it — the last event, Stop, a connection that went
+  // away — the turn stops looking like it is still arriving.
   playing = false;
   arriving = null;
   clearInterval(turn.ticking);
   turn.over();
   turnOver(false);
   working(false);
-  // Whatever the page had to say about the last attempt is over with
-  // the turn it was about.
+  // what the page had to say about the attempt is over with it
   tell("");
-  /* The status row STAYS, hidden: it keeps its height, so the moment a
-     reply lands nothing above it moves. */
+  // the status row STAYS, hidden, so nothing above it moves
   turn.article.classList.add("otk-generating--idle");
   turn.article.classList.remove("is-streaming");
   turn.article.setAttribute("aria-busy", "false");
   $(".otk-caret", turn.article)?.remove();
-  // The paragraph that held the answer's place, when nothing came to
-  // fill it: an empty line is not a reply and must not stand as one.
+  // the paragraph that held the answer's place, when nothing came
   for (const p of $$(".otk-prose", turn.article)) if (!p.textContent) p.remove();
-  // A reply that never arrived leaves no empty block behind.
+  // a reply that never arrived leaves no empty block behind
   if (!turn.prose && !$(".otk-error, .otk-verbose, .otk-thinking", turn.article)) {
     turn.article.remove();
   } else if (turn.article.isConnected && turn.prose) {
-    /* The reply landed: the story is one turn longer than the rubric
-       counted at the recorded event. TEXT is the test, not the block —
-       a declined or failed attempt keeps its block to say so but stores
-       no message (`backend.api.play._land_reply` records a reply row
-       only when some text arrived), and counting it would number every
-       later turn one too high. */
+    /* The reply landed, so the story is one turn longer than the rubric
+       counted. TEXT is the test, not the block: a declined or failed
+       attempt keeps its block to say so but stores no message
+       (`backend.api.play._land_reply` records a reply row only when
+       some text arrived), and counting it would number every later turn
+       one too high. */
     ordinal += 1;
   }
   showTurnBar();
@@ -425,15 +395,14 @@ function endTurn(turn) {
 }
 
 function follow(turn) {
-  // While space is held the flow does not move: the new text is going
-  // into the place the reader is already looking at. Once it has filled
-  // that space, the flow follows it down — for whoever was at the tail
-  // when they asked for it.
+  // While space is held the flow does not move — the text is going where
+  // the reader is already looking. Once that space is filled the flow
+  // follows it down, for whoever was at the tail to begin with.
   if (holdAt === null && turn.tail) toBottom({ force: true });
 }
 
-/* Take the standing reply off the screen, so the fresh take streams in
-   its place rather than under it. */
+/* the standing reply comes off, so the fresh take streams in its place
+   rather than under it */
 function dropLastReply() {
   const last = [...$$(".otk-turn, .otk-reply", transcript)].pop();
   if (last && last.classList.contains("otk-reply")) {

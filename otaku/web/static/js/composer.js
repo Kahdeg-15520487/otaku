@@ -19,12 +19,11 @@ import { stopPlaying } from "./transcript.js";
 const composer = $(".otk-composer__input textarea");
 const menu = $(".otk-prefixes");
 
-/* What the menu says about each opener, and which half of the language it
-   belongs to. A menu row has one line to say what a word DOES — the sheet
-   (`/help`) is where the table's full sentence is read — so the caption is
-   written here, short and lowercase, and the two headings name the choice a
-   reader is actually making. Keyed by the bare token, so the inline form of
-   a word (`… /ooc`) reads the same as the opening one. */
+/* What the menu says about each opener, and which half of the language
+   it belongs to. A menu row has one line to say what a word DOES —
+   `/help` is where the table's full sentence is read — so the caption is
+   written here, short and lowercase. Keyed by the bare token, so the
+   inline form of a word (`… /ooc`) reads the same as the opening one. */
 const _MENU = {
   "/me": ["Take a turn", "your own action, narrated"],
   "/you": ["Take a turn", "speak to someone present"],
@@ -40,15 +39,13 @@ const _bare = (token) => token.replace(/^…\s*/, "");
 let offered = [];
 let picked = 0;
 
-/* What has been sent from this box, newest last, and where the reader
-   is in it. `at === null` means "not walking" — the arrows only walk
-   when there is nothing half-typed to lose, so a multi-line message
-   keeps its own caret movement.
+/* What has been sent from this box, newest last, and where the reader is
+   in it. `at === null` means "not walking": the arrows walk only when
+   there is nothing half-typed to lose, so a multi-line message keeps its
+   own caret movement.
 
-   The lines are the STORE's — the same history the terminal prompt
-   walks: primed from it at boot, and every submission recorded back,
-   so a reload (or a session in the other frontend) starts with the
-   history it left. */
+   The lines are the STORE's — the history the terminal prompt walks —
+   primed at boot and recorded back, so a reload starts where it left. */
 const history = [];
 let at = null;
 
@@ -81,10 +78,9 @@ export function submit(line) {
   at = null;
   setValue(composer, "");
   hideMenu();
-  // Everything typed here is STORY. The framing words ride along inside
-  // the line and `context.syntax` reads them at the far end; a line that
-  // opens with an unknown slash word is prose that happens to start with
-  // a slash, not a command nobody spelled right.
+  // Everything typed here is STORY: the framing words ride inside the
+  // line and `context.syntax` reads them at the far end. A line opening
+  // with an unknown slash word is prose that starts with a slash.
   playLine(said);
 }
 
@@ -193,11 +189,10 @@ function _walk(step) {
 // ---------- the prefix menu ----------
 
 /* The menu offers what the caret can take: a DIRECTION while the line is
-   nothing but its slash word, and the INLINE words — `/ooc`, `/cue` —
-   while the slash is inside a prompt somebody is writing. The rows come
-   from the shared table either way, so the language appears here by
-   existing; the `… ` prefix is how the table marks the inline half, and
-   what a reader types is the bare word after it. */
+   nothing but its slash word, and the INLINE words while the slash is
+   inside a sentence. The rows come from the shared table either way, so
+   the language appears here by existing; `… ` is how the table marks the
+   inline half, and a reader types the bare word after it. */
 
 const _INLINE = "… ";
 
@@ -219,10 +214,9 @@ function typing() {
 }
 
 function updateMenu({ everything = false } = {}) {
-  /* `everything` is the hint button: the caret is not in a slash word,
-     so the position decides which half applies — an empty box or a line
-     being opened takes the directions, a sentence underway the inline
-     words. */
+  /* `everything` is the hint button: with the caret outside a slash
+     word, position decides which half applies — a line being opened
+     takes the directions, a sentence underway the inline words. */
   const { word, opens } = typing();
   const was = offered.map((spec) => spec.token).join(" ");
   if (everything) {

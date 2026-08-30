@@ -5,9 +5,8 @@
    carries it is the design's.
 
    A slip is figures on dotted leaders, ruled where the reader should
-   stop: a double rule under what is being totalled, a hairline between
-   blocks. Nothing here composes prose about the product — a number is
-   spelled, never editorialised. */
+   stop: a double rule under what is totalled, a hairline between
+   blocks. Nothing here composes prose about the product. */
 
 import * as api from "./api.js";
 import { footnote, guard, popups } from "./browser.js";
@@ -104,10 +103,9 @@ function stages(shape) {
 export async function openUsage(scope = "") {
   openSlip("usage", "Token spend");
   const report = await api.usage(scope);
-  /* A refusal is the whole answer — no story yet, nothing recorded, an
-     argument the backend does not know — and here it is shown IN the
-     slip rather than behind it: this report has two scopes, and the tab
-     beside the empty one is the way to the other. */
+  /* A refusal is the whole answer, shown IN the slip rather than behind
+     it: this report has two scopes, and the tab beside the empty one is
+     the way to the other. */
   if (report.notice) {
     showDocket("usage", "Token spend", [element("p", "otk-note", report.notice)]);
     scopeTabs(report.scopes, scope);
@@ -197,15 +195,12 @@ export async function openBalance() {
     return;
   }
   /* Every provider with an account to bill, and what each has left. A
-     row with no figure says which KIND of nothing it is — no key set,
-     or an account that would not answer — because one of those is
-     something the reader can act on. */
+     row with no figure says which KIND of nothing it is: no key set, or
+     an account that would not answer — only one of which is actionable. */
   const rows = element("div", "otk-v otk-v--sm");
   for (const row of report.rows) {
     /* Named by its CAPTION, as the terminal names it: what a provider is
-       called is decided below both frontends (`reports.balances`), and
-       the caption keeps the section key wherever the key is the part
-       that identifies it — a self-named section reads "mine (OpenRouter)". */
+       called is decided below both frontends (`reports.balances`). */
     rows.append(leader(row.label, row.value, row.money ? "" : "otk-absent"));
   }
   const blocks = [element("div", "otk-hr"), rows];
@@ -225,12 +220,10 @@ export async function openBalance() {
 export async function openInfo() {
   openSlip("info", "Info");
   const report = await api.info();
-  /* The report's blocks, drawn as the slip draws them: the model's own
-     name is the subject and takes the title, the story on the page is
-     the closing block, and every other fact is a leader. Chosen by
-     LABEL, not by position — and a label this does not know simply
-     stays a leader, so a renamed row degrades to a line rather than to
-     an empty screen. */
+  /* The report's blocks: the model's name is the subject and takes the
+     title, the story on the page closes the slip, and every other fact
+     is a leader. Chosen by LABEL, not by position — one this does not
+     know stays a leader, so a renamed row degrades to a line. */
   const blocks = [];
   const closing = [];
   const facts = element("div", "otk-v otk-v--sm");
@@ -239,10 +232,7 @@ export async function openInfo() {
     if (section.note) blocks.push(element("p", "otk-note", section.note));
     for (const [label, value] of section.rows) {
       const name = label.toLowerCase();
-      // The subject takes the title and the open story closes the slip.
-      // No premise arrives to skip: the report stopped carrying one,
-      // for the reason this used to give — it is a document, not a
-      // fact, and it has a tab of its own at reading measure.
+      // the subject takes the title, the open story closes the slip
       if (name === "model" && !title) title = value;
       else if (name === "story") closing.push(element("span", "otk-docket__story", value));
       else if (name === "messages") closing.push(span("otk-index__sub", `${value} messages`));
@@ -289,12 +279,11 @@ function openSlip(kind, title) {
   showDocket(kind, title, []);
 }
 
-/* What each report is worth in BOX — the measure is the KIND's, decided
-   here and not by whatever arrived: balance is a column of figures on a
-   narrow slip, usage and info take the default width. Height is torn to
-   what a slip says, except balance — its figures come off the network,
-   one account at a time, and a box that is settled before they land is a
-   box they can arrive into. */
+/* The BOX each report gets, decided by kind and not by what arrived:
+   balance is a column of figures on a narrow slip, usage and info take
+   the default width. Height is torn to what a slip says, except
+   balance, whose figures land one account at a time and need a box
+   settled before they arrive. */
 const _SIZE = {
   balance: ["otk-docket--narrow", "otk-docket--fixed"],
   usage: [],
@@ -324,9 +313,8 @@ function showDocket(kind, title, blocks, note = "", subject = "") {
   const body = $("[data-report-body]", popup);
   body.replaceChildren(...(subject ? [element("span", "otk-docket__title", subject)] : []), ...blocks);
   // Nothing to say yet means the read is still out. A slip torn to its
-  // content waits out of sight, because opening it empty would resize it
-  // under the pointer when the answer lands; one with a settled box opens
-  // straight away and the figures arrive into it.
+  // content waits out of sight rather than resizing under the pointer
+  // when the answer lands; one with a settled box opens straight away.
   slip.classList.toggle("is-waiting", !blocks.length && !subject && !_settles(kind));
   // The foot carries what the report says about ITSELF — its scope, its
   // count — and nothing when it has nothing: a line naming the command

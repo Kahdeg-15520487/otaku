@@ -114,12 +114,12 @@ class TestRenameSection:
     def test_renames_the_header_and_keeps_everything_under_it(self) -> None:
         text = (
             "[settings]\nshow_banner = true\n"
-            "\n[ui]\n# mine\ndialogue_color = \"cyan\"   # the one I like\n"
+            '\n[ui]\n# mine\ndialogue_color = "cyan"   # the one I like\n'
         )
         migrated = rename_section("ui", "terminal")(text)
         assert migrated == (
             "[settings]\nshow_banner = true\n"
-            "\n[terminal]\n# mine\ndialogue_color = \"cyan\"   # the one I like\n"
+            '\n[terminal]\n# mine\ndialogue_color = "cyan"   # the one I like\n'
         )
 
     def test_a_file_already_renamed_is_untouched(self) -> None:

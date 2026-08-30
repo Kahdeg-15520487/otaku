@@ -1,14 +1,13 @@
 /* The model picker: every catalog otaku can reach on one tab, and the
-   providers behind them on the other — the two halves of the same
-   panel, because a model that is missing is fixed on the provider side.
+   providers behind them on the other — two halves of one panel, because
+   a model that is missing is fixed on the provider side.
 
-   It opens the way the terminal's picker opens: on the local engines,
-   NOW — and each cloud catalog's rows arrive when it answers, merged in
-   behind the open panel. Testing a connection is re-asking the same
-   read the picker is drawn from, for that one provider: a provider
-   that answers the catalog IS the test.
+   It opens the way the terminal's picker does: on the local engines,
+   NOW, with each cloud catalog's rows merged in behind the open panel
+   when it answers. Testing a connection re-asks that same read for one
+   provider — a provider that answers the catalog IS the test.
 
-   An api key's VALUE never arrives on this side; only whether one is
+   An api key's VALUE never arrives on this side, only whether one is
    set. */
 
 import * as api from "./api.js";
@@ -56,30 +55,24 @@ export async function openModels(answered = "", tab = "models") {
   );
 }
 
-// How often the gauge is re-read while the picker is open. Loading a
-// model is the one thing that fills a machine up, and it fills while the
-// reader watches — so the figure has to move, not stand still until the
-// panel is reopened.
+// How often the gauge is re-read while the picker is open: loading a
+// model fills a machine while the reader watches, so the figure moves.
 const _MEMORY_MS = 1000;
 
 let _gauge = 0;
 
 function watchMemory(popup) {
-  /* The gauge, for as long as the panel is up. It is its own read: the
-     picker's inventory costs every engine a probe, and this costs a
-     syscall. One timer at a time — reopening the panel must not leave
-     the last one running — and it dies with the panel, so a closed
-     picker asks nothing. */
+  /* Its own read: the picker's inventory costs every engine a probe,
+     this costs a syscall. One timer at a time, dying with the panel, so
+     a closed picker asks nothing. */
   clearInterval(_gauge);
   const slot = $("[data-memory]", popup);
   _gauge = setInterval(async () => {
     if (!popup.open) return clearInterval(_gauge);
-    /* A gauge is not worth an error. Every other floating promise on
-       this page goes through `guard`, which SAYS what failed; this one
-       is asked for once a second and nobody asked for it at all, so a
-       tick that cannot be answered leaves the last figure standing and
-       the next tick tries again. Unguarded, one dead request per second
-       becomes one unhandled rejection per second. */
+    /* A gauge is not worth an error. Every other floating promise here
+       goes through `guard`, which SAYS what failed; nobody asked for
+       this one, so a tick that cannot be answered leaves the last figure
+       standing and the next tick tries again. */
     let memory = "";
     try {
       ({ memory } = await api.machine());
@@ -115,10 +108,9 @@ function buildModels(state, notice) {
   const setLoaded = async (entry, wanted) => {
     if (!entry?.model.can_load_unload) return;
     const { notice: said } = await api.setLoaded(entry.engine.name, entry.model.name, wanted);
-    /* What changed is one flag on one model — so that is what changes
-       here. Asking the catalogs again would cost every provider a round
-       trip to redraw a lamp, and would move the list under the reader
-       who just aimed at it. */
+    /* One flag on one model changed, so that is what changes here:
+       asking the catalogs again costs every provider a round trip to
+       redraw a lamp, and moves the list under the reader. */
     entry.model.loaded = wanted;
     state.build("models", said);
   };
@@ -130,11 +122,10 @@ function buildModels(state, notice) {
   const view = browser(popup, {
     root: pane,
     rows: offered,
-    /* Engines in their own order, each under its caption — only the
-       ones that ANSWERED: a provider with nothing to offer is a row
-       that cannot be played, and the providers tab is where it is
-       dealt with. A filter narrows further: an engine with no match
-       drops out rather than captioning an empty stretch. */
+    /* Engines in their own order, each under its caption, and only the
+       ones that ANSWERED — a provider with nothing to offer is dealt
+       with on the providers tab. An engine a filter emptied drops out
+       rather than captioning an empty stretch. */
     groupOf: (entry) => entry.engine,
     drawGroup: engineHeading,
     drawRow: (entry) => modelRow(entry, panel.current),
@@ -146,9 +137,8 @@ function buildModels(state, notice) {
       guard(setLoaded)(entry, event.key === "l");
       return true;
     },
-    /* Nothing to play: either the filter is too narrow, or no provider
-       has answered yet — and the way out of the second one is the tab
-       beside this list. */
+    /* Nothing to play: the filter is too narrow, or no provider has
+       answered — and the way out of that is the tab beside this list. */
     empty: (filtered) =>
       filtered
         ? { line: "No model matches that.", hint: "clear the filter, or set up a provider" }
@@ -171,10 +161,9 @@ function modelRow(entry, current) {
     span("otk-row__num otk-row__num--count", entry.model.context),
   );
   button.classList.add("otk-row--indent", "otk-row--mono");
-  /* Bold is loaded, dim is not — and only where loading is a thing
-     that happens. A cloud model is always "loaded" in the sense the
-     payload means it, so weighting it would say something about it
-     that is not true of anything. */
+  /* Bold is loaded, dim is not, and only where loading is a thing that
+     happens: a cloud model is always "loaded", so weighting it would
+     say something true of nothing. */
   button.classList.toggle("is-loaded", managed && entry.model.loaded);
   button.classList.toggle("is-dim", managed && !entry.model.loaded);
   if (`${entry.engine.name}/${entry.model.name}` === current) button.append(span("otk-tag", "chosen"));
@@ -243,10 +232,9 @@ function buildProviders(state, notice) {
     `${answering.length} of ${panel.engines.length} answering`;
   footnote(popup, notice || `${answering.length} ${answering.length === 1 ? "provider" : "providers"} answering`);
 
-  /* In the ENGINES' own order, which is the registry's
-     (`providers.registry.CLIENTS`) — the same order the terminal's
-     picker lists them in. A frontend that re-sorted them would be
-     inventing an order the other frontend does not have. */
+  /* In the registry's order (`providers.registry.CLIENTS`), which is the
+     terminal's picker's: a frontend that re-sorted them would invent an
+     order the other does not have. */
   const rows = panel.engines.map((engine) => ({ engine, haystack: engine.label.toLowerCase() }));
   // Read before the paint, for the same reason the models tab does.
   const wanted = state.pickedProvider;
@@ -325,10 +313,9 @@ function urlField(state, engine) {
   return input;
 }
 
-// What a key that is SET looks like: six characters, so the box reads as
-// full. The value never arrives on this side, so these stand for it —
-// and, being a stand-in, they are cleared the moment the field is
-// entered and are never saved back.
+// What a key that is SET looks like. The value never arrives on this
+// side, so these stand for it: cleared when the field is entered, and
+// never saved back.
 const _MASK = "••••••";
 
 // How long "Checking" stands before it is allowed to become the answer.
@@ -338,9 +325,8 @@ const _ASKING_MS = 1000;
 const _beat = (ms) => new Promise((wake) => setTimeout(wake, ms));
 
 function keyField(state, engine) {
-  /* One shape whether a key is set or not: a password field, empty for
-     a provider with no key and masked for one that has it. Typing
-     replaces the key; typing nothing changes nothing. */
+  /* One shape whether a key is set or not: a password field, empty for a
+     provider with no key and masked for one that has it. */
   const input = element("input", "otk-field otk-field--mono");
   input.type = "password";
   input.dataset.provider = "api_key";
@@ -350,9 +336,8 @@ function keyField(state, engine) {
       input.dataset.mask = "yes";
     };
     mask();
-    // Entering the field clears the stand-in so a new key can be typed;
-    // leaving it without typing one puts it back, because the key is
-    // still there and a field that went empty would say it is not.
+    // Entering clears the stand-in so a new key can be typed; leaving
+    // without typing one puts it back, the key still being there.
     input.addEventListener("focus", () => {
       if (!input.dataset.mask) return;
       delete input.dataset.mask;
@@ -367,16 +352,15 @@ function keyField(state, engine) {
 }
 
 function saveOnEnter(state, input, engine, attr) {
-  /* Enter saves the field it is in, as the Save button saves both. A
-     field left without saving is left alone: a half-typed URL must not
-     become the configuration because the reader clicked elsewhere. */
+  /* Enter saves the field it is in, as Save saves both. A field left
+     without saving is left alone: a half-typed URL must not become the
+     configuration because the reader clicked elsewhere. */
   input.addEventListener(
     "keydown",
     guard(async (event) => {
-      /* Esc unwinds one layer, innermost first: the field the reader is
-         typing in, not the list behind it and not the panel behind
-         that. Stopped here, or the dialog's own cancel would take a
-         half-typed api key and the whole picker with it. */
+      /* Esc unwinds one layer, innermost first: the field, not the list
+         or the panel behind it. Stopped here, or the popup's own Esc
+         takes the whole picker with the half-typed key. */
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
@@ -386,10 +370,8 @@ function saveOnEnter(state, input, engine, attr) {
       }
       if (event.key !== "Enter") return;
       event.preventDefault();
-      /* A field left empty is a field nobody filled in: it must not
-         clear the url a provider is reached at, or the key it is
-         reached with — and the mask standing in for a key is not a key
-         either. */
+      /* An empty field is one nobody filled in: it must not clear the
+         url a provider is reached at, or its key. */
       if (!input.value.trim() || input.dataset.mask) return;
       const { notice } = await api.saveProviderField(engine.name, attr, input.value);
       await refreshProvider(state, engine, notice);
@@ -399,9 +381,7 @@ function saveOnEnter(state, input, engine, attr) {
 
 function dirty(popup, engine) {
   /* What a save would actually write: a url that differs from the
-     configured one, or a key that is not the stand-in. Nothing else
-     counts — the mask is not a key, and an untouched field is not an
-     edit. */
+     configured one, or a key that is not the stand-in. */
   const url = $('[data-detail] input[data-provider="url"]', popup);
   const key = $('[data-detail] input[data-provider="api_key"]', popup);
   const movedUrl = url && !url.disabled && url.value.trim() && url.value.trim() !== engine.url;
@@ -410,9 +390,8 @@ function dirty(popup, engine) {
 }
 
 async function saveProvider(state, engine) {
-  /* The Save button: both fields at once, skipping what did not change
-     — the untouched url, the mask standing in for a key that is already
-     there. Saving nothing is an answer too. */
+  /* Both fields at once, skipping what did not change. Saving nothing
+     is an answer too. */
   const url = $('[data-detail] input[data-provider="url"]', state.popup);
   const key = $('[data-detail] input[data-provider="api_key"]', state.popup);
   const notices = [];
@@ -428,21 +407,17 @@ async function saveProvider(state, engine) {
 }
 
 function testProvider(state, engine) {
-  /* The test IS the catalog read, for this one provider: a provider
-     that answers with models is configured, and one that does not is
-     not — no new backend door, the same read the picker draws from.
-
-     The dialog opens FIRST, saying what is happening: a dead host
-     answers by timing out, and a reader who pressed Test must not be
-     left looking at an unchanged screen wondering whether it took. */
+  /* The test IS the catalog read for this one provider — the same read
+     the picker draws from, no new backend door. The dialog opens FIRST:
+     a dead host answers by timing out, and the reader who pressed Test
+     must not be left looking at an unchanged screen. */
   const dialog = $('dialog[data-dialog="told"]');
   const answered = ask("told", () => {
     $("[data-title]", dialog).textContent = "Checking";
     $(".otk-dialog__body", dialog).textContent = `Asking ${engine.label} at ${engine.url}…`;
   });
-  // A local engine answers in milliseconds, and a question that is asked
-  // and answered inside one frame reads as nothing having happened: the
-  // asking stands long enough to be read.
+  // A local engine answers in milliseconds, and a question asked and
+  // answered inside one frame reads as nothing having happened.
   const asking = Promise.all([api.provider(engine.name), _beat(_ASKING_MS)]).then(([fresh]) => fresh);
   asking.then(
     guard((fresh) => {

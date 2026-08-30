@@ -56,7 +56,8 @@ die()  { printf '%serror:%s %s\n' "$RED" "$RESET" "$*" >&2; exit 1; }
 # What the owner of an already-installed otaku needs: how to run it, and
 # how to bring it to the newest release.
 hints() {
-    say "  otaku            start playing"
+    say "  otaku            start playing in terminal"
+    say "  otaku web        start playing in web interface"
     say "  otaku update     update to the newest version"
 }
 
@@ -307,7 +308,8 @@ finish() {
     say ""
     step "$VERSION"
     say ""
-    say "  otaku            start playing"
+    say "  otaku            start playing in terminal"
+    say "  otaku web        start playing in web interface"
     say ""
     say "Your stories and settings are in ~/.otaku"
 

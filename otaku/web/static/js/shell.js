@@ -2,10 +2,9 @@
    about the session, whether otaku is there at all, and the one door
    every write comes back through.
 
-   `landed` exists because the rule it carries has been broken three
-   times: a redraw REPLACES the flow, so a sentence said before it is
-   swept away by its own result. Say it after, once, here — no call site
-   has to remember. */
+   `landed` carries the rule that a redraw REPLACES the flow, so a
+   sentence said before one is swept away by its own result. Said after,
+   once, here, so no call site has to remember. */
 
 import * as api from "./api.js";
 import { guard } from "./browser.js";
@@ -16,9 +15,9 @@ import { isPlaying, showTurns } from "./transcript.js";
 
 const app = $(".otk-app");
 const icon = $('link[rel="icon"]');
-// The tab icon has no stylesheet to dim it, so the markup carries its
-// own greyed copy in `data-offline`. The live one is read once, before
-// anything has had a chance to swap it.
+// The tab icon has no stylesheet to dim it, so the markup carries a
+// greyed copy in `data-offline`. The live one is read before anything
+// can swap it.
 const live = icon?.href ?? "";
 
 // The story the transcript is drawing, so a write knows whether the
@@ -64,38 +63,31 @@ export async function landed(notice, { redraw = "if-moved", keepPlace = false } 
   const moved = facts.story_id !== drawn;
   showFacts(facts);
   if (redraw === "always" || (redraw === "if-moved" && moved)) {
-    // `keepPlace` is for a write that TAKES something away — an undo:
-    // what is above it must not move, and the space it emptied stays
-    // empty until something is played into it.
+    // `keepPlace` is for a write that TAKES something away: what is
+    // above it must not move, and the space it emptied stays open.
     showTurns(await api.turns(), { keepPlace });
   }
   tell(notice);
 }
 
 /* How often the page asks whether otaku is still there. Without it the
-   answer only arrives when the reader next asks for something — and the
-   place a stopped otaku is most likely to be noticed is a tab in the
-   background, which asks for nothing at all. A browser throttles this to
-   about a minute once the tab is hidden, which is exactly right: the
-   mark is worth a minute of lateness and not a request a second. */
+   answer arrives only when the reader next asks for something, and a
+   background tab asks for nothing. A browser throttles this to about a
+   minute once the tab is hidden, which is right for what it says. */
 const HEARTBEAT = 5000;
 
-/** Both directions: the page finds out that otaku stopped, and finds
-    out that it is back — the same beat answers for both. It also
-    carries the background worker's voice: a pass that starts on its own
-    after five idle minutes says so here, exactly as it says so in the
-    terminal's status row, and the sentence it ends with lands where
-    every other sentence otaku says lands.
+/** Both directions — the page finds out that otaku stopped, and that it
+    is back. It also carries the background worker's voice: a pass that
+    starts on its own after five idle minutes says so here, as it does
+    in the terminal's status row.
 
-    `boot` is what a RETURN runs. Coming back is not the same as being
-    there: an otaku that answers again has been restarted, and what it
-    is open on is its own business — a different story, a different
-    model — so the page asks for everything again rather than lifting
-    the mark off a transcript that may no longer be the session's. */
+    `boot` is what a RETURN runs. An otaku that answers again has been
+    restarted, and what it is open on is its own business, so the page
+    asks for everything rather than lifting the mark off a transcript
+    that may no longer be the session's. */
 export function watchServer(boot) {
-  // One answered request is proof otaku is back and one refused
-  // connection is proof it is gone — whichever happens, the page says
-  // so once, here, rather than at every call site.
+  // One answered request is proof otaku is back, one refused connection
+  // proof it is gone — said here rather than at every call site.
   let reachable = true;
   api.whenReached(() => {
     const returned = !reachable;
@@ -124,11 +116,9 @@ export function watchServer(boot) {
         tell("");
         beating = "";
       }
-      /* The lamp says what is RUNNING, whoever started it: a pass the
-         page forced, one the idle deadline started on its own, and the
-         reply, which lights it itself. This beat speaks for the WORKER
-         alone, so it must never put out a lamp it did not light — a
-         reply is minutes long and the beat is seconds. */
+      /* The lamp says what is RUNNING, whoever started it. This beat
+         speaks for the WORKER alone, so it must never put out a lamp it
+         did not light: a reply is minutes long, the beat seconds. */
       if (!watcher && !isPlaying()) working(Boolean(beat.status));
     } catch {
       // A beat that cannot be made is the disconnection above, said once.
@@ -145,16 +135,13 @@ let watcher = null;
 
 /** Watch a forced extraction pass and say what it reports. A pass is one
     line at the END, not a running account, so this polls rather than
-    holding a stream open; a delayed answer to a write is `landed`'s
-    family, which is why it lives here. One watcher at a time, whatever
-    asked for it — two would announce the same pass twice — and bounded,
-    or a server stopped mid-pass would leave a timer running for the life
-    of the tab.
+    holding a stream open. One watcher at a time — two would announce the
+    same pass twice — and bounded, or a server stopped mid-pass leaves a
+    timer running for the life of the tab.
 
-    A pass the PAGE forced is the one it can also give up on, so the
-    status line carries `stop` for as long as this runs. `story` is the
-    story it was forced on: a pass belongs to one, and so does the poll
-    that asks how it went. */
+    A pass the PAGE forced is one it can also give up on, so the status
+    line carries `stop` while this runs. `story` is the story it was
+    forced on: a pass belongs to one, and so does the poll. */
 export function watchExtraction(story) {
   if (watcher) return;
   let left = EXTRACTION_PATIENCE;
@@ -172,10 +159,9 @@ export function watchExtraction(story) {
   });
   working(true, stop);
   watcher = setInterval(async () => {
-    /* The lamp is shared with the reply, and a reply that lands clears
-       it — so a pass still running takes it back here, once the turn it
-       yielded to is over. Re-asserted every tick rather than restored
-       once, because there is no moment this could be told about. */
+    /* The lamp is shared with the reply, which clears it when it lands,
+       so a pass still running takes it back — every tick, there being no
+       moment this could be told about. */
     if (!isPlaying()) working(true, stop);
     let report = null;
     try {
@@ -190,14 +176,12 @@ export function watchExtraction(story) {
 }
 
 /** The one failure the page has a state for: otaku stopped answering.
-    Said three ways, all of them the page's own: the status line at the
-    foot of the contents, the mark in the spine greyed, the tab icon with
-    it — a tab in the background is where a stopped server is most likely
-    to be noticed — and every control that would reach the session turned
-    off, because a door that opens onto nothing should not look like a
+    Said the page's own three ways — the status line, the mark in the
+    spine greyed, the tab icon with it — and every control that would
+    reach the session turned off, a door onto nothing not looking like a
     door. Nothing is offered to press: the heartbeat is already asking,
     and the page picks the session up the moment it answers. The TITLE
-    never changes: it names the app, not its state. */
+    never changes; it names the app, not its state. */
 export function disconnected(gone = true) {
   app?.classList.toggle("is-offline", gone);
   if (icon) icon.href = (gone && icon.dataset.offline) || live;

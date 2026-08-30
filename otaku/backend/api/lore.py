@@ -338,6 +338,13 @@ class LoreView:
         title = f" '{scene.title}'" if scene.title else ""
         return f"scene {no}{title}, {ago} msgs ago"
 
+    def character_history(self, character_id: int) -> str:
+        """The character's arc SO FAR — their newest non-empty rollup, or
+        "" before a pass has written one. A scene's arc is a column of
+        its own (`Scene.history`); a character's is not, so this is where
+        both frontends read it, and neither picks the row itself."""
+        return self._current_history(character_id)[0]
+
     # ---------- view internals (recomputed on the fly; one story is small) ----------
 
     def _scene_by_id(self, scene_id: int) -> Scene | None:

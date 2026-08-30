@@ -138,7 +138,8 @@ function Stop-Run {
 # What the owner of an already-installed otaku needs: how to run it, and
 # how to bring it to the newest release.
 function Show-Hints {
-    Say '  otaku            start playing'
+    Say '  otaku            start playing in terminal'
+    Say '  otaku web        start playing in web interface'
     Say '  otaku update     update to the newest version'
 }
 
@@ -549,7 +550,8 @@ function Show-Finish {
     Say ''
     Step $script:Version
     Say ''
-    Say '  otaku            start playing'
+    Say '  otaku            start playing in terminal'
+    Say '  otaku web        start playing in web interface'
     Say ''
     Say "Your stories and settings are in $(Format-Path (Join-Path $script:UserHome '.otaku'))"
 

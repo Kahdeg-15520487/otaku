@@ -8,16 +8,14 @@
 
    Any story opens whole, and any story EDITS: every write carries the
    story it belongs to, so a correction lands where it was read whether
-   or not that story is the open one. The level above (the story
-   browser) stays open UNDERNEATH this panel: leaving — the back button
-   or Esc — reveals it exactly as it was left, and when there is none
-   to reveal, the back button opens it positioned on this story.
+   or not that story is the open one. The story browser stays open
+   UNDERNEATH this panel — leaving reveals it as it was left, and with
+   none to reveal the back button opens it on this story.
 
    Every write goes out through `api.act` with the address the field
    itself carries (`kind`, `target`); the screen never invents one. A
-   refusal is carried INTO the redraw as the footnote, because inside a
-   popup the status line is behind a modal, and a refusal said there is
-   a refusal nobody reads. */
+   refusal is carried INTO the redraw as the footnote: inside a popup
+   the status line is behind a modal, and nobody reads it there. */
 
 import * as api from "./api.js";
 import {
@@ -36,10 +34,9 @@ import { ago, excerpt, label } from "./format.js";
 import { typeset } from "./prose.js";
 import { landed } from "./shell.js";
 
-/* What a premise may be read from. A premise is prose somebody wrote —
-   a story's opening terms — so the two shapes a person keeps prose in,
-   and nothing else: a browser will offer anything, and a `.png` read as
-   text is a screenful of noise where the premise was. */
+/* What a premise may be read from: the two shapes a person keeps prose
+   in, and nothing else. A file picker offers anything, and a `.png` read
+   as text is a screenful of noise where the premise was. */
 const _PREMISE_FILES = ".txt,.md,.markdown,text/plain,text/markdown";
 
 /** Open the dossier — on the open story by default, or on `story` (a
@@ -48,7 +45,7 @@ const _PREMISE_FILES = ".txt,.md,.markdown,text/plain,text/markdown";
     the back button goes when no story browser waits underneath. */
 export async function openStory({ story = null, tab = "messages", answered = "", allStories } = {}) {
   const popup = popups.get("/story");
-  // The panel is up before its data: a click must answer NOW, and the
+  // The panel is up before its data: a click must answer now, and the
   // modal keeps further clicks from queueing screens behind it.
   $("[data-story-title]", popup).textContent = label(story?.label) || "Story";
   if (!popup.open) popup.showModal();
@@ -56,9 +53,8 @@ export async function openStory({ story = null, tab = "messages", answered = "",
   const facts = await api.facts();
   const subject = story ?? { id: facts.story_id, label: facts.story || "" };
   const inside = subject.id === null || subject.id === facts.story_id;
-  /* ONE read for all four tabs. Three would let an extraction pass land
-     between two of them and hand this panel a torn story — scenes
-     covering messages it was told nothing about. */
+  /* ONE read for all four tabs: three would let an extraction pass land
+     between two of them and hand this panel a torn story. */
   const opened = subject.id === null ? null : await api.story(subject.id);
 
   $("[data-story-title]", popup).textContent = label(subject.label) || "(untitled)";
@@ -87,8 +83,8 @@ export async function openStory({ story = null, tab = "messages", answered = "",
     button.onclick = () => show(view, button.dataset.tab);
   }
   $("[data-back]", popup).onclick = () => {
-    // The browser underneath was never closed: leaving reveals it as it
-    // was left. Without one, the back button opens it — on this story.
+    // the browser underneath was never closed; without one, this opens
+    // it on this story
     popup.close();
     if (!popups.get("/stories")?.open) allStories?.(subject.id);
   };
@@ -145,7 +141,8 @@ function buildMessages(view, pane) {
   }));
   footnote(view.popup, `${rows.length} ${rows.length === 1 ? "message" : "messages"}`);
   if (!rows.length) $("[data-actions]", pane).replaceChildren();
-  const edit = () => $("[data-detail] .otk-editable", pane)?.focus();
+  // `e` is the keyboard's way to the same verb the pointer takes.
+  const edit = () => $("[data-detail] .otk-edit__verb--edit", pane)?.click();
   browser(view.popup, {
     root: pane,
     rows,
@@ -170,40 +167,26 @@ function buildMessages(view, pane) {
 }
 
 function reader(text, save) {
-  /* A played turn READS as it played — the model's dialogue and its
-     `*emphasis*` typeset exactly as the transcript typesets them — and
-     is still the field that corrects it. So the two are one box: the
-     rendering rests there, and the field takes its place under the
-     caret. They share the editable's box (no margin, no padding, no
-     border, the same face) and the rendering keeps its newlines, so
-     opening one moves nothing — which is the rule the whole editing
-     ground is built on. */
+  /* A played turn READS as it played — dialogue and `*emphasis*` set as
+     the transcript sets them — and is still the field that corrects it.
+     So the two are one box, sharing the editable's face and box, the
+     rendering keeping its newlines, so opening one moves nothing. Which
+     is shown is the stylesheet's, off `data-editing`, so nothing here
+     keeps state about it. */
   const box = element("div", "otk-editable otk-prose otk-prose--read otk-typeset");
   const field = editable("otk-prose otk-prose--read", { text, save });
-  field.hidden = true;
-  box.tabIndex = 0;
 
   const paint = () => {
     const { spoken, nodes } = typeset(field.value);
     box.classList.toggle("otk-prose--dialogue", spoken);
     box.replaceChildren(...nodes);
   };
-  const open = () => {
-    box.hidden = true;
-    field.hidden = false;
-    field.focus();
-  };
   paint();
-  box.addEventListener("focus", open);
-  box.addEventListener("click", open);
-  // `editable`'s own blur puts the stored text back, so by the time this
-  // runs the value is what should be read again.
-  field.addEventListener("blur", () => {
-    paint();
-    box.hidden = false;
-    field.hidden = true;
-  });
+
   const both = element("div", "otk-reader");
+  // what is read once the field closes, saved or discarded; `edited`
+  // asks for it, closing being what it knows and this box does not
+  both._repaint = paint;
   both.append(box, field);
   return both;
 }
@@ -219,9 +202,9 @@ function drawReader(view, pane, message, edit) {
 
   const out = [head, body];
 
-  /* What the session recorded WITH the turn. The model is a fact and
-     rides a fact row; the template is the TEXT the direction filled —
-     prose, and prose wraps rather than running under its own label. */
+  /* What the session recorded WITH the turn. The model rides a fact row;
+     the template is the TEXT the direction filled, and prose wraps
+     rather than running under its own label. */
   const recorded = [];
   if (message.provider || message.model) {
     recorded.push(fact("answered by", [message.provider, message.model].filter(Boolean).join(" · ")));
@@ -246,8 +229,8 @@ function drawReader(view, pane, message, edit) {
     );
   }
 
-  // The verbs are pinned under the pane, not appended to the body: a
-  // longer or shorter message must never move the button being aimed at.
+  // pinned under the pane, so a longer or shorter message never moves
+  // the button being aimed at
   $("[data-actions]", pane).replaceChildren(
     actionButton("Resume here", {
       kind: "otk-btn--primary",
@@ -292,12 +275,11 @@ async function askLanding(view, message) {
       for (const option of options) {
         option.setAttribute("aria-checked", String(option === picked));
       }
-      // The button must say what it will DO. A button reading "Fork"
-      // that sets aside is the worst sentence this app could write.
+      // the button says what it will DO, never the name of another door
       if (confirm) confirm.textContent = $(".otk-choice__name", picked)?.textContent ?? chosen;
     };
     for (const option of options) option.onclick = () => select(option);
-    // Fork is the default: it is the one choice that loses nothing.
+    // fork is the default: the one choice that loses nothing
     const fork = options.find((option) => option.dataset.select === "fork");
     if (fork) select(fork);
   });
@@ -386,9 +368,8 @@ function sceneIndex(view, rail, currentId, { onPick }) {
     item.onclick = guard(() => onPick(scene));
     list.append(item);
   }
-  // What the extractor has NOT read: a dashed row where the scene that
-  // will cover it goes, so its absence has a place rather than being a
-  // silence at the end of the list.
+  // What the extractor has NOT read, as a dashed row where the scene
+  // that will cover it goes: its absence has a place in the list.
   if (view.memory?.unread) {
     const pending = element("div", "otk-index__item otk-index__item--pending");
     pending.append(
@@ -412,10 +393,9 @@ function sceneIndex(view, rail, currentId, { onPick }) {
 }
 
 function extractBlock(view) {
-  /* The pass is a background job, so what it needs is a state and not
-     only a button: how much is unread, and the one control that reads
-     it now. It sits at the foot of the index because that is the column
-     a pass fills. */
+  /* The pass is a background job, so it needs a state and not only a
+     button: how much is unread, and the control that reads it now. At
+     the foot of the index, the column a pass fills. */
   const box = element("div", "otk-extract");
   const line = element("div", "otk-extract__line");
   const unread = view.memory?.unread ?? 0;
@@ -476,7 +456,10 @@ function buildCast(view, pane, characterId = null) {
       "otk-label otk-label--accent",
       `Character · ${inScenes(character)}`,
     ),
-    element("h3", "otk-reading__title", character.name),
+    /* A name is the extractor's own — the cast is keyed by it, and
+       `/merge` is how two become one — so it takes the label line
+       without the verbs, in the box a scene's title sits in. */
+    edited(element("h3", "otk-reading__title", character.name), "name", "otk-edit--title"),
     ...lede(view, "cast", {
       text: character.description,
       empty: "(no description yet)",
@@ -493,17 +476,22 @@ function buildCast(view, pane, characterId = null) {
   );
 
   const facts = [];
-  // Where they stand: the newest state among their records, which is the
-  // only one ever read again.
-  const now = [...character.journals].reverse().find((record) => record.state)?.state;
-  if (now) facts.push(marginFact("now", element("p", "otk-margin__value", now)));
   facts.push(
     marginFact(
       "aliases",
       element("p", "otk-derived", character.aliases.join(" · ") || "none recorded"),
-      "read only",
     ),
   );
+  /* Their arc so far, the counterpart of the scene's own: same block,
+     same rule above it, so the two lenses read as one apparatus. */
+  if (character.history) {
+    facts.push(
+      marginBlock(
+        `${character.name}'s history so far`,
+        element("p", "otk-passage__body otk-prose--margin", character.history),
+      ),
+    );
+  }
   facts.push(
     character.card
       ? marginFact("card", editable("otk-derived", {
@@ -515,7 +503,6 @@ function buildCast(view, pane, characterId = null) {
       : marginFact(
           "card",
           element("p", "otk-derived", "none — extracted from the story, not imported"),
-          "read only",
         ),
   );
   margin.replaceChildren(span("otk-label", "Apparatus"), ...facts, marginFoot());
@@ -524,23 +511,22 @@ function buildCast(view, pane, characterId = null) {
 // ---------- the field shapes both lenses share ----------
 
 function title(view, tab, text, fallback, save) {
-  /* The scene's own name, edited where it is READ — its heading. Not a
-     row in the apparatus column: that column holds what the extractor
-     writes, and a title a hand can correct does not belong in it. */
+  /* The scene's own name, edited where it is READ: its heading, not a
+     row in the apparatus column — that column holds what the extractor
+     writes, and a hand may correct a title. */
   const head = editable("otk-reading__title", {
     text,
-    save: (edited) => saveField(view, tab, () => save(edited)),
+    save: (corrected) => saveField(view, tab, () => save(corrected)),
   });
   head.placeholder = fallback;
   head.rows = 1;
-  return head;
+  return edited(head, "title", "otk-edit--title");
 }
 
 function lede(view, tab, { text, empty, name, save }) {
-  /* The reading column's own text: the scene's summary, the character's
-     description. It IS a field — same face, same rule under it, nothing
-     to click open and nothing to move — and the line under it names what
-     it holds, then says how to commit it once the caret is in. */
+  /* The reading column's own text — a scene's summary, a character's
+     description. It IS a field, with the line under it naming what it
+     holds and then how to commit it. */
   if (!save) return [element("p", "otk-reading__lede", text || empty)];
   return [
     edited(
@@ -554,15 +540,14 @@ function lede(view, tab, { text, empty, name, save }) {
 }
 
 function journalPassages(view, tab, journals, nameOf, rubricOf) {
-  /* The journal read as the design reads it: one passage per record —
-     the rubric names who (or which scene) records, the body is the
-     entry, and the state rides under it as a note. The entry opens for
-     correction where it is read; the state is the extractor's own line
-     about a moment that has passed, and is not edited here.
+  /* One passage per record: the rubric names who (or which scene)
+     records, the body is the entry, and the state rides under it as a
+     note. The entry opens for correction where it is read; the state is
+     the extractor's line about a moment that has passed.
 
-     One record, read from either side: a scene draws its characters'
-     lines, a character draws the scenes they were in, and both address
-     the same journal id when a correction is saved. */
+     One record read from either side — a scene draws its characters'
+     lines, a character the scenes they were in — and both address the
+     same journal id when a correction is saved. */
   const box = element("div", "otk-passages");
   for (const record of journals ?? []) {
     const passage = element("div", "otk-passage");
@@ -600,11 +585,9 @@ function inScenes(character) {
 }
 
 async function saveField(view, tab, write) {
-  /* One correction, wherever it was made. WHICH row it addresses is the
-     caller's — a scene, a character, a journal record each have their
-     own door — and what is shared is only what happens after: the answer
-     is carried INTO the redraw, because a screen that rebuilds on the
-     write would otherwise put its standing footnote back over it. */
+  /* WHICH row a correction addresses is the caller's; what is shared is
+     what happens after. The answer is carried INTO the redraw, or the
+     screen rebuilding on the write puts its standing footnote over it. */
   const { notice } = await write();
   reopen(view, tab, notice);
 }
@@ -631,11 +614,13 @@ function presentLine(view, present) {
   return line;
 }
 
-function marginFact(key, valueNode, flag = "") {
+function marginFact(key, valueNode) {
+  /* No row here is flagged: the column says once, in its foot, that
+     nothing in it is written by hand. `derivedRow` is the other case —
+     the message detail, where editable and derived rows stand side by
+     side and each has to say which it is. */
   const box = element("div", "otk-margin__fact");
-  const name = span("otk-margin__key", key);
-  if (flag) name.append(span("otk-derived__flag", flag));
-  box.append(name, valueNode);
+  box.append(span("otk-margin__key", key), valueNode);
   return box;
 }
 
@@ -671,9 +656,8 @@ function buildPremise(view, pane) {
   const save = $("[data-save-system]", pane);
   const read = $("[data-import-system]", pane);
   box.value = view.premise;
-  /* Nothing to save until something changed: the button is a door that
-     does something, and a door that does nothing should not look like
-     one. The sentence beside it says why it is open. */
+  // nothing to save until something changed, and a door that does
+  // nothing should not look like one
   const settle = () => {
     const changed = box.value !== view.premise;
     save.setAttribute("aria-disabled", String(!changed));
@@ -684,10 +668,9 @@ function buildPremise(view, pane) {
   settle();
   box.oninput = settle;
   read.onclick = guard(async () => {
-    /* The file is read HERE and its text put in the box: what is saved
-       is what the reader can see and correct, and a path over HTTP
-       would name a file on the machine otaku runs on, which is not the
-       one the file was picked from. */
+    /* The file is read HERE, so what is saved is what the reader can see
+       and correct — and a path sent over HTTP would name a file on the
+       machine otaku runs on, not the one it was picked from. */
     const picked = await pickFile(_PREMISE_FILES);
     if (!picked) return;
     box.value = await picked.text();
@@ -696,12 +679,10 @@ function buildPremise(view, pane) {
   });
   save.onclick = guard(async () => {
     if (save.getAttribute("aria-disabled") === "true") return;
-    /* A premise written before the first message is how a reader sets
-       the scene, so it must land — and a premise lives ON a story, which
-       means there has to be one to put it on. The terminal reaches the
-       same place from the other side (`session._ensure_story`); here the
-       story is made first, and the view KEEPS it: a second save must
-       correct the premise it just wrote, not start another story. */
+    /* A premise lives ON a story, so one written before the first
+       message has to make one (the terminal reaches the same place
+       through `session._ensure_story`). The view KEEPS it: a second save
+       corrects the premise it just wrote, not starts another story. */
     if (view.subject.id === null) view.subject.id = (await api.newStory()).story;
     const { notice } = await api.setPremise(view.subject.id, box.value);
     await landed("");

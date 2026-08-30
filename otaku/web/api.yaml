@@ -1243,6 +1243,7 @@ components:
           items: { type: string }
         description: { type: string }
         card: { type: string, description: 'The import archive, as TOML; "" for an extracted character.' }
+        history: { type: string, description: 'Their arc so far — the newest rollup a pass wrote, derived and never written back; "" before the first one.' }
         updated_at: { type: string, format: date-time, description: "When the extractor last wrote the character — display alone." }
         journals:
           type: array

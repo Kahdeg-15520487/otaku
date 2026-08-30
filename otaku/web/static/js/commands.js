@@ -3,9 +3,8 @@
 
    Every one of these is reached by a BUTTON — nothing here composes a
    command line for the far end to parse. `SCREENS` is keyed by the token
-   the contents rail carries, because a rail row and a screen are one
-   thought; what each one then asks of otaku is an endpoint, named in
-   `api.js`. */
+   the contents rail carries; what each one asks of otaku is an endpoint,
+   named in `api.js`. */
 
 import * as api from "./api.js";
 import { ask, closeAll, popups } from "./browser.js";
@@ -23,13 +22,10 @@ import { exportStory, importCard, importDocument } from "./transfer.js";
 
 const SCREENS = {
   "/stories": openStories,
-  /* The two that make a story are asked about first. Both are one click
-     from the story you are reading, neither says what it did to it, and
-     `/new` in particular reads as "close this" — so the page asks, the
-     way it asks before a delete. A TYPED `/new TITLE` or `/fork TITLE`
-     carries an argument and goes straight to the backend, as every
-     other command with one does: the reader who spelled it out has
-     already said yes. */
+  /* The two that make a story are asked about first: both are one click
+     from the story you are reading, and `/new` in particular reads as
+     "close this". A TYPED `/new TITLE` or `/fork TITLE` goes straight
+     to the backend — the reader who spelled it out has said yes. */
   "/new": newStory,
   "/fork": () =>
     confirmed({
@@ -90,8 +86,8 @@ const backToStories = (storyId) => openStories("", { selectId: storyId });
 
 /** The contents row that is not a command: the open story's messages,
     which live on the dossier the way its scenes and cast do. A UI door,
-    not a token — `app.js` wires the button here so the dossier stays
-    reachable without inventing a command nobody typed. */
+    not a token — so the dossier stays reachable without inventing a
+    command nobody typed. */
 export async function openMessages() {
   try {
     await openStory({ tab: "messages", allStories: backToStories });
@@ -102,14 +98,11 @@ export async function openMessages() {
 }
 
 /** Whether a command carried by a panel's own chrome KEEPS that panel.
-    `app.js` closes a popup before running a command in its header,
-    because the answer usually lands in the flow behind it — but two
-    kinds of row must be left where they were fired from: one that asks
-    a question (a question cancelled has no answer, and closing first
-    would take the reader out of the screen for nothing), and one whose
-    whole result belongs to that screen — an import that adds a row to
-    the list you are reading, an export that saves a file and changes
-    nothing. */
+    A popup closes before a command in its header runs, the answer
+    usually landing in the flow behind it — but two kinds stay where they
+    were fired from: one that asks a question (cancelled, it has no
+    answer, and the reader was taken out of the screen for nothing), and
+    one whose whole result belongs to that screen. */
 export function keepsScreen(token) {
   return ["/new", "/fork", "/extract", "/import", "/export"].includes(token);
 }
@@ -128,9 +121,8 @@ async function newStory() {
 }
 
 async function importStory() {
-  /* The imported story lands in the library the reader is looking at,
-     so the list is asked again and left on what just arrived — the
-     screen a reader imported FROM is the screen that must show it. */
+  /* The imported story lands in the library the reader is looking at, so
+     the list is asked again and left on what just arrived. */
   await importDocument();
   if (popups.get("/stories")?.open) {
     const facts = await api.facts();
@@ -139,10 +131,9 @@ async function importStory() {
 }
 
 async function confirmed({ title, body, note = "", action, cancel = "Cancel", run }) {
-  /* One question, one button that answers it. The dialog is the ask
-     family's plainest shape and its words are set here, because what a
-     command is about to do to the story on screen is the page's to say
-     — the same way the delete confirm says what a delete takes. */
+  /* One question, one button that answers it. The words are set here:
+     what a command is about to do to the story on screen is the page's
+     to say, as the delete confirm says what a delete takes. */
   const choice = await ask("confirm", (dialog) => {
     $("[data-title]", dialog).textContent = title;
     $(".otk-dialog__body", dialog).textContent = body;
@@ -166,11 +157,10 @@ async function confirmed({ title, body, note = "", action, cancel = "Cancel", ru
 export async function playLine(line) {
   try {
     await play(line);
-    /* A played line is a write like any other, and the runhead is drawn
-       from facts that just changed: the first line of a session makes
-       the story that "No story yet" was standing in for, and every line
-       after it moves the count. No notice — the reply IS the answer —
-       and no redraw unless the ground moved, which `landed` decides. */
+    /* A played line is a write like any other and the runhead is drawn
+       from facts that just changed — the first line of a session makes
+       the story, and every line after it moves the count. No notice: the
+       reply IS the answer. */
     await landed("");
   } catch {
     disconnected();
@@ -195,24 +185,21 @@ export function midReply() {
 async function undo() {
   if (midReply()) return;
   /* The notice is not shown: the exchange coming off the screen IS the
-     answer, and a line saying so would be the third thing the reader
-     reads about a turn they can see is gone. A refusal — nothing to
-     undo — still speaks, under the prompt, and it is the FLAG that says
-     so: the page never reads the wording. */
+     answer. A refusal — nothing to undo — still speaks, under the
+     prompt, and the FLAG is what says so; the page never reads the
+     wording. */
   const answer = await api.undo();
   await landed("", { redraw: "always", keepPlace: true });
   if (answer.refused) tell(answer.notice);
 }
 
 async function regenerate() {
-  /* Mid-reply, regenerate means "not this one, try again" — the same
-     thing `/regen` means in the terminal, where it cancels the stream
-     and re-runs the prompt. Stop is the same door, so this takes it and
+  /* Mid-reply, regenerate means "not this one, try again", as `/regen`
+     does in the terminal. Stop is the same door, so this takes it and
      waits for the socket to be over before asking for the next take. */
   if (isPlaying()) await stopPlaying();
-  // The standing reply becomes a sibling and the fresh take streams in
-  // its place; `play` takes the old one off the screen once the request
-  // is accepted, so a refusal leaves the story exactly as it was.
+  // `play` takes the old reply off the screen once the request is
+  // accepted, so a refusal leaves the story exactly as it was.
   try {
     await play(null, { regenerate: true });
   } catch {
@@ -221,19 +208,18 @@ async function regenerate() {
 }
 
 /* What the backend says when there is no story to act on. COPIED,
-   because the page cannot ask: these endpoints address a story by its
-   id, and with no story there is no id to put in the path. Their homes
-   are `backend.api.stories.fork` and `backend.api.lore.extract` — a
-   sentence that changes there changes here. */
+   because the page cannot ask: these endpoints address a story by id,
+   and with no story there is no id for the path. Their homes are
+   `backend.api.stories.fork` and `backend.api.lore.extract`. */
 const _NO_STORY = {
   fork: "Nothing to fork yet — send a message first.",
   extract: "No story yet — send a message first.",
 };
 
 async function extractNow() {
-  /* A pass is minutes of model time, so the question says so before it
-     starts one — and says what happens if the reader waits instead,
-     because waiting is the normal way this runs. */
+  /* A pass is minutes of model time, so the question says so — and says
+     what happens if the reader waits instead, waiting being the normal
+     way this runs. */
   const facts = await api.facts();
   const opened = facts.story_id == null ? null : await api.story(facts.story_id).catch(() => null);
   const unread = opened?.unread ?? 0;

@@ -5,9 +5,9 @@
    A screen fetches what it shows as it opens: a popup drawing
    yesterday's numbers is worse than none. Every write goes out through
    `api.act` and comes back through `landed`, so no screen decides what
-   a sentence means or when the flow is redrawn. The ask dialogs it
-   opens (rename, delete) are filled here, because what an action does
-   to the story on screen is this screen's to say. */
+   a sentence means or when the flow is redrawn. Its ask dialogs are
+   filled here — what an action does to the story on screen is this
+   screen's to say. */
 
 import * as api from "./api.js";
 import { ask, browser, footnote, guard, popups } from "./browser.js";
@@ -94,7 +94,6 @@ function goInside(story) {
 }
 
 function section(name, text) {
-  /* A titled block under a rule — the design's own section shape. */
   const box = element("section", "otk-detail__section");
   box.append(span("otk-label", name), element("p", "otk-prose otk-prose--read", text));
   return box;
@@ -114,9 +113,8 @@ function exportOne(story) {
 // ---------- the landings ----------
 
 async function landOn(story, action) {
-  /* Continuing a story and forking one are the same landing the reader
-     performs inside one, at the story's LAST message — which is where
-     they left it. The chain is read here rather than carried on the
+  /* Continuing and forking are the landing performed inside a story, at
+     its LAST message. The chain is read here rather than carried on the
      row: a list that knew every story's last message would have read
      every story's chain to draw itself. */
   const last = (await api.story(story.id)).messages.at(-1);
