@@ -84,13 +84,13 @@ const ROUTES = {
     notice: `Merging characters is not in the demo — ${store.INSTALL}.`,
     refused: true,
   }),
+  // The entry is the one writable field — a state is the extractor's
+  // own, and the product answers a body without an entry with this
+  // sentence (copied: the demo cannot ask it).
   "PATCH /api/stories/{story}/journals/{record}": (p, q, b) =>
-    store.editLore(
-      num(p.story),
-      b.state != null ? "state" : "entry",
-      num(p.record),
-      String(b.state ?? b.entry),
-    ),
+    b.entry == null
+      ? { notice: "Nothing to change — send one of entry.", refused: true }
+      : store.editLore(num(p.story), "entry", num(p.record), String(b.entry)),
   // Extraction
   "GET /api/stories/{story}/extraction": () => ({ report: extraction ? extraction.report : null }),
   "POST /api/stories/{story}/extraction": () => startExtract(),

@@ -25,7 +25,7 @@ from otaku.providers import CLIENTS, CloudClient, ProviderConfig
 
 
 @dataclass(frozen=True)
-class WindowShape:
+class AssembledShape:
     """What the next request is MADE of — the facts the diagram and the
     summary line are drawn from, in the window's own order: the verbatim
     head, the middle and how the recap tells it, the verbatim tail, and
@@ -78,7 +78,7 @@ class ContextReport:
     markers `text` brackets (they stand for the JSON role field) — every
     other line is content the model receives, in order."""
 
-    shape: WindowShape
+    shape: AssembledShape
     summary: str
     parts: tuple[ContextPart, ...]
 
@@ -471,10 +471,10 @@ def _session_rows(session: Session) -> tuple[tuple[str, str], ...]:
     return tuple(out)
 
 
-def _shape(prompt: AssembledPrompt) -> WindowShape:
+def _shape(prompt: AssembledPrompt) -> AssembledShape:
     """What was assembled, counted — the arithmetic both the diagram and
     the summary line stand on, done once."""
-    return WindowShape(
+    return AssembledShape(
         head=prompt.head_count,
         middle=prompt.transcript_total - prompt.transcript_kept,
         history=bool(prompt.history),
@@ -489,7 +489,7 @@ def _shape(prompt: AssembledPrompt) -> WindowShape:
     )
 
 
-def _summary(shape: WindowShape) -> str:
+def _summary(shape: AssembledShape) -> str:
     """What the request is made of, in words — the same arithmetic the
     diagram is drawn from, said in the report's own sentences."""
     lines = ["Context preview — the exact request to be sent. Context summary:", ""]

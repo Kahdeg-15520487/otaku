@@ -496,53 +496,70 @@ class Extractor:
             report.attributed += 1
 
     def _refresh_scene_history(self, report: Report) -> None:
-        """Rebuild the newest current scene's history — the story so far
-        through it, which is all "the arc" ever is — when it lacks one:
-        composed from the scene summaries, never from the previous rollup
-        (a photocopy of a photocopy). Best-effort: a failure leaves the row
-        NULL and the next pass retries."""
+        """Rebuild the history of every current scene that lacks one — the
+        story so far THROUGH that scene, which is all "the arc" ever is:
+        composed from the summaries up to and including its own, never
+        from the previous rollup (a photocopy of a photocopy). Oldest
+        first and best-effort per scene — a failure leaves that row NULL
+        and the next pass retries — so the arc exists on every scene once
+        a pass has caught up."""
         ids = self._store.stories.get_messages_ids(self._story_id)
         due = self._store.scenes.get_rollups_due(self._story_id, ids)
         if not due or self._cancel.is_set():
             return
         scenes = self._store.scenes.get_current(self._story_id, ids)
-        summaries = [s.summary for s in scenes if s.summary]
-        if not summaries:
-            return
-        if len(summaries) == 1:
-            # The rollup of one summary is that summary: a model pass over
-            # a single source adds nothing and loses detail to paraphrase.
-            self._store.scenes.set_history(due[-1], summaries[0])
+        position = {s.id: i for i, s in enumerate(scenes)}
+        for scene_id in due:
+            if self._cancel.is_set():
+                return
+            index = position.get(scene_id)
+            if index is None:
+                continue
+            no = index + 1
+            summaries = [s.summary for s in scenes[:no] if s.summary]
+            if not summaries:
+                continue
+            if len(summaries) == 1:
+                # The rollup of one summary is that summary: a model pass
+                # over a single source adds nothing and loses detail to
+                # paraphrase.
+                self._store.scenes.set_history(scene_id, summaries[0])
+                report.scene_histories += 1
+                self._log(
+                    f"story-so-far rollup finished (story {self._story_id}, scene {no}): "
+                    f"the one summary, verbatim"
+                )
+                continue
+            self._progress(
+                f"composing the story so far through scene {no} ({len(summaries)} summaries)…"
+            )
+            started = time.monotonic()
+            self._log(
+                f"story-so-far rollup started (story {self._story_id}, scene {no}): "
+                f"{len(summaries)} summaries"
+            )
+            try:
+                story_so_far = self.complete(
+                    render(self._settings.story_so_far_template, summaries="\n\n".join(summaries)),
+                    "rollup",
+                ).strip()
+            except httpx.HTTPError as e:
+                self._log(
+                    f"story-so-far rollup failed (story {self._story_id}, scene {no}): "
+                    f"{type(e).__name__} ({format_duration(time.monotonic() - started)})"
+                )
+                self._progress(f"story-so-far rollup failed ({e})")
+                continue
+            if self._cancel.is_set():
+                return
+            if not story_so_far:
+                continue
+            self._store.scenes.set_history(scene_id, story_so_far)
             report.scene_histories += 1
             self._log(
-                f"story-so-far rollup finished (story {self._story_id}): the one summary, verbatim"
+                f"story-so-far rollup finished (story {self._story_id}, scene {no}): "
+                f"{len(summaries)} summaries ({format_duration(time.monotonic() - started)})"
             )
-            return
-        self._progress(f"composing the story so far from {len(summaries)} scene summaries…")
-        started = time.monotonic()
-        self._log(
-            f"story-so-far rollup started (story {self._story_id}): {len(summaries)} summaries"
-        )
-        try:
-            story_so_far = self.complete(
-                render(self._settings.story_so_far_template, summaries="\n\n".join(summaries)),
-                "rollup",
-            ).strip()
-        except httpx.HTTPError as e:
-            self._log(
-                f"story-so-far rollup failed (story {self._story_id}): {type(e).__name__} "
-                f"({format_duration(time.monotonic() - started)})"
-            )
-            self._progress(f"story-so-far rollup failed ({e})")
-            return
-        if not story_so_far or self._cancel.is_set():
-            return
-        self._store.scenes.set_history(due[-1], story_so_far)
-        report.scene_histories += 1
-        self._log(
-            f"story-so-far rollup finished (story {self._story_id}): {len(summaries)} "
-            f"summaries ({format_duration(time.monotonic() - started)})"
-        )
 
     def _refresh_histories(self, report: Report) -> None:
         """Rebuild the history of every character whose newest journal row

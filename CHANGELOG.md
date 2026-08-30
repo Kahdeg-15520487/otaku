@@ -14,6 +14,8 @@ changes.
 - Added native Windows support (10 and 11, 64-bit only).
 - The context builder is reworked from the ground up, after `docs/context_design.md`; the new
   `max_context` setting keeps the prompt inside the window models still handle well for roleplay.
+- The lore browser in terminal (`/lore`, `/cast`) is reworked to include the system message and
+  the story messages.
 - Prompt caching for OpenRouter.
 - Sound notifications.
 
@@ -68,6 +70,18 @@ changes.
   is the likelier background and the only outcome Windows can reach, since there is nothing to ask
   there. A config from an earlier version gains the line at the head of that section on the first
   launch after upgrading, so the setting is there to see and edit.
+- The terminal's `/stories` browser drills into a four-tab dossier — Premise, Messages, Scenes,
+  Cast — for any story, not only the open one, and everything editable there edits: the premise
+  is written in place (a story that is not open included), a message corrects where it is read,
+  and the scenes and cast are the lore browser's two lenses, now two tabs of the same window.
+  ←/→ cycle the tabs from anywhere outside an edit (Tab and Shift+Tab work too), each tab keeping
+  its own cursor and filter; `/lore` and `/cast` open the same dossier directly on the open
+  story — on its scenes and cast tabs — and no longer refuse a story whose memory is still empty,
+  since
+  the premise and the messages are one Tab away. Resuming is untouched: Enter on the last message
+  resumes, an earlier one still asks fork / truncate / cancel. Each scene's detail also gains a
+  read-only history row — the story so far through that scene, which the web page already showed
+  (as "the arc through here") and the terminal never did.
 
 ### Changed
 - The codebase is restructured around a frontend-agnostic core. Everything that is not the
@@ -136,6 +150,16 @@ changes.
 - `[context] tail_messages` is now `min_tail_messages`, saying what it always meant: the tail
   never holds fewer than it — a scene ending exactly at the tail's first message stays verbatim,
   its whole span riding with the tail. Config.toml renames the key itself, the set value kept.
+- The story-so-far arc now exists on every scene, and stays there. Each scene already got its arc
+  as it closed; what changed is the healing: editing a summary nulls every arc composed from the
+  old text — that scene's and all later ones' — and the next pass used to rebuild only the newest,
+  leaving the middle scenes blank forever. It now rebuilds them all, each composed from the
+  summaries up to its own scene (one rollup request per healed scene; a single-summary arc is that
+  summary verbatim, no request).
+- A journal's state is read-only everywhere now, like both histories: it is the extractor's own —
+  superseded by the next scene's row, re-derived on every pass — so the entry is the field a hand
+  corrects. The lore browser used to let the newest state be edited and refuse the older ones; the
+  rule is now one sentence instead of a special case.
 
 ### Fixed
 - The settings files are read and written as UTF-8, whatever the machine's locale says. They

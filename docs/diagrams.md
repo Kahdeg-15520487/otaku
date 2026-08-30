@@ -1,4 +1,4 @@
-# otaku in pictures
+# otaku - top level diagrams
 
 Two drawings of the same program at two scales: the packages and how
 they depend on each other, and the inside of `web`, where one thread and

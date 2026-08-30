@@ -70,7 +70,10 @@ export function working(running, stop = null) {
     the session up again by itself the moment it answers. */
 export function offline(lost) {
   gone = lost;
-  if (!busy) offer("", null);
+  // Offered nothing INCLUDING mid-pass: the beat that would take the
+  // `stop` back is the one that stopped arriving, so a lost server would
+  // otherwise leave the button standing over a pass nobody can reach.
+  if (lost || !busy) offer("", null);
   paint();
 }
 

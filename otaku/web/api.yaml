@@ -549,6 +549,8 @@ paths:
 
   #
   # Read with the story that owns them; corrected one at a time here.
+  # The story in the path is CHECKED against the row on every write —
+  # a row that is not that story's is refused, never written.
 
   /api/stories/{story}/messages/{message}:
     parameters:
@@ -601,6 +603,8 @@ paths:
 
   #
   # Read with the story that owns them; corrected one at a time here.
+  # The story in the path is CHECKED against the row on every write —
+  # a row that is not that story's is refused, never written.
 
   /api/stories/{story}/characters/{character}:
     parameters:
@@ -665,8 +669,9 @@ paths:
       description: |
         Its own collection, because a record IS one thing read from two
         sides: a character's entry in a scene, and a scene's entry by a
-        character. Both lenses hand out the same `record` id. A `state`
-        that a later one has superseded is refused.
+        character. Both lenses hand out the same `record` id. The entry
+        is the one writable field — the `state` is the extractor's own,
+        like both histories.
       requestBody:
         content:
           application/json:
@@ -675,7 +680,6 @@ paths:
               minProperties: 1
               properties:
                 entry: { type: string }
-                state: { type: string }
       responses:
         "200": { $ref: "#/components/responses/Answered" }
         "400": { $ref: "#/components/responses/BadRequest" }

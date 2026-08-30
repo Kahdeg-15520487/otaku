@@ -16,7 +16,17 @@ from otaku.backend.session import Session
 from otaku.terminal.screens import stories as screen_stories
 from scenarios.support import server as scripted
 from scenarios.support.harness import App, launch
-from scenarios.support.screens import BACKSPACE, CTRL_S, DELETE, ENTER, ESC, run_screen
+from scenarios.support.screens import (
+    BACKSPACE,
+    CTRL_S,
+    DELETE,
+    DOWN,
+    ENTER,
+    ESC,
+    SHIFT_TAB,
+    TAB,
+    run_screen,
+)
 
 Picker = Callable[[Session], "str | None"]
 
@@ -106,6 +116,35 @@ class TestStoryBrowser:
         assert self.pick(app, ENTER + "e" + "!" + CTRL_S + ESC + ESC) is None
         chain = app.store.stories.get_messages(second)
         assert chain[-1].body == "!" + scripted.CHAT_REPLY
+
+    def test_the_dossier_edits_another_story_s_premise(self, app: App) -> None:
+        # Any story opens whole and any story EDITS: drilled into the
+        # row under the cursor — not the open one — the premise tab's
+        # save lands on that story, and the open story keeps its own.
+        first, _second = two_stories(app)
+        assert self.pick(app, DOWN + ENTER + SHIFT_TAB + ENTER + "!" + CTRL_S + ESC + ESC) is None
+        assert app.store.stories.get_system(first) == "!"
+        assert app.session.system == ""  # the open story's premise is untouched
+
+    def test_the_dossier_edits_another_story_s_message(self, app: App) -> None:
+        first, _second = two_stories(app)
+        assert self.pick(app, DOWN + ENTER + "e" + "!" + CTRL_S + ESC + ESC) is None
+        assert app.store.stories.get_messages(first)[-1].body == "!" + scripted.CHAT_REPLY
+
+    def test_the_dossier_edits_another_story_s_lore(self, app: App) -> None:
+        # The scenes tab of the story under the cursor — the write is
+        # addressed to THAT story and passes its ownership check.
+        for i in range(3):
+            app.play(f"Turn number {i}.")
+        app.play("/extract")
+        first = app.session.story_id
+        app.play("/new")
+        app.play("The second story begins.")
+        keys = DOWN + ENTER + TAB + ENTER + DOWN + ENTER + "!" + CTRL_S + ESC * 3
+        assert self.pick(app, keys) is None
+        ids = app.store.stories.get_messages_ids(first)
+        scene = app.store.scenes.get_current(first, ids)[0]
+        assert scene.summary == "!A guest came in and met the Keeper."
 
     def test_delete_removes_a_story_after_a_confirm(self, app: App) -> None:
         first, _second = two_stories(app)

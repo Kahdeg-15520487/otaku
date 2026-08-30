@@ -225,6 +225,15 @@ class TestWrites:
         first = page.store.stories.get_messages(story)[0]
         assert page.status(f"/api/stories/{story}/messages/{first.id}", method="PATCH") == 400
 
+    def test_a_journal_state_has_no_write(self, page: Page) -> None:
+        # The entry is a journal's one writable field; a state is the
+        # extractor's own, so a state-only body is refused as an answer
+        # before any row is even looked up.
+        page.play("I listen at the culvert mouth.")
+        story = page.get("/api/session")["story_id"]
+        answer = page.patch(f"/api/stories/{story}/journals/1", {"state": "standing"})
+        assert answer["refused"] is True
+
     def test_a_story_that_was_made_answers_where_it_now_lives(self, page: Page) -> None:
         # A POST that MAKES something answers 201 and names it, so the
         # page never has to ask which story it just got.

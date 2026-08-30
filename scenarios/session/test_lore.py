@@ -1,7 +1,8 @@
-"""The lore engine and its commands: the /lore browser edits the memory
-in place, /extract closes scenes over played messages and threads each
-character's memory forward, the closed middle reaches the wire as
-summaries, and /merge folds extraction duplicates."""
+"""The lore engine and its commands: the /lore dossier edits the story
+in place (premise, messages, scenes, cast), /extract closes scenes over
+played messages and threads each character's memory forward, the closed
+middle reaches the wire as summaries, and /merge folds extraction
+duplicates."""
 
 import contextlib
 import json
@@ -11,12 +12,16 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+import pytest
+
+from otaku.backend.api import lore as api_lore
 from otaku.backend.formats import exports, imports
 from otaku.backend.paths import Paths
-from otaku.terminal.screens import lore as screen_lore
+from otaku.backend.session import Refused
+from otaku.terminal.screens import story as screen_story
 from scenarios.support import server as scripted
 from scenarios.support.harness import App, launch, set_config, set_config_provider
-from scenarios.support.screens import CTRL_S, DOWN, ENTER, ESC, TAB, run_screen
+from scenarios.support.screens import CTRL_S, DOWN, ENTER, ESC, SHIFT_TAB, TAB, run_screen
 from scenarios.support.server import numbered_script
 
 CHAPEL = Path(__file__).parent.parent / "fixtures" / "chapel.md"
@@ -55,9 +60,11 @@ class TestLoreBrowser:
     def test_a_journal_entry_edit_invalidates_the_derived_history(self, app: App) -> None:
         # Fix the input, and the output follows: editing an entry clears
         # the character's rolled-up history, and the next pass rebuilds it.
+        # (The entry is the FOURTH field row — title, summary, the
+        # scene's history, then the journal.)
         story_id = remembered(app)
         keeper = app.store.characters.list(story_id)[0]
-        browse(app, story_id, ENTER + DOWN + DOWN + ENTER + "!" + CTRL_S + ESC * 3)
+        browse(app, story_id, ENTER + DOWN * 3 + ENTER + "!" + CTRL_S + ESC * 3)
         journal = app.store.journals.list(story_id)[-1]
         assert journal.entry == "!I saw the guest."  # typed at the start — the editor opens there
         assert not journal.history  # invalidated with the edit
@@ -65,6 +72,69 @@ class TestLoreBrowser:
         ids = app.store.stories.get_messages_ids(story_id)
         memory = app.store.journals.get_current(story_id, ids)[keeper.id]
         assert memory.history  # rebuilt from the fixed input
+
+    def test_the_pivot_reaches_the_same_journal_through_the_other_tab(self, app: App) -> None:
+        # `o` on a scene's journal entry lands on the SAME row seen from
+        # the character's side — and an edit there addresses that row,
+        # not whatever the other tab's cursor last pointed at.
+        story_id = remembered(app)
+        browse(app, story_id, ENTER + DOWN * 3 + "o" + ENTER + "!" + CTRL_S + ESC * 3)
+        assert app.store.journals.list(story_id)[-1].entry == "!I saw the guest."
+
+    def test_the_scene_history_field_is_the_extractor_s_own(self, app: App) -> None:
+        # The row after the summary is the story so far through the
+        # scene — shown in every scene, never editable: Enter refuses to
+        # open it, so the typed correction lands nowhere.
+        story_id = remembered(app)
+        ids = app.store.stories.get_messages_ids(story_id)
+        before = app.store.scenes.get_current(story_id, ids)[0].history
+        assert before  # written when the scene closed
+        browse(app, story_id, ENTER + DOWN * 2 + ENTER + "!" + CTRL_S + ESC * 3)
+        assert app.store.scenes.get_current(story_id, ids)[0].history == before
+
+    def test_a_state_is_the_extractor_s_own(self, app: App) -> None:
+        # A state is superseded by the next scene's row, so no hand
+        # corrects it — the editor never opens and the store never moves.
+        story_id = remembered(app)
+        before = app.store.journals.list(story_id)[-1].state
+        browse(app, story_id, ENTER + DOWN * 4 + ENTER + "!" + CTRL_S + ESC * 3)
+        assert app.store.journals.list(story_id)[-1].state == before
+
+    def test_the_premise_tab_writes_the_system_prompt(self, app: App) -> None:
+        # Two tabs back from the scenes sits the premise, edited in
+        # place. It is the same field /system sets, and this is the open
+        # story — so the session follows the store.
+        story_id = remembered(app)
+        browse(app, story_id, SHIFT_TAB * 2 + ENTER + "!" + CTRL_S + ESC * 2)
+        assert app.store.stories.get_system(story_id) == "!"
+        assert app.session.system == "!"
+
+    def test_a_landing_in_the_messages_tab_returns_the_line(self, app: App) -> None:
+        # Enter on the tail resumes: the land EXECUTES inside the screen
+        # and the landing line rides back for the caller to echo — the
+        # dossier lands exactly the way the story browser does.
+        story_id = remembered(app)
+        assert browse(app, story_id, SHIFT_TAB + ENTER)
+
+
+class TestEditAddressing:
+    def test_an_edit_names_the_story_its_row_belongs_to(self, app: App) -> None:
+        # The story in the address is CHECKED against the row, the way a
+        # message edit checks its chain: a correction aimed through the
+        # wrong story must not rewrite memory nobody was looking at.
+        story_id = remembered(app)
+        ids = app.store.stories.get_messages_ids(story_id)
+        scene = app.store.scenes.get_current(story_id, ids)[0]
+        app.play("/new")
+        app.play("Another story begins.")
+        other = app.session.story_id
+        with pytest.raises(Refused):
+            api_lore.edit(app.session, "scene-summary", scene.id, "hijacked", other)
+        journal = app.store.journals.list(story_id)[-1]
+        with pytest.raises(Refused):
+            api_lore.edit(app.session, "entry", journal.id, "hijacked", other)
+        assert app.store.scenes.get_current(story_id, ids)[0].summary == scene.summary
+        assert app.store.journals.list(story_id)[-1].entry == journal.entry
 
 
 class TestExtract:
@@ -392,6 +462,44 @@ class TestHealing:
         untouched = next(j for j in scene.journals if j.character == "Элоиза")
         assert memories[cast["Элоиза"]].history == untouched.history
 
+    def test_an_edited_summary_heals_every_arc_after_it(self, server, tmp_path) -> None:
+        # Editing an early summary nulls the arcs composed from it — that
+        # scene's and every later one's — and the next pass rebuilds them
+        # ALL, each from the summaries up to its own scene: the arc
+        # exists on every scene again, not only the newest.
+        set_config(
+            tmp_path / "state",
+            settle_messages=0,
+            scene_min_chars=40,
+            scene_min_messages=4,
+        )
+        app = launch(tmp_path / "state", server)
+        server.script = numbered_script()
+        try:
+            played_chapters(app, 6)  # 12 messages → three 4-message scenes
+            app.play("/extract")
+            story_id = app.session.story_id
+            ids = app.store.stories.get_messages_ids(story_id)
+            scenes = app.store.scenes.get_current(story_id, ids)
+            assert all(s.history for s in scenes)  # written as each closed
+
+            api_lore.edit(
+                app.session, "scene-summary", scenes[0].id, "A corrected opening.", story_id
+            )
+            scenes = app.store.scenes.get_current(story_id, ids)
+            assert not any(s.history for s in scenes)  # composed from the old text
+
+            calls_before = len(lore_calls(app))
+            app.play("/extract")  # declines a new scene, heals every hole
+            scenes = app.store.scenes.get_current(story_id, ids)
+            assert scenes[0].history == "A corrected opening."  # one summary, verbatim
+            assert scenes[1].history == scripted.STORY_SO_FAR
+            assert scenes[2].history == scripted.STORY_SO_FAR
+            # One rollup call per healed multi-summary scene, nothing more.
+            assert len(lore_calls(app)) == calls_before + 2
+        finally:
+            app.close()
+
 
 class TestLongStory:
     """A story long enough for several scenes: the backlog packs into
@@ -422,7 +530,11 @@ class TestLongStory:
             keeper = app.store.characters.list(story_id)[0]
             memory = app.store.journals.get_current(story_id, ids)[keeper.id]
             assert memory.state == "state 3"
-            assert scenes[-1].history == scripted.STORY_SO_FAR
+            # Every scene carries its own arc, written as it closed: the
+            # first is its one summary verbatim, the rest are rollups.
+            assert scenes[0].history == "Scene summary 1."
+            assert scenes[1].history == scripted.STORY_SO_FAR
+            assert scenes[2].history == scripted.STORY_SO_FAR
         finally:
             app.close()
 
@@ -708,9 +820,12 @@ def remembered(app: App) -> int:
     return app.session.story_id
 
 
-def browse(app: App, story_id: int, keys: str) -> None:
+def browse(app: App, story_id: int, keys: str) -> str | None:
+    """Drive the dossier over the open story, opened on scenes the way
+    /lore opens it; a landing's line comes back, as it does to /lore."""
     with contextlib.suppress(EOFError):
-        run_screen(keys, lambda: screen_lore.browse(app.session, "scenes"))
+        return run_screen(keys, lambda: screen_story.browse(app.session, "scenes"))
+    return None
 
 
 def lore_calls(app: App) -> list[str]:

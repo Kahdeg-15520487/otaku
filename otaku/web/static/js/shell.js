@@ -25,7 +25,7 @@ const live = icon?.href ?? "";
 let drawn = null;
 
 // What the offline line says — needed in two places, so it is named once.
-const GONE = "otaku is not answering. The server was stopped in the terminal.";
+const GONE = "otaku is down";
 
 export function showFacts(facts) {
   const engine = [facts.engine, facts.context && `${facts.context} context`]
@@ -195,7 +195,14 @@ export function disconnected(gone = true) {
     reached();
     offline(false);
   }
-  for (const control of $$(".otk-toc button, .otk-rail__foot, .otk-composer textarea, [data-send]")) {
+  /* Every door that reaches the session is shut while there is none:
+     the contents, the model in the rail's foot, the box and the verbs
+     beside it — Send, Regen, Undo — and the prefix menu, which has
+     nothing to insert into. Stop is not one of them: it gives up a
+     reply THIS page is holding, which is this side of the connection. */
+  for (const control of $$(
+    ".otk-toc button, .otk-rail__foot, .otk-composer textarea, [data-send], [data-turn], [data-prefixes]",
+  )) {
     control.disabled = gone;
   }
 }

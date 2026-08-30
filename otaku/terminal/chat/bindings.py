@@ -33,9 +33,9 @@ from otaku.backend.session import NO_STORY_HINT, Refused, Session
 from otaku.terminal.chat import help as help_page
 from otaku.terminal.chat import stream
 from otaku.terminal.chat.chat import RESUME_TURNS, Chat
-from otaku.terminal.screens import lore as screen_lore
 from otaku.terminal.screens import models as screen_models
 from otaku.terminal.screens import stories as screen_stories
+from otaku.terminal.screens import story as screen_story
 from otaku.terminal.tty import BOLD, DIM, ERASE_LINE, RESET, YES_ANSWERS, error_line, latin_key
 from otaku.terminal.tty.render import command_tokens, last_turns, message
 from otaku.terminal.tty.typography import highlight_commands
@@ -234,15 +234,21 @@ def _system(chat: Chat, raw: str) -> None:
 
 
 def _stories(chat: Chat, raw: str) -> None:
-    """Browse every story, preview its turns, resume anywhere — the
-    screen executes what its selection settled and returns the landing
-    line; landing echoes the scene under the break rule."""
+    """Browse every story, drill into any one's dossier, resume
+    anywhere — the screen executes what its selection settled and
+    returns the landing line; landing echoes the scene under the break
+    rule."""
     if not api_stories.listing(chat.session):
         chat.say("No saved stories yet.")
         return
-    landed = screen_stories.pick(chat.session)
+    _landed(chat, screen_stories.pick(chat.session))
+
+
+def _landed(chat: Chat, landed: str | None) -> None:
+    """Echo a screen's landing under the break rule — or nothing, when
+    the reader only left (the screen restored itself; nothing moved)."""
     if landed is None:
-        return  # cancelled — the screen restored itself; nothing moved
+        return
     chat.ledger.rule()
     chat.say(f"{landed}\n\n{last_turns(list(chat.session.messages), RESUME_TURNS)}")
     chat.restore_tail(RESUME_TURNS)
@@ -256,21 +262,21 @@ def _new(chat: Chat, raw: str) -> None:
 
 
 def _lore(chat: Chat, raw: str) -> None:
-    _browse_lore(chat, "scenes")
+    _dossier(chat, "scenes")
 
 
 def _cast(chat: Chat, raw: str) -> None:
-    _browse_lore(chat, "cast")
+    _dossier(chat, "cast")
 
 
-def _browse_lore(chat: Chat, lens: screen_lore.Lens) -> None:
+def _dossier(chat: Chat, tab: screen_story.Tab) -> None:
+    """The open story's dossier, on the asked-for tab — an empty memory
+    opens too (its tab says so itself; premise and messages are a Tab
+    away). A landing from its messages tab echoes like the browser's."""
     if chat.session.story_id is None:
         chat.say(NO_STORY_HINT)
         return
-    if not api_lore.exists(chat.session):
-        chat.say("No lore in this story yet — it builds as scenes close (see /extract).")
-        return
-    screen_lore.browse(chat.session, lens)
+    _landed(chat, screen_story.browse(chat.session, tab))
 
 
 def _extract(chat: Chat, raw: str) -> None:

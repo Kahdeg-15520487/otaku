@@ -130,10 +130,12 @@ class SceneOps:
         return ""
 
     def get_rollups_due(self, story_id: int, message_ids: builtins.list[int]) -> builtins.list[int]:
-        """The scenes the next story-so-far rollups belong on: the newest
-        current scene, when its history is missing — freshly closed, or
-        invalidated by a summary edit (at most one today; the shape matches
-        the journals' counterpart). Id-only; nothing is decrypted."""
+        """The scenes the next story-so-far rollups belong on: every
+        current scene whose history is missing, oldest first — freshly
+        closed, invalidated by a summary edit (which nulls the edited
+        scene's and every later one's), or lost to a failed pass. All of
+        them, so the arc exists on every scene once a pass has caught
+        up. Id-only; nothing is decrypted."""
         current = set(message_ids)
         # fmt: off
         rows = self._db.conn.execute(
@@ -141,10 +143,7 @@ class SceneOps:
             (story_id,),
         ).fetchall()
         # fmt: on
-        live = [(int(sid), bool(missing)) for sid, end, missing in rows if end in current]
-        if live and live[-1][1]:
-            return [live[-1][0]]
-        return []
+        return [int(sid) for sid, end, missing in rows if end in current and missing]
 
     def set_history(self, scene_id: int, history: str) -> None:
         """Attach a freshly composed story-so-far rollup to the scene it was
@@ -523,34 +522,6 @@ class JournalOps:
             conn.execute(
                 "UPDATE journals SET history = NULL, updated_at = ? WHERE story_id = ? AND character_id = ? AND id >= ?",
                 (now, story_id, character_id, journal_id),
-            )
-            # fmt: on
-
-    def set_state(self, journal_id: int, state: str, message_ids: builtins.list[int]) -> None:
-        """The author's correction of a state snapshot — the character's
-        latest CURRENT-timeline row only. Older states are superseded
-        fossils; an edit there would change nothing, so it is refused
-        rather than absorbed."""
-        row = self._db.conn.execute(
-            "SELECT story_id, character_id FROM journals WHERE id = ?", (journal_id,)
-        ).fetchone()
-        if row is None:
-            raise ValueError(f"no journal row {journal_id}")
-        scene_ids = self._current_scene_ids(int(row[0]), message_ids)
-        marks = ",".join("?" * len(scene_ids))
-        # fmt: off
-        latest = self._db.conn.execute(
-            f"SELECT MAX(id) FROM journals WHERE story_id = ? AND character_id = ? AND scene_id IN ({marks})",
-            (int(row[0]), int(row[1]), *scene_ids),
-        ).fetchone()[0] if scene_ids else None
-        # fmt: on
-        if latest != journal_id:
-            raise ValueError("only the latest journal row's state can be edited")
-        with self._db.conn as conn:
-            # fmt: off
-            conn.execute(
-                "UPDATE journals SET state = ?, updated_at = ? WHERE id = ?",
-                (self._db.seal(state), self._db.now(), journal_id),
             )
             # fmt: on
 

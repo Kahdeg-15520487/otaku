@@ -8,6 +8,7 @@ from them) is never mirrored by hand.
 
 import threading
 import tomllib
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from typing import Literal
 
@@ -17,10 +18,20 @@ from otaku.store.schema import Character, Journal, Scene
 from otaku.worker import Job
 from otaku.worker.extraction import ExtractionSettings, PassResult, Report
 
-# Every field a detail view shows; `history` rows are derived and never
-# editable — they rebuild from the primitives.
+# Every field a detail view shows. Hand-editable is what is written once
+# and read from then on (titles, summaries, entries, descriptions,
+# cards); the extractor's own — `state` (superseded by the next scene's
+# row), `history` and `scene-history` (rebuilt from the primitives) —
+# is shown and refused by `edit`.
 FieldKind = Literal[
-    "scene-title", "scene-summary", "description", "card", "entry", "state", "history"
+    "scene-title",
+    "scene-summary",
+    "scene-history",
+    "description",
+    "card",
+    "entry",
+    "state",
+    "history",
 ]
 
 
@@ -166,17 +177,6 @@ def merge_by_id(session: Session, source_id: int, target_id: int) -> str:
     return f"Merged {source.name} into {target.name} ('{source.name}' is now an alias)."
 
 
-def exists(session: Session) -> bool:
-    """Whether the story holds any memory to browse yet."""
-    if session.story_id is None:
-        return False
-    store = session._store
-    ids = store.stories.get_messages_ids(session.story_id)
-    return bool(store.scenes.get_current_ends(session.story_id, ids)) or bool(
-        store.characters.list(session.story_id)
-    )
-
-
 def cast(session: Session) -> tuple[Character, ...]:
     """The story's characters in appearance order — the cheap read the
     prompt menus and the pickers fire per keystroke. Empty when no story
@@ -223,22 +223,13 @@ class LoreView:
         out += [
             Field("title", "scene-title", scene.title, scene.id, True),
             Field("summary", "scene-summary", scene.summary, scene.id, True),
+            Field("history", "scene-history", scene.history, scene.id, False),
         ]
-        latest = self._latest_rows()
         for r in self._by_scene().get(scene.id, []):
             char = self._char_by_id(r.character_id)
             name = char.name if char else "?"
             out.append(Field(f"{name} · entry", "entry", r.entry, r.id, True, r.character_id))
-            out.append(
-                Field(
-                    f"{name} · state",
-                    "state",
-                    r.state,
-                    r.id,
-                    latest.get(r.character_id) == r.id,
-                    r.character_id,
-                )
-            )
+            out.append(Field(f"{name} · state", "state", r.state, r.id, False, r.character_id))
         return out
 
     def char_fields(self, character_id: int) -> list[Field]:
@@ -251,19 +242,15 @@ class LoreView:
             # the author's to correct like any primitive — emptied to
             # nothing included, so the row cannot vanish under the cursor.
             out.append(Field("card", "card", char.card, char.id, True))
-        latest = self._latest_rows()
         for r in self._by_char().get(char.id, []):
             scene = self._scene_by_id(r.scene_id)
             no = self.scene_no(r.scene_id)
             label = flatten(scene.title) if scene and scene.title else f"scene {no}"
-            is_latest = latest.get(char.id) == r.id
             out.append(
                 Field(f"{label} · entry", "entry", r.entry, r.id, True, r.scene_id, scene_no=no)
             )
             out.append(
-                Field(
-                    f"{label} · state", "state", r.state, r.id, is_latest, r.scene_id, scene_no=no
-                )
+                Field(f"{label} · state", "state", r.state, r.id, False, r.scene_id, scene_no=no)
             )
         history, hrow = self._current_history(char.id)
         if history and hrow is not None:
@@ -370,9 +357,6 @@ class LoreView:
             rows.sort(key=lambda r: position.get(r.scene_id, 0))
         return out
 
-    def _latest_rows(self) -> dict[int, int]:
-        return {cid: rows[-1].id for cid, rows in self._by_char().items()}
-
     def _current_history(self, character_id: int) -> tuple[str, Journal | None]:
         """The character's newest non-empty rollup, as the store's
         `get_current` would pick it."""
@@ -406,23 +390,32 @@ def view(session: Session, story_id: int | None = None) -> LoreView:
     )
 
 
-def edit(
-    session: Session, kind: FieldKind, target: int, text: str, story_id: int | None = None
-) -> str:
+def edit(session: Session, kind: FieldKind, target: int, text: str, story_id: int) -> str:
     """Apply the author's correction: `kind` and `target` are a Field's
     address fields (the view row itself never travels back — display
-    state is not a write address). `story_id` names the story the row
-    belongs to, for a browser correcting one that is not open; the open
-    story's own when it is None. The store writers carry the
-    invalidation. Returns the notice; raises Refused for an edit the
-    store refuses (a non-TOML card, a superseded state, an emptied
-    summary, a derived `history` row)."""
+    state is not a write address), and `story_id` is the story the
+    caller believes the row belongs to — CHECKED, the way a message edit
+    checks its chain: a browser addresses any story, and a correction
+    that landed on another story's row would rewrite memory nobody was
+    looking at. The store writers carry the invalidation. Returns the
+    notice; raises Refused for a row that is not in the story's memory,
+    for an edit that cannot be one (a non-TOML card, an emptied
+    summary), and for the extractor's own rows (`state`, `history`,
+    `scene-history`), which are corrected through their inputs."""
+    # The extractor's own rows refuse before anything is looked up.
+    if kind == "state":
+        raise Refused("The state is the extractor's own — correct the entry instead.")
+    if kind == "scene-history":
+        raise Refused("The scene's history is derived — correct the summaries and it rebuilds.")
+    if kind == "history":
+        raise Refused("The history is derived — correct the entries and it rebuilds.")
     store = session._store
-    if story_id is None:
-        story_id = session.story_id
+    owned = view(session, story_id)
     if kind == "scene-title":
+        _theirs(owned.scenes, target, "scene")
         store.scenes.update(target, title=text)
     elif kind == "scene-summary":
+        _theirs(owned.scenes, target, "scene")
         if not text.strip():
             # A cleared summary would silently swallow the scene's span:
             # the assembler covers a scene only while its summary exists,
@@ -431,8 +424,10 @@ def edit(
             raise Refused("An emptied summary would swallow its scene — not saved.")
         store.scenes.update(target, summary=text)
     elif kind == "description":
+        _theirs(owned.cast, target, "character")
         store.characters.set_description(target, text)
     elif kind == "card":
+        _theirs(owned.cast, target, "character")
         try:
             tomllib.loads(text)
         except tomllib.TOMLDecodeError as e:
@@ -441,19 +436,20 @@ def edit(
             raise Refused(f"Not valid TOML — not saved: {e}") from e
         store.characters.set_card(target, text)
     elif kind == "entry":
+        _theirs(owned.journals, target, "journal")
         store.journals.set_entry(target, text)
-    elif kind == "state":
-        if story_id is None:
-            raise Refused(NO_STORY_HINT)
-        try:
-            store.journals.set_state(target, text, store.stories.get_messages_ids(story_id))
-        except ValueError as e:
-            raise Refused(f"{e}.".capitalize()) from e
-    elif kind == "history":
-        raise Refused("The history is derived — correct the entries and it rebuilds.")
     else:
         raise ValueError(f"unknown field kind {kind!r}")
     return "Saved."
+
+
+def _theirs(rows: Iterable[Scene | Character | Journal], target: int, noun: str) -> None:
+    """The addressed row must be in the story's own memory — the same
+    rule `stories.edit_message` holds over its chain. The rows come from
+    the story's VIEW, so a row of a rewound timeline refuses along with
+    another story's: neither is in the memory any browser shows."""
+    if all(row.id != target for row in rows):
+        raise Refused(f"That {noun} is not in this story's memory.")
 
 
 def _pass_report(result: PassResult, report: Report, *, held: str) -> str:

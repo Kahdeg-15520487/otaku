@@ -121,7 +121,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("/title", "NEW", "Set the story title", "stories", CommandKind.OPERATION),
     CommandSpec("/new", "[TITLE]", "Clear context and start a new story", "stories", CommandKind.OPERATION),
     # Lore
-    CommandSpec("/lore", "", "Browse and edit the memory: scenes, cast, journals", "lore", CommandKind.INTERACTIVE),
+    CommandSpec("/lore", "", "Browse and edit the story — premise, messages, scenes, cast", "lore", CommandKind.INTERACTIVE),
     CommandSpec("/cast", "", "The same browser, opened directly on the cast", "lore", CommandKind.INTERACTIVE),
     CommandSpec("/extract", "", "Extract lore from the recent messages now; triggered automatically after 5 minutes of inactivity", "lore", CommandKind.INTERACTIVE),
     CommandSpec("/merge", "A into B", "Fold a duplicate character into the real one", "lore", CommandKind.OPERATION),

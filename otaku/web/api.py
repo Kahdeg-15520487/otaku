@@ -574,13 +574,17 @@ def _edit_character(session: Session, ask: Ask) -> str:
 
 
 def _edit_journal(session: Session, ask: Ask) -> str:
-    return _edit_lore(session, ask, "record", {"entry": "entry", "state": "state"})
+    """A journal record's entry. The state is the extractor's own — like
+    both histories it has no write; correcting the entry is what moves
+    the record."""
+    return _edit_lore(session, ask, "record", {"entry": "entry"})
 
 
 def _edit_lore(session: Session, ask: Ask, target: str, kinds: dict[str, FieldKind]) -> str:
-    """One corrected row of the memory. The PATH says which row — a
-    scene, a character, a journal record — and the body says which of
-    its fields; `api_lore.edit` takes the pair as one address."""
+    """One corrected row of the memory. The PATH says which row — the
+    story, then a scene, a character, or a journal record — and the body
+    says which of its fields; `api_lore.edit` takes all three as one
+    address and CHECKS the row is that story's."""
     said = ""
     for name, kind in kinds.items():
         if name in ask.body:

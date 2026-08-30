@@ -585,7 +585,10 @@ textarea.otk-editable { margin: 0; padding: 0; border: 0; }
 .otk-status__action { flex: none; margin-left: auto; color: var(--otk-accent-ink); }
 .otk-status--working .otk-status__lamp { background: var(--otk-accent); animation: otk-blink 1.1s steps(1, end) infinite; }
 .otk-status--offline { color: var(--otk-danger); }
-.otk-status--offline .otk-status__lamp { background: var(--otk-danger); border-radius: 0; }
+/* A lamp that is OUT: grey, and still a lamp — the same grey the mark in
+   the spine and the tab icon take when otaku stops. The sentence beside
+   it carries the alarm. */
+.otk-status--offline .otk-status__lamp { background: var(--otk-faint); }
 .otk-status--idle .otk-status__lamp { background: var(--otk-line); }
 /* the line carries the backend's sentence; the lamp says what the session
    is doing */

@@ -427,12 +427,24 @@ export function editMessage(messageId, body) {
 export function editLore(storyId, kind, target, text) {
   /* One corrected row, addressed the way the product addresses it: the
      PATH said which story and which row, the body said which of its
-     fields, and all three arrive here. */
+     fields, and all three arrive here. The row must be that story's
+     own — the product checks the address and refuses first (sentence
+     copied from backend.api.lore.edit). */
+  const memory = state.lore.get(storyId);
+  if (!memory) return refuse("No story yet — send a message first.");
+  const rows =
+    kind === "entry"
+      ? memory.scenes.flatMap((scene) => scene.journals)
+      : kind.startsWith("scene-")
+        ? memory.scenes
+        : memory.characters;
+  if (!rows.some((row) => row.id === target)) {
+    const noun = kind === "entry" ? "journal" : kind.startsWith("scene-") ? "scene" : "character";
+    return refuse(`That ${noun} is not in this story's memory.`);
+  }
   if (kind === "scene-summary" && !text.trim()) {
     return refuse("An emptied summary would swallow its scene — not saved.");
   }
-  const memory = state.lore.get(storyId);
-  if (!memory) return refuse("No story yet — send a message first.");
   for (const scene of memory.scenes) {
     if (kind === "scene-title" && scene.id === target) scene.title = text;
     if (kind === "scene-summary" && scene.id === target) scene.summary = text;

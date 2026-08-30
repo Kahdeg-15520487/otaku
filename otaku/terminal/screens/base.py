@@ -25,7 +25,7 @@ from typing import Any
 from prompt_toolkit.application import Application
 from prompt_toolkit.application.current import get_app
 from prompt_toolkit.data_structures import Point
-from prompt_toolkit.filters import Condition, FilterOrBool
+from prompt_toolkit.filters import Condition, Filter, FilterOrBool
 from prompt_toolkit.formatted_text import ANSI, StyleAndTextTuples, to_formatted_text
 from prompt_toolkit.key_binding import KeyBindings, KeyBindingsBase
 from prompt_toolkit.keys import Keys
@@ -332,7 +332,7 @@ class ListScreen:
         self,
         *,
         header_filter: FilterOrBool,
-        editing: Condition,
+        editing: Filter,
         edit_window: Window,
     ) -> AnyContainer:
         """ONE box for the preview: a fixed header above a body that is the
