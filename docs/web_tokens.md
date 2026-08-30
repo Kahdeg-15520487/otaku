@@ -1,15 +1,20 @@
 # otaku web — the token contract
 
-Every value the interface uses is a custom property on `:root` in `app.css`.
-The component layer never hard-codes a colour, a typeface, a size or a length.
+Every colour and every typeface the interface uses is a custom property on
+`:root` in `app.css`, and so is every size in the scale below. What this page
+does not list — title cuts, the tabs, tracking, one-off lengths — is the
+design's own, hard-coded on purpose, and no theme's business.
 
 **A theme is a list of token overrides and nothing else.** Put them in the
 state dir's `web/custom.css`, which loads last and wins. Override
 `--otk-paper` and the page, every panel, every docket, every dialog and every
 field change together — there is no second place where paper is defined.
 
-Names are a contract. Nothing is ever renamed; a rename is a breaking change
-for anybody's `custom.css`.
+Names are a contract. Nothing here is ever renamed; a rename is a breaking
+change for anybody's `custom.css`. The contract is the tokens on this page
+plus the hooks under **State you can style** — every other class and
+attribute in the markup is internal and may change in any release, so a
+stylesheet that reaches past the contract accepts the breakage itself.
 
 ## Ground
 
@@ -50,6 +55,11 @@ for anybody's `custom.css`.
 | `--otk-accent-tint` | the ground of a selected row |
 | `--otk-ok` | answering, resident, loaded |
 | `--otk-danger` | delete, stop, and failures — nothing else |
+
+The tab icon is the one accent a stylesheet cannot reach: a favicon is
+markup, so `index.html` carries the square as a hard-coded copy of the
+accent (and a grey one for a stopped otaku). Retheming the accent leaves
+it as it is, and the tab keeps its mark.
 
 ## Typefaces of your own
 
@@ -138,13 +148,15 @@ only that script.
 
 | Token | Used by |
 |---|---|
+| `--otk-size-display` | a reading column's own title |
 | `--otk-size-title` | the subject of a panel |
 | `--otk-size-head` | a group head (provider, scene) |
 | `--otk-size-page` | the story |
+| `--otk-size-lead` | panel ledes, margin prose, the composer |
 | `--otk-size-read` | long prose inside a panel |
 | `--otk-size-row` | a list row |
 | `--otk-size-note` | notes, captions, choices |
-| `--otk-size-ui` | **every** button and tab |
+| `--otk-size-ui` | **every** button |
 | `--otk-size-mono` | fields, filters, model names |
 | `--otk-size-mono-sm` | facts, urls, ids |
 | `--otk-size-small` | counts |
@@ -177,7 +189,6 @@ so a list of mixed scripts does not ripple. Raise both together.
 | `--otk-reader-w` | the right pane, identical in every lens |
 | `--otk-measure` | a reading line, wherever prose is set |
 | `--otk-premise-w` | the premise measure |
-| `--otk-size-display` | a reading column's own title |
 
 ## Shell and the panel ladder
 
@@ -190,7 +201,7 @@ so a list of mixed scripts does not ripple. Raise both together.
 | `--otk-panel-story` | stories and a story: one box, so neither resizes into the other |
 | `--otk-panel-read` | context: one reading column |
 | `--otk-dialog-w` | every dialog |
-| `--otk-docket-w` | a slip; `--narrow` and `--wide` variants |
+| `--otk-docket-w` | a slip's width; `.otk-docket--narrow` and `--wide` re-set it |
 | `--otk-docket-h` | the height of the one slip that is torn to a set length |
 
 ## Scrollbars
@@ -235,7 +246,10 @@ in classes, so a stylesheet can name it the same way the scripts do.
 | `data-popup="/model"` | a `<dialog>` | which command opens it |
 | `data-theme="dark"` | `<html>` | the token set in force |
 | `data-open="true"` | `.otk-rail` | the contents, on a narrow window |
+| `data-editing` | `.otk-edit` | the field editor is open |
 | `.is-offline` | `.otk-app` | the server stopped answering |
 | `.is-loaded` / `.is-dim` | `.otk-row` | a model resident in memory, or not |
+| `.is-dragover` / `.is-filled` | `.otk-dropzone` | a file over the drop zone, and one dropped |
 | `.otk-generating--idle` | the generating block | the reply landed; the slot keeps its height |
 | `.otk-status--working` / `--offline` / `--idle` | `.otk-status` | which of the three the one status line shows |
+| `.otk-status--said` / `--error` | `.otk-status` | the sentence on it is news, or a failure |

@@ -12,10 +12,11 @@
    UNDERNEATH this panel — leaving reveals it as it was left, and with
    none to reveal the back button opens it on this story.
 
-   Every write goes out through `api.act` with the address the field
-   itself carries (`kind`, `target`); the screen never invents one. A
-   refusal is carried INTO the redraw as the footnote: inside a popup
-   the status line is behind a modal, and nobody reads it there. */
+   Every write goes out through its own endpoint (`api.editScene`,
+   `api.editJournal`, …) with the ids the row itself carries; the
+   screen never invents an address. A refusal is carried INTO the
+   redraw as the footnote: inside a popup the status line is behind a
+   modal, and nobody reads it there. */
 
 import * as api from "./api.js";
 import {
@@ -69,6 +70,10 @@ export async function openStory({ story = null, tab = "messages", answered = "",
   const view = {
     popup,
     subjectArg: story,
+    // Carried so `reopen` can pass it through: a dossier rebuilt by a
+    // save must keep the back button's destination, or one edit would
+    // dead-end "← All stories" for the rest of the visit.
+    allStories,
     subject,
     inside,
     facts,
@@ -124,7 +129,12 @@ function show(view, tab, targetId = null) {
 /** Reopen this dossier after a write, on the same tab, carrying what
     the write answered — the one way every save here comes back. */
 function reopen(view, tab, notice) {
-  return openStory({ story: view.subjectArg, tab, answered: notice });
+  return openStory({
+    story: view.subjectArg,
+    tab,
+    answered: notice,
+    allStories: view.allStories,
+  });
 }
 
 // ---------- messages: index rail, one line a turn, a reader ----------
@@ -245,9 +255,13 @@ function drawReader(view, pane, message, edit) {
 }
 
 async function saveMessage(view, message, text) {
-  const { notice } = await api.editMessage(view.subject.id, message.id, text);
+  // A refusal skips the redraws: the editor stays open with the
+  // reader's words, and `browser.editable` shows the sentence.
+  const answer = await api.editMessage(view.subject.id, message.id, text);
+  if (answer.refused) return answer;
   await landed("", { redraw: "always" });
-  reopen(view, "messages", notice);
+  reopen(view, "messages", answer.notice);
+  return answer;
 }
 
 function resumeAt(view, message) {
@@ -283,7 +297,10 @@ async function askLanding(view, message) {
     const fork = options.find((option) => option.dataset.select === "fork");
     if (fork) select(fork);
   });
-  if (choice === "confirm") land(view.subject.id, message.id, chosen);
+  // Returned, so the guard on the door that opened this dialog catches
+  // a landing that fails — fired bare, it would reject with nobody
+  // attached and the reader would believe the head moved.
+  if (choice === "confirm") return land(view.subject.id, message.id, chosen);
 }
 
 // ---------- scenes: index, reading column, apparatus margin ----------
@@ -587,9 +604,13 @@ function inScenes(character) {
 async function saveField(view, tab, write) {
   /* WHICH row a correction addresses is the caller's; what is shared is
      what happens after. The answer is carried INTO the redraw, or the
-     screen rebuilding on the write puts its standing footnote over it. */
-  const { notice } = await write();
-  reopen(view, tab, notice);
+     screen rebuilding on the write puts its standing footnote over it —
+     and a REFUSAL skips the redraw entirely: the editor must stay open
+     with the reader's words, so the answer travels back instead
+     (`browser.editable` reads the flag and shows the sentence). */
+  const answer = await write();
+  if (!answer.refused) reopen(view, tab, answer.notice);
+  return answer;
 }
 
 function presentLine(view, present) {

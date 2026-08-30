@@ -31,7 +31,7 @@ class TestServing:
         # what the browser has. The fonts carry their version in the name.
         for asset in ("/", "/app.css", "/app.js", "/custom.css"):
             assert "no-store" in page.headers(asset)["cache-control"], asset
-        assert "immutable" in page.headers("/fonts/IBMPlexSans-400.woff2")["cache-control"]
+        assert "immutable" in page.headers("/fonts/IBMPlexSans-v3.201-400.woff2")["cache-control"]
 
     def test_a_missing_stylesheet_of_the_reader_s_own_is_an_empty_one(self, page: Page) -> None:
         # Absent is the normal case: a red line in the console is not a
@@ -176,6 +176,16 @@ class TestReading:
         assert page.status("/api/stories/abc") == 404
         assert page.status("/api/stories/null/export") == 404
         assert page.status("/api/stories/3/messages/null", method="PATCH") == 404
+
+    def test_a_subject_that_is_not_there_answers_404(self, page: Page) -> None:
+        # The path parses but names nothing — a story another tab
+        # deleted, a provider nothing is configured under. The spec
+        # draws no line between this and an unknown path, so neither
+        # does the wire: 404, never an empty dossier dressed as a story.
+        assert page.status("/api/stories/9999") == 404
+        assert page.status("/api/providers/nobody") == 404
+        # And a DELETE that removed nothing must not say it did.
+        assert page.status("/api/stories/9999", method="DELETE") == 404
 
 
 class TestPlaying:

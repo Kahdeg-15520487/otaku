@@ -394,7 +394,7 @@ paths:
               schema: { type: string, example: /api/stories/7 }
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Watched" }
+              schema: { $ref: "#/components/schemas/StoryMade" }
         "200":
           description: >
             No story was made, and the sentence says why — a document that
@@ -493,7 +493,12 @@ paths:
               schema: { type: string, example: /api/stories/8 }
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Notice" }
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Notice"
+                  - type: object
+                    properties:
+                      story: { type: integer, description: "The copy's id — the fact Location carries, as a field." }
         "200":
           description: Nothing was forked, and the sentence says why.
           content:
@@ -727,9 +732,9 @@ paths:
       summary: Give up on the pass the page forced
       description: |
         The door Ctrl+C opens in the terminal. Nothing half-done
-        commits; already-closed scenes stay. Nothing running answers
-        with a sentence saying so — an automatic pass is the worker's
-        own, and the page never started it.
+        commits; already-closed scenes stay. Nothing running refuses
+        with a sentence — an automatic pass is the worker's own, and
+        the page never started it.
       responses:
         default: { $ref: "#/components/responses/Failed" }
         "200": { $ref: "#/components/responses/Answered" }
@@ -785,7 +790,9 @@ paths:
       summary: Land a prepared card — everything after the persona ask
       description: |
         Completing the half-made card the POST returned. It joins the
-        OPEN story; a card is imported into the story being read.
+        OPEN story; a card is imported into the story being read. A
+        token nobody holds — expired, swept, or asked twice — refuses
+        with a sentence.
       requestBody:
         content:
           application/json:
@@ -798,7 +805,6 @@ paths:
         "200": { $ref: "#/components/responses/Answered" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "403": { $ref: "#/components/responses/CrossOrigin" }
-        "404": { description: No prepared card under that token — it expired. }
 
   # ---------- Models ----------
 
@@ -1386,10 +1392,14 @@ components:
           description: The turn's end.
           properties:
             type: { const: done }
+            stats:
+              type: string
+              description: 'The verbose stats line the terminal prints after a reply; "" unless /set verbose.'
 
     PreparedCard:
       type: object
       properties:
+        notice: { type: string, description: 'Every creation carries the field; this one has nothing to say, so "" — the card block is the answer.' }
         token: { type: string, description: "Hands the card back to PUT /api/cards/{token}." }
         card:
           type: object
@@ -1518,6 +1528,18 @@ components:
           type: string
           description: 'Those messages as "N-M"; "" when none are open.'
 
+    StoryMade:
+      allOf:
+        - $ref: "#/components/schemas/Watched"
+        - type: object
+          properties:
+            story:
+              type: integer
+              description: >
+                The id it made — so a page that needs a story to address
+                (a premise written before the first message) need not
+                take Location apart.
+
     StoryRow:
       type: object
       properties:
@@ -1601,6 +1623,7 @@ components:
       description: The refusal beside the scopes — the other tab is the way out.
       properties:
         notice: { type: string }
+        refused: { type: boolean }
         scopes: { $ref: "#/components/schemas/UsageScopes" }
 
     UsageScopes:

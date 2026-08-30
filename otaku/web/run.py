@@ -195,19 +195,12 @@ def serve(
     thread a signal handler can be installed from."""
     session.start_worker()
     runner = SessionRunner(session)
-    # The session's one thread is this frontend's too. Between frames a
-    # reply gives it back (the server's pump drains), and while a reply
-    # is only being WAITED for — the long silence before the first token
-    # above all — the backend hands it over here. Either way it spends
-    # the time answering reads, which is why a screen opens mid-reply.
-    session.set_on_idle(runner.drain)
     # What the background worker says while nobody asked it anything —
     # the idle extraction pass above all. The terminal pins its status
     # row and prints its sentences in the flow; the page has neither
     # until it asks, so the sentences wait in the mailbox and go out on
     # the heartbeat it is already making.
     sayings = _Sayings()
-    session.set_on_notice(sayings.put)
     try:
         server = bind(
             config,
@@ -238,13 +231,28 @@ def serve(
         raise ServeError(f"cannot serve at {config.host}:{config.port} — {e.strerror or e}") from e
     if stop is not None:
         server.stopping = stop
+    # The session's one thread is this frontend's too. Between frames a
+    # reply gives it back (the server's pump drains), and while a reply
+    # is only being WAITED for — the long silence before the first token
+    # above all — the backend hands it over here. Either way it spends
+    # the time answering reads, which is why a screen opens mid-reply.
+    #
+    # Both hooks are BORROWED, not taken: a session that came here from
+    # a chat (`/web`) goes back to it, and a chat whose notice sink was
+    # left pointing at this server's mailbox would never hear the worker
+    # again. The finally below puts both back.
+    was_idle = session.set_on_idle(runner.drain)
+    was_notice = session.set_on_notice(sayings.put)
     # Serving moves to a thread so that THIS one — the thread that opened
     # the session, and the only one its sqlite connection will answer —
     # stays free to run the work the handlers hand it.
-    # The signal handler is installed BEFORE the serving thread and
-    # inside the try, so no signal can land in a window where shutdown
-    # would be skipped. Only the main thread may install one at all; a
-    # caller serving from another has `stop` instead.
+    # The signal handler is installed before the serving thread starts,
+    # so no request can race a window where Ctrl+C still meant Python's
+    # default. Only the main thread may install one at all; a caller
+    # serving from another has `stop` instead. A SECOND Ctrl+C never
+    # reaches this code: the handler hands SIGINT back to the OS
+    # default, so the next press is fatal at the C level — by design
+    # (`_Server.stopping`), the way out of a wedged engine.
     on_main = threading.current_thread() is threading.main_thread()
     was = (
         signal.signal(signal.SIGINT, _interrupting(server.stopping, stopping)) if on_main else None
@@ -252,8 +260,6 @@ def serve(
     try:
         threading.Thread(target=server.serve_forever, daemon=True).start()
         runner.loop(server.stopping)
-    except KeyboardInterrupt:
-        pass  # the second one: asked twice, so stop now
     finally:
         if was is not None:
             signal.signal(signal.SIGINT, was)
@@ -262,6 +268,9 @@ def serve(
         # Whoever was waiting on the session's thread is told there is no
         # answer coming, rather than waiting for one forever.
         runner.abandon()
+        # The borrowed hooks go back to whoever held them before.
+        session.set_on_idle(was_idle)
+        session.set_on_notice(was_notice)
 
 
 class _Sayings:

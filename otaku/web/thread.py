@@ -95,6 +95,13 @@ class SessionRunner:
         job = _Work(work)
         (self._reads if reading else self._writes).put(job)
         self._arrived.set()
+        if self._closed:
+            # `abandon` may have swept the queues between the check above
+            # and the put: nothing will ever execute this job, so it is
+            # answered here rather than waited on forever. Both answering
+            # is harmless — same error, and `done` sets twice.
+            job.error = StoppingError()
+            job.done.set()
         job.done.wait()
         if job.error is not None:
             raise job.error

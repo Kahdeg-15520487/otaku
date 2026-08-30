@@ -53,6 +53,7 @@ __all__ = [
     "ROUTES",
     "Ask",
     "Created",
+    "NotFound",
     "Pending",
     "context",
     "event",
@@ -112,15 +113,12 @@ class Created:
     extra: Mapping[str, Any] = field(default_factory=dict)
 
 
-def _undo(session: Session) -> str:
-    """Take back the trailing exchange — the popped rows are the page's
-    cue to redraw, and the sentence says what happened. Nothing to take
-    is a refusal like every other, so the page reads the `refused` flag
-    the server marks them with and never the wording."""
-    popped = api_play.undo(session)
-    if not popped:
-        raise Refused("Nothing to undo.")
-    return f"Took back the last exchange ({len(popped)} messages)."
+class NotFound(Exception):  # noqa: N818 — a 404 is an expected answer, not an error
+    """The path parsed but the SUBJECT it names is not there — a story id
+    the database does not hold, a provider name nothing is configured
+    under. The server answers `404`, exactly as it does for a path that
+    never matched: the spec draws no line between the two, and a body
+    would say nothing the page could show."""
 
 
 # ---------- what the page reads ----------
@@ -224,12 +222,17 @@ def story(session: Session, story_id: int) -> dict[str, Any]:
     pass land between two of the asks and hand the page a torn story —
     scenes covering messages it was told nothing about."""
     listing = next((row for row in api_stories.listing(session) if row.id == story_id), None)
+    if listing is None:
+        # The store answers empties for an id it does not hold, and an
+        # empty dossier dressed as a story would be a lie — the spec's
+        # 404 is the truth (a browser row deleted from another tab).
+        raise NotFound(f"no story {story_id}")
     view = api_lore.view(session, story_id)
     return {
         "id": story_id,
-        "label": listing.label if listing else "",
-        "title": listing.title if listing else "",
-        "updated_at": listing.updated_at.isoformat() if listing else "",
+        "label": listing.label,
+        "title": listing.title,
+        "updated_at": listing.updated_at.isoformat(),
         "premise": api_stories.get_system(session, story_id),
         "messages": [_turn(message) for message in api_stories.messages_of(session, story_id)],
         # How far the extractor has read, and what is still open — the
@@ -324,6 +327,10 @@ def _providers(session: Session, scope: str = "") -> dict[str, Any]:
         asked = catalogs
     elif scope:
         asked = {scope} & everyone
+        if not asked:
+            # A name-scope that names nothing: the spec's 404, not an
+            # empty inventory pretending the provider exists.
+            raise NotFound(f"no provider {scope!r}")
     else:
         asked = everyone
     rows, reachable = api_providers.get_providers(session, skip=everyone - asked)
@@ -433,7 +440,9 @@ def _usage(session: Session, raw: str = "") -> dict[str, Any]:
     try:
         report = reports.usage(session, raw)
     except Refused as refusal:
-        return {"notice": str(refusal), "scopes": scopes}
+        # Marked the way every decline is, even beside its scopes: one
+        # refusal grammar, so the page reads a flag and never a wording.
+        return {"notice": str(refusal), "refused": True, "scopes": scopes}
     return {
         "scope": report.scope,
         "scopes": scopes,
@@ -515,6 +524,20 @@ def _export_document(session: Session, story_id: int | None = None) -> dict[str,
 # would be a door nobody can open.
 
 
+def _undo(session: Session) -> str:
+    """Take back the trailing exchange — the popped rows are the page's
+    cue to redraw, and the sentence says what happened. Nothing to take
+    is a refusal like every other, so the page reads the `refused` flag
+    the server marks them with and never the wording — which is COPIED:
+    the terminal refuses with the same "Nothing to undo."
+    (`chat.bindings`, its home), and the backend hands back only the
+    rows."""
+    popped = api_play.undo(session)
+    if not popped:
+        raise Refused("Nothing to undo.")
+    return f"Took back the last exchange ({len(popped)} messages)."
+
+
 def _head(session: Session, ask: Ask) -> str:
     """Where the session is reading. `discard` sets the later turns
     aside; without it they stay in the database above the tail."""
@@ -534,7 +557,12 @@ def _title(session: Session, ask: Ask) -> str:
 
 
 def _delete_story(session: Session, ask: Ask) -> str:
-    api_stories.delete(session, ask.id("story"))
+    story_id = ask.id("story")
+    if all(row.id != story_id for row in api_stories.listing(session)):
+        # A DELETE that removed nothing must not say it did: the row is
+        # already gone (another tab's delete), and the spec's 404 says so.
+        raise NotFound(f"no story {story_id}")
+    api_stories.delete(session, story_id)
     return "Story deleted."
 
 
@@ -584,16 +612,30 @@ def _edit_lore(session: Session, ask: Ask, target: str, kinds: dict[str, FieldKi
     """One corrected row of the memory. The PATH says which row — the
     story, then a scene, a character, or a journal record — and the body
     says which of its fields; `api_lore.edit` takes all three as one
-    address and CHECKS the row is that story's."""
-    said = ""
+    address and CHECKS the row is that story's.
+
+    Fields are applied in order and each answers for itself: a body
+    carrying two (the page sends one, the spec allows more) must not
+    let a later refusal claim nothing was saved when an earlier field
+    was — so a mixed outcome says both, and only an outcome with no
+    save at all is a refusal."""
+    said: list[str] = []
+    refused: list[str] = []
     for name, kind in kinds.items():
         if name in ask.body:
-            said = api_lore.edit(
-                session, kind, ask.id(target), str(ask.body[name]), ask.id("story")
-            )
+            try:
+                # `need`, not a bare str(): a null title would be stored
+                # as the literal word "None" (`Ask.need`).
+                said.append(
+                    api_lore.edit(session, kind, ask.id(target), ask.need(name), ask.id("story"))
+                )
+            except Refused as refusal:
+                refused.append(str(refusal))
+    if not said and refused:
+        raise Refused(" ".join(refused))
     if not said:
         raise Refused(f"Nothing to change — send one of {', '.join(kinds)}.")
-    return said
+    return " ".join(said + refused)
 
 
 def _merge(session: Session, ask: Ask) -> str:
@@ -619,8 +661,10 @@ def _save_provider(session: Session, ask: Ask) -> str:
     said = ""
     for attr in ("url", "api_key"):
         if attr in ask.body:
+            # `need`, not a bare str(): a null here would write the
+            # literal url "None" into providers.toml (`Ask.need`).
             warning = api_providers.save_field(
-                session, ask.params["provider"], attr, str(ask.body[attr])
+                session, ask.params["provider"], attr, ask.need(attr)
             )
             said = warning or f"Saved {attr.replace('_', ' ')} for {ask.params['provider']}."
     if not said:
@@ -629,8 +673,9 @@ def _save_provider(session: Session, ask: Ask) -> str:
 
 
 def _set_knob(session: Session, ask: Ask) -> str:
-    """One session-wide knob. The value crosses as the reader gave it and
-    each setter parses its own: the shapes are the backend's, so the page
+    """One session-wide knob. The value crosses as given — JSON's one
+    boolean spelling translated back into the command words — and each
+    setter parses its own: the shapes are the backend's, so the page
     never learns what `think` accepts."""
     setter = _KNOBS.get(ask.params["setting"])
     if setter is None:
@@ -682,18 +727,22 @@ class Pending:
     the state a terminal keeps on its call stack, forced off it here
     because a request ends before the question it opened is answered.
 
-    Two things span requests by design: the extraction pass the page
-    polls, and cards read and vetted, waiting on their persona answer —
-    keyed, because two tabs preparing at once must not swap each other's:
-    the answer would bind the wrong character to the wrong persona.
+    Two things span requests by design: the extraction passes the page
+    polls — keyed by STORY, because an import can start a pass while a
+    forced one still runs, and a single slot would deliver one story's
+    report as another's — and cards read and vetted, waiting on their
+    persona answer, keyed because two tabs preparing at once must not
+    swap each other's: the answer would bind the wrong character to the
+    wrong persona.
 
     Touched on the session's one thread (every flow runs there), with
     one exception: `extraction` is also READ from a handler thread by
-    the poll, which is safe because rebinding an attribute is atomic and
-    a run's `poll` is channel-safe by contract."""
+    the poll, which is safe because a dict get against a dict set is
+    atomic under the GIL and a run's `poll` is channel-safe by
+    contract."""
 
     def __init__(self) -> None:
-        self.extraction: WorkerRun | None = None
+        self.extraction: dict[int, WorkerRun] = {}
         self._cards: dict[str, tuple[PreparedCard, float]] = {}
 
     def hold_card(self, prepared: PreparedCard) -> str:
@@ -735,7 +784,11 @@ def _new_story(session: Session, ask: Ask, pending: Pending) -> Created:
         # without reading `Location` back apart.
         return Created(said, _at(session), {"story": session.story_id})
     landed = api_transfer.import_file(session, str(document["text"]), str(document["name"]))
-    pending.extraction = landed.extraction
+    # Only an import that STARTED a pass takes a slot — and its own
+    # story's slot, so a forced pass the page is polling on another
+    # story keeps its run and its report.
+    if landed.extraction is not None and session.story_id is not None:
+        pending.extraction[session.story_id] = landed.extraction
     return Created(
         " ".join(landed.notices),
         _at(session),
@@ -775,24 +828,25 @@ def _prepare_card(session: Session, ask: Ask, pending: Pending) -> Created:
 
 
 def _add_card(session: Session, ask: Ask, pending: Pending) -> dict[str, Any]:
-    """Everything after it. Nothing waiting is not an error: a page that
-    asked twice, or a reload between the two halves."""
+    """Everything after it. Nothing waiting — a page that asked twice, or
+    a reload between the two halves — is an expected decline, and refuses
+    the way every other one does."""
     prepared = pending.take_card(ask.params["token"])
     if prepared is None:
-        return {"notice": "No card is waiting."}
+        raise Refused("No card is waiting.")
     return {"notice": api_cards.add(session, prepared, ask.need("persona")).report}
 
 
 def _stop_extract(session: Session, ask: Ask, pending: Pending) -> dict[str, Any]:
     """Give up on the pass the page forced — the door Ctrl+C opens in
     the terminal, which is the only other way to leave one. Nothing
-    half-done commits; already-closed scenes stay. Nothing running is
-    not an error: a pass can finish between the reader asking and this
-    arriving, and an automatic pass is the worker's own — the page
-    never started it and cannot end it."""
-    running = pending.extraction
+    half-done commits; already-closed scenes stay. Nothing running is an
+    expected decline, refused like every other: a pass can finish
+    between the reader asking and this arriving, and an automatic pass
+    is the worker's own — the page never started it and cannot end it."""
+    running = pending.extraction.get(ask.id("story"))
     if running is None or running.poll() is not None:
-        return {"notice": "No pass is running."}
+        raise Refused("No pass is running.")
     return {"notice": running.cancel()}
 
 
@@ -801,9 +855,11 @@ def _start_extract(session: Session, ask: Ask, pending: Pending) -> dict[str, An
     ask for its report without ever holding the session's one thread. A
     second pass would overwrite the run the page is polling, and the
     first one's report would never be read."""
-    if pending.extraction is not None and pending.extraction.poll() is None:
+    story = ask.id("story")
+    running = pending.extraction.get(story)
+    if running is not None and running.poll() is None:
         return {"notice": "A pass is already running.", "watching": True}
-    pending.extraction = api_lore.extract(session)
+    pending.extraction[story] = api_lore.extract(session)
     return {"notice": "Extracting lore from the recent messages…", "watching": True}
 
 

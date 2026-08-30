@@ -101,7 +101,17 @@ class WorkerRun:
         return self._failed
 
     def cancel(self) -> str:
-        """Abort mid-stream; nothing half-done commits. The notice."""
+        """Abort mid-stream; nothing half-done commits. The notice.
+
+        Guarded on this run's own end first: `_worker.cancel()` aborts
+        whatever the worker is running NOW, and a pass that finished
+        between the caller's poll and this call may have handed the
+        worker something else — an automatic pass the caller never
+        started. A finished run answers with its report instead. The
+        guard narrows that race to a moment; closing it entirely would
+        take cancel-by-identity in the worker."""
+        if self._done.is_set():
+            return self._report or "The pass already finished."
         self._session._worker.cancel()
         return "Cancelled — nothing half-done commits; already-closed scenes stay."
 

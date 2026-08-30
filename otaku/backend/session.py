@@ -321,22 +321,33 @@ class Session:
         """The status repaint hook (thread-safe on the caller's side)."""
         self._worker.on_status = repaint
 
-    def set_on_idle(self, tick: Callable[[], None]) -> None:
+    def set_on_idle(self, tick: Callable[[], None] | None) -> Callable[[], None] | None:
         """What to do with this thread while a reply is being waited on.
         Called on the session's OWN thread, many times a second, from
         the moment a request goes out until the last token — a frontend
         that shares that thread (the web serves its reads on it) uses
         this to stay answerable while the model talks. Whatever it
-        raises is swallowed: a hook may not break a reply."""
-        self._on_idle = tick
+        raises is swallowed: a hook may not break a reply.
 
-    def set_on_notice(self, say: Callable[[str], None]) -> None:
+        Returns the hook it replaces, so a frontend borrowing the
+        session for a while (`/web`) can put the owner's back."""
+        previous = self._on_idle
+        self._on_idle = tick
+        return previous
+
+    def set_on_notice(self, say: Callable[[str], None] | None) -> Callable[[str], None] | None:
         """Where a notice goes from now on. The launch's own reports are
         collected in `notices` because nothing can print yet; everything
         after — a story deleted under the session, a saved parameter the
         model's vocabulary rejects — is said when it happens, so the
-        frontend attaches this once it owns the screen."""
+        frontend attaches this once it owns the screen.
+
+        Returns the sink it replaces, so a frontend borrowing the
+        session for a while (`/web`) can put the owner's back — a chat
+        that lost its sink here would never hear the worker again."""
+        previous = self._notify
         self._notify = say
+        return previous
 
     def _note(self, text: str) -> None:
         """Tell the user something the session had to decide on its own.

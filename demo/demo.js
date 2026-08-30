@@ -96,8 +96,8 @@ const ROUTES = {
   "POST /api/stories/{story}/extraction": () => startExtract(),
   "DELETE /api/stories/{story}/extraction": () => stopExtract(),
   // Cards
-  "POST /api/cards": () => ({ notice: `Card import is not in the demo — ${store.INSTALL}.` }),
-  "PUT /api/cards/{token}": () => ({ notice: "No card is waiting." }),
+  "POST /api/cards": () => ({ notice: `Card import is not in the demo — ${store.INSTALL}.`, refused: true }),
+  "PUT /api/cards/{token}": () => ({ notice: "No card is waiting.", refused: true }),
   // Models
   "GET /api/providers": (p, q) => store.providers(q.get("scope") ?? ""),
   "GET /api/providers/{provider}": (p) => store.providers(p.provider),
@@ -173,8 +173,8 @@ function startExtract() {
 
 function stopExtract() {
   // The page's door to what Ctrl+C does in the terminal: nothing
-  // half-done commits, and nothing running is an answer of its own.
-  if (!extraction || extraction.report !== null) return { notice: "No pass is running." };
+  // half-done commits, and nothing running refuses like every decline.
+  if (!extraction || extraction.report !== null) return { notice: "No pass is running.", refused: true };
   extraction.report = "Cancelled — nothing half-done commits; already-closed scenes stay.";
   store.setStatus("");
   return { notice: extraction.report };

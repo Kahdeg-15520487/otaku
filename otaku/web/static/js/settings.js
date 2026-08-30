@@ -2,8 +2,9 @@
    each knob stands at on the right, and under it the other values it
    could take. There is no control here that is not one of those words:
    clicking a word sets it, which is exactly what typing the command
-   does, because the click POSTS the command line and redraws from its
-   answer. The slip and the typed form can never disagree.
+   does, because the click puts the same value through the same setter
+   and redraws from its answer. The slip and the typed form can never
+   disagree.
 
    Two blocks, because where a value persists is a real distinction: the
    session's own toggles, and the parameters kept per model. */
@@ -185,15 +186,21 @@ function knobKeys(popup) {
 
 async function setKnob(name, value) {
   /* One knob, put. The slip is rebuilt from the answer rather than
-     patched: a setter may refuse, or settle on a value the reader did
-     not type, and the read is the only thing that knows. */
-  const { notice } = await api.setSetting(name, value);
-  openSettings(notice);
+     patched: a setter may settle on a value the reader did not type,
+     and the read is the only thing that knows. A REFUSAL skips the
+     rebuild — a typed knob's editor must stay open with the words
+     still in it (`browser.editable` reads the flag) — and the rebuild
+     is awaited, so the guard on the click catches a redraw that fails
+     rather than leaving a stale slip with nobody told. */
+  const answer = await api.setSetting(name, value);
+  if (!answer.refused) await openSettings(answer.notice);
+  return answer;
 }
 
 async function setParameter(name, value) {
   // An emptied field is the model's own default, which is an absence and
-  // has its own door.
-  const { notice } = value ? await api.setParameter(name, value) : await api.resetParameter(name);
-  openSettings(notice);
+  // has its own door. Refusals and the redraw as `setKnob` has them.
+  const answer = value ? await api.setParameter(name, value) : await api.resetParameter(name);
+  if (!answer.refused) await openSettings(answer.notice);
+  return answer;
 }

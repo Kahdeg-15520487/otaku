@@ -29,7 +29,9 @@ const _MENU = {
   "/you": ["Take a turn", "speak to someone present"],
   "/ooc": ["Speak to the narrator", "a note, never played"],
   "/cue": ["Speak to the narrator", "steer the next reply"],
-  "/roll": ["Roll the dice", "otaku rolls; the model narrates"],
+  // the caption matches the shared table's group label for /roll
+  // (`commands.GROUP_LABELS["special"]`), so the two menus file it alike
+  "/roll": ["Special", "roll real dice; the model narrates"],
 };
 
 /** The word itself, without the `… ` the table marks an inliner with: the
@@ -50,8 +52,6 @@ let picked = 0;
 const history = [];
 let at = null;
 
-/** The store's recent lines, most recent first — called at every boot,
-    because a restarted otaku may have played elsewhere since. */
 /** Put the caret back in the box. The page's resting state is a reader
     about to write, so every screen that closes hands the keys back to
     it — and a disabled box (otaku gone) is left alone. */
@@ -59,6 +59,8 @@ export function focusComposer() {
   if (!composer.disabled) composer.focus();
 }
 
+/** The store's recent lines, most recent first — called at every boot,
+    because a restarted otaku may have played elsewhere since. */
 export function primeHistory(lines) {
   history.length = 0;
   history.push(...[...lines].reverse());
@@ -242,7 +244,9 @@ function paintMenu() {
   const rows = [];
   let heading = null;
   offered.forEach((spec, i) => {
-    const [group, means] = _MENU[_bare(spec.token)] ?? [null, spec.description];
+    // Every token has a row in `_MENU` — held by the architecture test,
+    // so a new framing word fails the suite instead of a blank caption.
+    const [group, means] = _MENU[_bare(spec.token)] ?? [null, ""];
     // A caption between the rows, wherever the half of the language changes.
     // It is not a row: the cursor walks `.otk-prefix` alone.
     if (group && group !== heading) {

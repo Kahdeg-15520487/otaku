@@ -1,8 +1,10 @@
 /* =============================================================================
    otaku — app.css
-   Every value the interface uses is a token declared in :root below. Nothing in
-   the component layer hard-codes a colour, a face, a size or a length, so a
-   theme is a list of custom-property overrides and nothing else.
+   Every colour and every typeface the interface uses is a token declared in
+   :root below, and so is every size on the documented scale — a theme is a
+   list of custom-property overrides and nothing else. What the contract does
+   NOT list — title cuts, the tabs, tracking, one-off lengths — is the
+   design's own, literal on purpose, and no theme's business.
    Load order:  app.css  →  custom.css   (custom.css is the reader's, and wins)
    The token contract is docs/web_tokens.md.
    ========================================================================== */
@@ -21,12 +23,12 @@
 @font-face { font-family: 'Literata'; font-style: normal; font-weight: 400 600; font-display: swap; size-adjust: 92%; src: url('fonts/Literata-v40-cyrillic-ext.woff2') format('woff2'); unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F; }
 @font-face { font-family: 'Literata'; font-style: italic; font-weight: 400 600; font-display: swap; size-adjust: 92%; src: url('fonts/Literata-v40-italic-cyrillic.woff2') format('woff2'); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
 @font-face { font-family: 'Literata'; font-style: italic; font-weight: 400 600; font-display: swap; size-adjust: 92%; src: url('fonts/Literata-v40-italic-cyrillic-ext.woff2') format('woff2'); unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F; }
-@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 400; font-display: swap; src: url('fonts/IBMPlexSans-400.woff2') format('woff2'); }
-@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 500; font-display: swap; src: url('fonts/IBMPlexSans-500.woff2') format('woff2'); }
-@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 600; font-display: swap; src: url('fonts/IBMPlexSans-600.woff2') format('woff2'); }
-@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url('fonts/IBMPlexMono-400.woff2') format('woff2'); }
-@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 500; font-display: swap; src: url('fonts/IBMPlexMono-500.woff2') format('woff2'); }
-@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 600; font-display: swap; src: url('fonts/IBMPlexMono-600.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 400; font-display: swap; src: url('fonts/IBMPlexSans-v3.201-400.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 500; font-display: swap; src: url('fonts/IBMPlexSans-v3.201-500.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 600; font-display: swap; src: url('fonts/IBMPlexSans-v3.201-600.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url('fonts/IBMPlexMono-v2.3-400.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 500; font-display: swap; src: url('fonts/IBMPlexMono-v2.3-500.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 600; font-display: swap; src: url('fonts/IBMPlexMono-v2.3-600.woff2') format('woff2'); }
 
 /* =============================================================================
    TOKENS — the public contract. Override any of these in custom.css.
@@ -70,13 +72,15 @@
   --otk-font-mono:    'IBM Plex Mono', ui-monospace, monospace;
 
   /* -- type scale --------------------------------------------------------- */
+  --otk-size-display: 31px;  /* a reading column's own title                */
   --otk-size-title:   26px;  /* panel subject, display face, 800            */
   --otk-size-head:    19px;  /* group head, display face, 800               */
   --otk-size-page:    19px;  /* the story, prose face                       */
+  --otk-size-lead:    18px;  /* panel ledes, margin prose, the composer     */
   --otk-size-read:    17px;  /* long prose in a panel                       */
   --otk-size-row:     17px;  /* a list row, prose face                      */
   --otk-size-note:    16px;  /* notes and captions, prose face              */
-  --otk-size-ui:      14px;  /* every button and tab, display face          */
+  --otk-size-ui:      14px;  /* every button, display face                  */
   --otk-size-mono:    14px;  /* fields, filters, model names                */
   --otk-size-mono-sm: 13px;  /* facts, urls                                 */
   --otk-size-small:   12px;  /* counts                                      */
@@ -111,11 +115,12 @@
   --otk-rail-w:      250px;
   --otk-page-max:    820px;
 
-  /* -- panel ladder ------------------------------------------------------- */
+  /* -- scrollbars --------------------------------------------------------- */
   --otk-scrollbar-w:  10px;    /* the app styles its own scrollbars        */
   --otk-scrollbar-thumb: oklch(0.60 0.011 165);  /* ink-family: it reads as drawn */
   --otk-scrollbar-track: oklch(0.945 0.006 165); /* the channel it runs in   */
-  --otk-size-display: 31px;    /* a reading column's own title            */
+
+  /* -- panel ladder ------------------------------------------------------- */
   --otk-col-lamp:     10px;    /* the resident/answering lamp gutter      */
   --otk-col-size:     66px;    /* a model's size column                   */
   --otk-col-count:    46px;    /* a count column                          */
@@ -436,12 +441,12 @@ textarea.otk-editable { margin: 0; padding: 0; border: 0; }
 .otk-rail { display: flex; flex-direction: column; padding: 30px 0 22px; overflow: hidden; }
 .otk-rail__head { display: flex; flex-direction: column; gap: 8px; padding: 0 30px 22px; }
 .otk-rail__head::after { content: ""; height: var(--otk-hair); background: var(--otk-line); }
-.otk-toc { flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 0 30px; overflow-y: auto; }
-.otk-toc__row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; width: 100%; padding: 5px 0; font-family: var(--otk-font-prose); font-size: var(--otk-size-note); color: var(--otk-muted); }
+.otk-toc { flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 0 30px; overflow-y: auto; counter-reset: otk-folio; }
+.otk-toc__row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; width: 100%; padding: 5px 0; font-family: var(--otk-font-prose); font-size: var(--otk-size-note); color: var(--otk-muted); counter-increment: otk-folio; }
 .otk-toc__row:hover:not(:disabled) { color: var(--otk-ink); }
-.otk-toc__row[aria-current="true"], .otk-toc__row--lead { color: var(--otk-ink); font-weight: 600; }
-.otk-toc__folio { font-family: var(--otk-font-mono); font-size: var(--otk-size-foot); color: var(--otk-faint); }
-.otk-toc__row[aria-current="true"] .otk-toc__folio { color: var(--otk-accent); }
+.otk-toc__row--lead { color: var(--otk-ink); font-weight: 600; }
+/* the folio is counted, not typed, so a new row never renumbers the rest */
+.otk-toc__row::after { content: counter(otk-folio, lower-roman); font-family: var(--otk-font-mono); font-size: var(--otk-size-foot); color: var(--otk-faint); }
 .otk-toc__gap { flex: none; min-height: 14px; }
 .otk-rail__foot { flex: none; display: flex; flex-direction: column; gap: 3px; margin: 0 30px; padding-top: 14px; border-top: var(--otk-hair) solid var(--otk-line); font-family: var(--otk-font-mono); font-size: var(--otk-size-small); color: var(--otk-muted); }
 .otk-rail__model { letter-spacing: 0.08em; text-transform: uppercase; color: var(--otk-accent-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -484,6 +489,9 @@ textarea.otk-editable { margin: 0; padding: 0; border: 0; }
 .otk-turn__rubric { font-family: var(--otk-font-mono); font-size: var(--otk-size-tag); letter-spacing: 0.26em; text-transform: uppercase; color: var(--otk-accent); }
 .otk-turn__body { margin: 0; max-width: 430px; text-align: center; font-family: var(--otk-font-prose); font-size: var(--otk-size-page); font-style: italic; font-weight: 500; line-height: 1.6; color: var(--otk-ink); overflow-wrap: anywhere; }
 .otk-slash { font-family: var(--otk-font-mono); font-size: 0.82em; font-style: normal; color: var(--otk-accent-ink); }
+/* the record's own dim line — the dice a /roll rolled: the stats line's
+   family, centred because the turn is */
+.otk-turn__note { margin: 0; font-family: var(--otk-font-mono); font-size: var(--otk-size-mono-sm); color: var(--otk-faint); font-variant-numeric: tabular-nums; }
 
 /* =============================================================================
    GENERATING, AND THE OTHER TWO KINDS OF LINE
@@ -563,7 +571,6 @@ textarea.otk-editable { margin: 0; padding: 0; border: 0; }
   letter-spacing: var(--otk-track-label); text-transform: uppercase; color: var(--otk-danger);
 }
 .otk-error__body { margin: 0; font-family: var(--otk-font-prose); font-size: var(--otk-size-read); line-height: 1.55; color: var(--otk-body); }
-.otk-error__detail { margin: 0; font-family: var(--otk-font-mono); font-size: var(--otk-size-mono-sm); color: var(--otk-faint); overflow-wrap: anywhere; }
 .otk-error__actions { display: flex; gap: 8px; padding-top: 4px; }
 
 /* the space the flow holds open so the page does not move under the reader */
@@ -604,7 +611,7 @@ textarea.otk-editable { margin: 0; padding: 0; border: 0; }
 .otk-composer__input textarea {
   flex: 1 1 auto; min-width: 0; min-height: 30px; max-height: 180px;
   field-sizing: content; resize: none; border: 0; outline: none; background: none;
-  font-family: var(--otk-font-prose); font-size: 18px; line-height: var(--otk-leading-row); color: var(--otk-ink);
+  font-family: var(--otk-font-prose); font-size: var(--otk-size-lead); line-height: var(--otk-leading-row); color: var(--otk-ink);
   overflow-y: auto;
 }
 .otk-composer__input textarea::placeholder { color: var(--otk-faint); }
@@ -685,9 +692,6 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
 .otk-group__name { font-family: var(--otk-font-display); font-size: var(--otk-size-head); font-weight: 800; letter-spacing: -0.02em; color: var(--otk-ink); }
 .otk-group__count { margin-left: auto; font-family: var(--otk-font-mono); font-size: var(--otk-size-small); color: var(--otk-faint); }
 .otk-group + .otk-rule { height: var(--otk-hair); background: var(--otk-ink); margin: 0 var(--otk-panel-pad) 7px; }
-.otk-maker { display: flex; align-items: baseline; gap: 9px; padding: 8px var(--otk-panel-pad) 3px 40px; }
-.otk-maker--flush { padding-left: var(--otk-panel-pad); }
-.otk-maker::after { content: ""; flex: 1; height: var(--otk-hair); background: var(--otk-line-soft); }
 
 /* A row: selection is an accent rule plus a tint, never colour alone. Its
    height is DECLARED — every cell states the same line-height and the row a
@@ -710,8 +714,6 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
 .otk-row__num--size  { width: var(--otk-col-size); }
 .otk-row__num--count { width: var(--otk-col-count); }
 .otk-row__num--ago   { width: var(--otk-col-ago); }
-.otk-row__num--ctx   { width: var(--otk-col-count); }
-.otk-row__more { padding: 3px var(--otk-panel-pad) 10px 40px; font-family: var(--otk-font-mono); font-size: var(--otk-size-small); color: var(--otk-faint); }
 
 /* the index rail of a story: scenes, or cast */
 .otk-index { flex: 0 0 236px; min-width: 150px; min-height: 0; overflow: hidden; display: flex; flex-direction: column; padding: 14px 0; background: var(--otk-band); border-right: var(--otk-hair) solid var(--otk-line); }
@@ -730,17 +732,15 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
 .otk-extract__line { display: flex; align-items: center; gap: 8px; }
 .otk-extract__state { font-family: var(--otk-font-mono); font-size: var(--otk-size-label); letter-spacing: 0.06em; color: var(--otk-muted); }
 .otk-extract .otk-btn { align-self: stretch; justify-content: center; }
-.otk-extract__bar { width: 74px; height: 5px; background: var(--otk-well); border: var(--otk-hair) solid var(--otk-line-soft); }
-.otk-extract__fill { display: block; height: 100%; background: var(--otk-accent); animation: otk-creep 1.4s linear infinite; background-image: repeating-linear-gradient(90deg, var(--otk-accent) 0 6px, var(--otk-accent-tint) 6px 22px); }
 
 /* the reading column, and the apparatus margin beside it */
 .otk-reading { flex: 1 1 0%; min-width: 300px; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; padding: 20px 30px; }
 .otk-reading__title { margin: 10px 0 14px; font-family: var(--otk-font-display); font-size: 29px; font-weight: 800; letter-spacing: -0.025em; line-height: 1.1; color: var(--otk-ink); }
 .otk-reading__title--lg { font-size: var(--otk-size-display); }
-.otk-reading__lede { margin: 0 0 4px; font-family: var(--otk-font-prose); font-size: 18px; line-height: 1.68; color: var(--otk-body); border-bottom: var(--otk-hair) dotted var(--otk-line); padding-bottom: 8px; text-wrap: pretty; }
+.otk-reading__lede { margin: 0 0 4px; font-family: var(--otk-font-prose); font-size: var(--otk-size-lead); line-height: 1.68; color: var(--otk-body); border-bottom: var(--otk-hair) dotted var(--otk-line); padding-bottom: 8px; text-wrap: pretty; }
 .otk-passages { display: flex; flex-direction: column; gap: 20px; border-top: var(--otk-hair) solid var(--otk-line); padding-top: 14px; }
 .otk-passage { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: var(--otk-measure); }
-.otk-passage .otk-note { font-size: 18px; line-height: 1.6; }
+.otk-passage .otk-note { font-size: var(--otk-size-lead); line-height: 1.6; }
 .otk-passage__rubric { font-family: var(--otk-font-mono); font-size: var(--otk-size-label); letter-spacing: var(--otk-track-tag); text-transform: uppercase; color: var(--otk-accent-ink); }
 .otk-passage__body { margin: 0; font-family: var(--otk-font-prose); font-size: var(--otk-size-read); line-height: 1.66; color: var(--otk-body); overflow-wrap: anywhere; }
 .otk-margin { flex: 0 1 var(--otk-reader-w); min-width: 180px; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 20px 18px; border-left: var(--otk-hair) solid var(--otk-line); }
@@ -748,7 +748,7 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
 /* Some values are paragraphs (one wraps, and `present` carries a button per
    name), so the class owns its box: left alone, the UA's `1em 0` stands every
    fact a whole line off its key. */
-.otk-margin__value { margin: 0; font-family: var(--otk-font-prose); font-size: 18px; line-height: 1.5; color: var(--otk-body); }
+.otk-margin__value { margin: 0; font-family: var(--otk-font-prose); font-size: var(--otk-size-lead); line-height: 1.5; color: var(--otk-body); }
 .otk-margin__value--mono { font-family: var(--otk-font-mono); font-size: var(--otk-size-mono); }
 .otk-margin__key { font-family: var(--otk-font-mono); font-size: var(--otk-size-label); letter-spacing: 0.1em; text-transform: uppercase; color: var(--otk-faint); }
 .otk-margin__block { padding-top: 10px; border-top: var(--otk-hair) solid var(--otk-line-soft); }
@@ -788,7 +788,7 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
   flex: 1; min-height: 0; width: 100%; resize: none;
   border: 0; border-top: var(--otk-hair) solid var(--otk-line); border-radius: 0;
   outline: none; background: none; padding: 18px 0 0;
-  font-family: var(--otk-font-prose); font-size: 18px; line-height: 1.74; color: var(--otk-ink);
+  font-family: var(--otk-font-prose); font-size: var(--otk-size-lead); line-height: 1.74; color: var(--otk-ink);
 }
 
 /* context: the request as a document, its stages as live figures */
@@ -855,7 +855,7 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
 .otk-choice__name { font-family: var(--otk-font-display); font-size: var(--otk-size-note); font-weight: 600; color: var(--otk-ink); }
 .otk-choice__desc { font-family: var(--otk-font-prose); font-size: var(--otk-size-note); color: var(--otk-muted); }
 .otk-dropzone { display: flex; flex-direction: column; align-items: center; gap: 7px; text-align: center; padding: 34px 20px; background: var(--otk-well); border: var(--otk-hair) dashed var(--otk-line); cursor: pointer; }
-.otk-dropzone__label { font-family: var(--otk-font-prose); font-size: 18px; color: var(--otk-body); }
+.otk-dropzone__label { font-family: var(--otk-font-prose); font-size: var(--otk-size-lead); color: var(--otk-body); }
 .otk-dropzone__file { font-family: var(--otk-font-mono); font-size: var(--otk-size-mono); color: var(--otk-ink); overflow-wrap: anywhere; }
 .otk-dropzone.is-dragover { border-color: var(--otk-accent); background: var(--otk-accent-tint); }
 .otk-dropzone.is-filled { border-style: solid; }
@@ -878,11 +878,9 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
 .otk-v--lg { gap: 14px; }
 
 /* ink and emphasis */
-.otk-muted { color: var(--otk-muted); }
 .otk-faint { color: var(--otk-faint); }
 .otk-accent-ink { color: var(--otk-accent-ink); }
 .otk-label--accent { color: var(--otk-accent-ink); }
-.otk-on { color: var(--otk-ink); font-weight: 500; }
 .otk-code { font-family: var(--otk-font-mono); font-style: normal; }
 .otk-hr { height: var(--otk-hair); background: var(--otk-line); }
 .otk-push { margin-left: auto; }
@@ -912,13 +910,10 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
 
 /* prose variants */
 .otk-prose--read { font-size: var(--otk-size-read); line-height: var(--otk-leading-read); }
-.otk-prose--lead { font-size: 18px; line-height: 1.55; color: var(--otk-ink); }
-.otk-prose--margin { font-size: 18px; line-height: 1.6; }
-.otk-prose--premise { font-size: 18px; line-height: 1.74; color: var(--otk-ink); }
+.otk-prose--lead { font-size: var(--otk-size-lead); line-height: 1.55; color: var(--otk-ink); }
+.otk-prose--margin { font-size: var(--otk-size-lead); line-height: 1.6; }
 .otk-prose--wire { max-width: none; white-space: pre-wrap; }
 .otk-prose--said { max-width: none; font-style: italic; color: var(--otk-ink); white-space: pre-wrap; }
-.otk-note--list { margin: 10px 0 4px 14px; }
-.otk-note--tail { margin-top: 10px; }
 .otk-note--push { margin-top: auto; }
 .otk-meta { font-family: var(--otk-font-mono); font-size: var(--otk-size-mono-sm); color: var(--otk-muted); }
 .otk-stack { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
@@ -932,28 +927,23 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
 .otk-col--messages .otk-col__pinned { padding: 11px 0 0; margin-left: 14px; border-top: 0; }
 
 /* =============================================================================
-   FIELDS AND EMPTY STATES — the editors a click opens, and what a list says
-   when it holds nothing.
+   FIELD ROWS AND EMPTY STATES — a name against its value, and what a list
+   says when it holds nothing.
    ========================================================================== */
 
-/* a name and its value, the row itself the control that opens it */
+/* a name and its value on one grid row: the message detail's derived
+   rows, and the card dialog's fields */
 .otk-field-row { display: grid; grid-template-columns: 148px minmax(0, 1fr); gap: 12px; align-items: baseline; width: 100%; padding: 6px 0; border-bottom: var(--otk-hair) solid var(--otk-line-soft); }
 .otk-field-row:last-child { border-bottom: 0; }
-.otk-field-row__name { font-family: var(--otk-font-mono); font-size: var(--otk-size-label); letter-spacing: 0.1em; text-transform: uppercase; color: var(--otk-faint); }
-.otk-field-row__value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--otk-font-prose); font-size: var(--otk-size-note); color: var(--otk-body); }
-button.otk-field-row[data-editable]:hover .otk-field-row__value { color: var(--otk-ink); }
-.otk-field-row.is-dim .otk-field-row__value { font-style: italic; color: var(--otk-muted); }
-.otk-field-row.is-editing { border-bottom: 0; }
 .otk-field-row--card { grid-template-columns: 104px minmax(0, 1fr); gap: 12px 14px; align-items: stretch; border-bottom: 0; }
 .otk-field-row--card > .otk-label { display: flex; align-items: center; }
-.otk-fields { display: flex; flex-direction: column; }
 /* in the apparatus margin the row is too narrow for two columns: the key
    stacks over its value, the way the margin's own facts stack */
 .otk-margin .otk-field-row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 
 /* an empty list says what it would hold, and how to reach it */
 .otk-empty { display: flex; flex-direction: column; align-items: center; gap: 7px; text-align: center; padding: 44px 30px; }
-.otk-empty__line { font-family: var(--otk-font-prose); font-size: 18px; color: var(--otk-muted); }
+.otk-empty__line { font-family: var(--otk-font-prose); font-size: var(--otk-size-lead); color: var(--otk-muted); }
 .otk-empty__hint { font-family: var(--otk-font-mono); font-size: var(--otk-size-mono-sm); letter-spacing: 0.04em; color: var(--otk-faint); }
 
 /* =============================================================================

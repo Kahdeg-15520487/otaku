@@ -4,10 +4,10 @@
 
    A screen fetches what it shows as it opens: a popup drawing
    yesterday's numbers is worse than none. Every write goes out through
-   `api.act` and comes back through `landed`, so no screen decides what
-   a sentence means or when the flow is redrawn. Its ask dialogs are
-   filled here — what an action does to the story on screen is this
-   screen's to say. */
+   its endpoint in `api.js` and comes back through `landed`, so no
+   screen decides what a sentence means or when the flow is redrawn.
+   Its ask dialogs are filled here — what an action does to the story
+   on screen is this screen's to say. */
 
 import * as api from "./api.js";
 import { ask, browser, footnote, guard, popups } from "./browser.js";

@@ -26,6 +26,16 @@ export async function openContext() {
     popup.showModal();
   }
   const preview = await api.context();
+  /* The one report whose refusal carries the FIX: a context that
+     cannot fit says what to shrink. Shown IN the panel the reader
+     opened — behind the modal is where a sentence goes unread — and
+     this refusal fires exactly when the reader most needs the panel. */
+  if (preview.refused) {
+    body.replaceChildren(element("p", "otk-note", preview.notice));
+    footnote(popup, "");
+    body.focus();
+    return;
+  }
   const shape = preview.shape;
 
   const summary = element("div", "otk-context__summary");

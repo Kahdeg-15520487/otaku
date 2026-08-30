@@ -152,7 +152,10 @@ export function providers(scope = "") {
   }
   const all = allProviders();
   if (scope && scope !== "local") {
-    return { ...all, engines: all.engines.filter((engine) => engine.name === scope) };
+    const named = all.engines.filter((engine) => engine.name === scope);
+    // a name nothing is configured under answers 404, as the product does
+    if (!named.length) return null;
+    return { ...all, engines: named };
   }
   return all;
 }
@@ -262,11 +265,12 @@ export function usage(scope) {
     { key: "", label: "this story" },
     { key: "all", label: "all stories" },
   ];
-  if (scope !== "" && scope !== "all") return { notice: "Usage: /usage [all]", scopes };
+  if (scope !== "" && scope !== "all") return { notice: "Usage: /usage [all]", refused: true, scopes };
   const rows = scope === "all" ? state.usage : state.usage.filter((r) => r.story === state.open);
   if (!rows.length) {
     return {
       notice: scope === "all" ? "No recorded usage yet." : "No recorded usage for this story.",
+      refused: true,
       scopes,
     };
   }
@@ -366,7 +370,7 @@ export function land(storyId, messageId, action) {
     state.open = id;
     const named = cut(label(state.stories.get(id)), 50);
     const lead = named ? `Forked to: ${named}. ` : "Forked. ";
-    return say(`${lead}Continued from message ${at + 1}.`);
+    return { notice: `${lead}Continued from message ${at + 1}.`, story: id };
   }
   if (action === "truncate") {
     story.turns = story.turns.slice(0, at + 1);
@@ -404,6 +408,8 @@ export function renameStory(storyId, title) {
 }
 
 export function deleteStory(storyId) {
+  // a row already gone answers 404, as the product does
+  if (!state.stories.has(storyId)) return null;
   state.stories.delete(storyId);
   state.lore.delete(storyId);
   if (state.open === storyId) state.open = null;
@@ -511,7 +517,7 @@ export function forkStory(storyId, title) {
   const id = addStory(title.trim() || numberedTitle(story.title), story.system, story.turns);
   state.open = id;
   const named = cut(label(state.stories.get(id)), 50);
-  return say(named ? `Forked to: ${named}.` : "Forked.");
+  return { notice: named ? `Forked to: ${named}.` : "Forked.", story: id };
 }
 
 export function undo() {

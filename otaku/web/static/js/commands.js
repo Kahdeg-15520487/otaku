@@ -13,7 +13,7 @@ import { openHelp } from "./help.js";
 import { openSettings } from "./settings.js";
 import { openModels } from "./models.js";
 import { openBalance, openContext, openInfo, openUsage } from "./reports.js";
-import { disconnected, landed, refresh, watchExtraction } from "./shell.js";
+import { landed, refresh, watchExtraction } from "./shell.js";
 import { openStories } from "./stories.js";
 import { openStory } from "./story.js";
 import { tell } from "./status.js";
@@ -152,8 +152,10 @@ async function confirmed({ title, body, note = "", action, cancel = "Cancel", ru
   await run();
 }
 
-/** Play a line as story, reporting a lost connection the one way the
-    page has to report one. */
+/** Play a line as story. A LOST connection already drew the offline
+    state (`api.whenLost` → `shell.disconnected`); what is reported here
+    is the other kind — a fault the server ANSWERED, which is a bug to
+    show and never a state to draw. */
 export async function playLine(line) {
   try {
     await play(line);
@@ -162,8 +164,8 @@ export async function playLine(line) {
        the story, and every line after it moves the count. No notice: the
        reply IS the answer. */
     await landed("");
-  } catch {
-    disconnected();
+  } catch (e) {
+    if (e?.answered) tell(String(e.message ?? e), "otk-error");
   }
 }
 
@@ -199,11 +201,12 @@ async function regenerate() {
      waits for the socket to be over before asking for the next take. */
   if (isPlaying()) await stopPlaying();
   // `play` takes the old reply off the screen once the request is
-  // accepted, so a refusal leaves the story exactly as it was.
+  // accepted, so a refusal leaves the story exactly as it was. A lost
+  // connection is `api.whenLost`'s; an answered fault is shown.
   try {
     await play(null, { regenerate: true });
-  } catch {
-    disconnected();
+  } catch (e) {
+    if (e?.answered) tell(String(e.message ?? e), "otk-error");
   }
 }
 

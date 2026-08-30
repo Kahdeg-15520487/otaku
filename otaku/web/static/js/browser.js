@@ -52,13 +52,18 @@ export function guard(action) {
 
 function failed(e) {
   console.error(e);
-  const sentence = String(e?.message ?? e);
-  /* Where the reader is looking: said in the flow, a screen's failure is
-     said BEHIND the modal covering it, and the write that did not happen
-     reads as a click that did nothing. */
+  report(String(e?.message ?? e));
+}
+
+/** A sentence put where the reader is looking: the open screen's
+    footnote, else the status line. Failures and refusals share the
+    routing — said in the flow, a screen's answer is said BEHIND the
+    modal covering it, and the write that did not happen reads as a
+    click that did nothing — but only a failure logs. */
+function report(sentence, kind = "otk-error") {
   const open = $$("dialog[open]").at(-1);
   if (open && footnote(open, sentence)) return;
-  tell(sentence, "otk-error");
+  tell(sentence, kind);
 }
 
 /** One live wiring per popup: a screen built again — a tab, a lens, a
@@ -289,7 +294,10 @@ export function browser(popup, options) {
     Ctrl+S saves, a one-line value is finished by Enter, and Esc puts the
     stored text back — as does clicking away, which is the promise every
     field here makes. A field wrapped by `edited` is the exception: its
-    verbs open and close it, so clicking away leaves it open. */
+    verbs open and close it, so clicking away leaves it open.
+
+    `save` is handed the new text and returns the backend's ANSWER: one
+    marked `refused` keeps the field open with the words still in it. */
 export function editable(className, { text, save: write, readonly = false, line = false }) {
   const field = element("textarea", `${className} otk-editable`.trim());
   field.value = text ?? "";
@@ -302,11 +310,19 @@ export function editable(className, { text, save: write, readonly = false, line 
   };
   /* Answers whether the field is FINISHED: a refusal is reported and
      leaves it open with the words still in it, which a write that did
-     not happen must never cost. */
+     not happen must never cost. `save` returns the backend's answer for
+     exactly that — a refusal RESOLVES (200 with the flag), it does not
+     throw, and reading the flag here is what keeps the promise. The
+     save callbacks skip their redraw on a refusal for the same reason:
+     a rebuilt pane would destroy the open editor under the caret. */
   field._commit = async () => {
     if (field.value === text) return true;
     try {
-      await write(field.value);
+      const answer = await write(field.value);
+      if (answer?.refused) {
+        report(answer.notice, "");
+        return false;
+      }
       /* What was saved IS the stored text from here on. Without this,
          finishing a field blurs it and puts back what it held before —
          the old value standing on screen until the screen the write

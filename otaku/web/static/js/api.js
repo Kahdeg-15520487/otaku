@@ -31,7 +31,9 @@ async function ask(path, options) {
   try {
     response = await fetch(path, options);
   } catch (e) {
-    onLost();
+    // A reader's own Stop ABORTS the fetch: giving up on a reply is
+    // not losing the server, and must not draw the page offline.
+    if (e?.name !== "AbortError") onLost();
     throw e;
   }
   onReach();
@@ -41,7 +43,11 @@ async function ask(path, options) {
        the only thing it is entitled to: something about the MEDIUM. The
        address and the code go to the console, where a bug is read. */
     console.error(`${path} — ${response.status}`, await response.text());
-    throw new Error("otaku could not answer that.");
+    const error = new Error("otaku could not answer that.");
+    // Answered, however badly: the caller may show this sentence, and
+    // must not draw the offline state for a server that spoke.
+    error.answered = true;
+    throw error;
   }
   return response;
 }

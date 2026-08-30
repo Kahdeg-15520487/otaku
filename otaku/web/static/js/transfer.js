@@ -55,15 +55,25 @@ export async function importCard() {
     note.hidden = true;
     zone.classList.remove("is-filled", "is-dragover");
 
+    let taking = 0;
     const take = async (file) => {
       if (!file) return;
+      /* Drops can overlap — a second card while the first still encodes
+         or prepares — and only the LAST one dropped may become the
+         dialog's card: each take carries its turn, and a stale one
+         stops before writing anything. */
+      const mine = ++taking;
+      const bytes = await encode(file);
+      if (mine !== taking) return;
       chosen = file;
-      data = await encode(file);
+      data = bytes;
       filename.textContent = file.name;
       filename.hidden = false;
       zone.classList.add("is-filled");
       zone.classList.remove("is-dragover");
-      prepared = await api.prepareCard(file.name, data, (renamed = name.value.trim()));
+      const answer = await api.prepareCard(file.name, bytes, (renamed = name.value.trim()));
+      if (mine !== taking) return;
+      prepared = answer;
       if (!prepared.card) {
         note.textContent = prepared.notice;
         note.hidden = false;

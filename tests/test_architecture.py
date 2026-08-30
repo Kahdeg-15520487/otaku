@@ -18,7 +18,7 @@ import re
 from pathlib import Path
 
 import otaku.backend
-from otaku.backend.commands import COMMANDS, CommandKind
+from otaku.backend.commands import COMMANDS, CommandKind, CommandSpec
 from otaku.terminal.chat import bindings
 from otaku.web import api as web_api
 from otaku.web import server as web_server
@@ -415,6 +415,90 @@ def _page_imports() -> dict[str, set[str]]:
     return {
         path.stem: set(re.findall(r'from "\./(?:js/)?(\w+)\.js"', path.read_text()))
         for path in files
+    }
+
+
+class TestPageCaptions:
+    """The page holds hand-kept captions for what the backend declares —
+    the composer menu's `_MENU`, the help sheet's `_MEANS`, the settings
+    slip's `_ABOUT` — because a caption is the medium's own words
+    (CLAUDE.md, Copy conventions). Like `_ON_THE_PAGE`, each is a
+    decision only a person can record, so a new syntax row or knob fails
+    here until its caption exists, instead of rendering blank."""
+
+    def test_every_syntax_token_has_a_menu_caption(self) -> None:
+        offered = _js_keys("composer.js", "_MENU")
+        bare = {spec.token.removeprefix("… ") for spec in _syntax_rows()}
+        assert bare - offered == set()
+
+    def test_every_syntax_row_has_a_help_meaning(self) -> None:
+        assert {spec.token for spec in _syntax_rows()} - _js_keys("help.js", "_MEANS") == set()
+
+    def test_every_knob_is_drawn_and_captioned_on_the_slip(self) -> None:
+        source = _page_source("settings.js")
+        for knob in web_api._KNOBS:
+            assert f'"{knob}"' in source, f"the settings slip never draws {knob}"
+        # `think` explains itself with its ladder; every other knob
+        # carries a caption under its leader.
+        assert set(web_api._KNOBS) - {"think"} - _js_keys("settings.js", "_ABOUT") == set()
+
+
+def _syntax_rows() -> list[CommandSpec]:
+    return [spec for spec in COMMANDS if spec.kind is CommandKind.SYNTAX]
+
+
+def _page_source(name: str) -> str:
+    return (_ROOT / "otaku" / "web" / "static" / "js" / name).read_text()
+
+
+def _js_keys(name: str, constant: str) -> set[str]:
+    """The keys of one JavaScript object literal, read as text —
+    quoted (`"/me":`) or bare (`verbose:`)."""
+    body = _page_source(name).split(f"const {constant} = {{", 1)[1].split("\n};", 1)[0]
+    return {
+        quoted or bare for quoted, bare in re.findall(r'^\s*(?:"([^"]+)"|(\w+)):', body, re.M)
+    }
+
+
+class TestWebTheme:
+    """`docs/web_tokens.md` is the web's public theming contract
+    (CLAUDE.md, Web conventions): every token `:root` declares is
+    documented and nothing undeclared is — and the dark theme, one list
+    written twice (once to pin, once to follow the OS), stays ONE list.
+    Nothing else fails when either drifts, so it is held here."""
+
+    def test_every_token_is_documented_and_nothing_more(self) -> None:
+        declared = set(re.findall(r"(--otk-[a-z-]+):", _light_block()))
+        documented = set(
+            re.findall(r"--otk-[a-z-]+", (_ROOT / "docs" / "web_tokens.md").read_text())
+        )
+        assert declared == documented, (
+            f"undocumented: {sorted(declared - documented)}; "
+            f"documented but never declared: {sorted(documented - declared)}"
+        )
+
+    def test_the_two_dark_blocks_are_one_list(self) -> None:
+        pinned = _dark_overrides('[data-theme="dark"] {')
+        followed = _dark_overrides(':root:not([data-theme="light"]) {')
+        assert pinned == followed, (
+            f"only where data-theme pins: {sorted(pinned.items() - followed.items())}; "
+            f"only where the OS is followed: {sorted(followed.items() - pinned.items())}"
+        )
+
+
+def _app_css() -> str:
+    return (_ROOT / "otaku" / "web" / "static" / "app.css").read_text()
+
+
+def _light_block() -> str:
+    return _app_css().split(":root {", 1)[1].split("\n}", 1)[0]
+
+
+def _dark_overrides(opener: str) -> dict[str, str]:
+    """One dark block's `--otk-*` declarations, name to value."""
+    block = _app_css().split(opener, 1)[1].split("}", 1)[0]
+    return {
+        name: value.strip() for name, value in re.findall(r"(--otk-[a-z-]+):\s*([^;]+);", block)
     }
 
 

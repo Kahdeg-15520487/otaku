@@ -443,8 +443,10 @@ no endpoint to ask), it is COPIED with a comment naming its home.
 User-facing printed messages start with a capital letter. Deliberately
 lowercase: the `otaku: …` stderr warnings (the Unix `program: message`
 convention), system-log lines, the transient status-line fragments a
-worker updates in place, and the dim `[ … ]` report blocks beside a turn
-(the stats line's family).
+worker updates in place, the dim `[ … ]` report blocks beside a turn
+(the stats line's family), and the banner family — the launch banner's
+rows and the one-line address that stands in for it when the banner is
+off.
 
 ## Module conventions
 

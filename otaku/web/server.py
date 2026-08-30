@@ -103,25 +103,29 @@ def _pattern(template: str) -> "re.Pattern[str]":
 
 # Both API tables are keyed by template. One regex per template, compiled
 # once: `{name}` matches a single segment and reaches the handler as
-# `ask.params[name]`. Longest first, so a literal segment is never eaten
-# by a parameter that could also match it. A flow keeps its own mark,
-# because it is the one kind of row that also needs `Pending`.
+# `ask.params[name]`. Sorted on the TEMPLATE — fewest parameters first,
+# then longest — so a literal segment is never eaten by a parameter that
+# could also match it (a compiled `{name}` is LONGER than most literals,
+# so pattern length would order them exactly backwards). A flow keeps its
+# own mark, because it is the one kind of row that also needs `Pending`.
 _Row = tuple[str, "re.Pattern[str]", Any, bool]
 
 _ROUTES: tuple[_Row, ...] = tuple(
-    sorted(
+    (method, _pattern(template), call, flow)
+    for method, template, call, flow in sorted(
         (
-            (method, _pattern(template), call, flow)
+            (method, template, call, flow)
             for table, flow in ((api.ROUTES, False), (api.FLOWS, True))
             for (method, template), call in table.items()
         ),
-        key=lambda row: -len(row[1].pattern),
+        key=lambda row: (row[1].count("{"), -len(row[1])),
     )
 )
 
 # The extraction poll: a GET the server answers itself, so it is not a
-# row in either table and needs its own pattern.
-_EXTRACTION = re.compile(r"^/api/stories/\d+/extraction$")
+# row in either table and needs its own pattern — the story captured,
+# because the pending runs are kept per story.
+_EXTRACTION = re.compile(r"^/api/stories/(?P<story>\d+)/extraction$")
 
 # A local page is never worth a stale byte; the fonts change about once
 # per Plex release and their names change with them.
@@ -341,19 +345,19 @@ class _Handler(BaseHTTPRequestHandler):
     # ---------- routing ----------
 
     def do_GET(self) -> None:
-        if not self._from_this_machine():
+        if not self._still_serving() or not self._from_this_machine():
             return
         path = self._path()
         if path == _ALIVE:
             self._beat()
         elif path == _WATCH:
             self._watch_stream()
-        elif _EXTRACTION.match(path):
+        elif (extraction := _EXTRACTION.match(path)) is not None:
             # The one read that never queues: the answer may be "the pass
             # that owns the session's thread is still running", and a
             # run's `poll` is channel-safe by contract, so this thread
-            # answers it.
-            run = self.server.pending.extraction
+            # answers it — the path's own story's run, no other's.
+            run = self.server.pending.extraction.get(int(extraction.group("story")))
             self._json({"report": run.poll() if run is not None else None})
         elif path.startswith("/api/"):
             self._route()
@@ -363,7 +367,9 @@ class _Handler(BaseHTTPRequestHandler):
         elif path == "/custom.css":
             self._send(self._custom_css(), _CSS, _NO_STORE)
         elif path.startswith(_CUSTOM_FONTS):
-            self._own_font(path.removeprefix(_CUSTOM_FONTS))
+            # Decoded like every path parameter (`_match`): the name on
+            # disk is what iterdir lists, and "My%20Font.woff2" is not it.
+            self._own_font(unquote(path.removeprefix(_CUSTOM_FONTS)))
         else:
             self.send_error(404)
 
@@ -395,7 +401,22 @@ class _Handler(BaseHTTPRequestHandler):
     def _writing(self) -> bool:
         """Every method but GET moves the story, so every one of them
         answers to both guards."""
-        return self._from_this_machine() and self._from_our_page()
+        return self._still_serving() and self._from_this_machine() and self._from_our_page()
+
+    def _still_serving(self) -> bool:
+        """Whether this server is still the one to ask. A stopped server
+        closes its LISTENING socket, but a page's pooled keep-alive
+        connections outlive that — its heartbeat would go on being
+        answered 200 by handler threads of a server that is gone, and
+        the page would never learn it (sharpest after `/web` hands the
+        session back to the chat, where the process lives on). Answered
+        503 with the connection closed, so the page's next attempt has
+        to reconnect — which is what fails, and what tells it."""
+        if not self.server.stopping.is_set():
+            return True
+        self.close_connection = True
+        self.send_error(503, "otaku is stopping")
+        return False
 
     def _route(self, body: dict[str, Any] | None = None) -> None:
         """One request against the API tables: the first template this
@@ -495,8 +516,11 @@ class _Handler(BaseHTTPRequestHandler):
     def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
         """One line per request the reader ASKED for — a page load's
         twenty assets are not news, so they are dropped here rather than
-        drawn and scrolled away."""
-        if self._path() in _QUIET:
+        drawn and scrolled away. The reader's own typefaces are assets
+        of the same load, quiet by prefix because their names are
+        theirs."""
+        path = self._path()
+        if path in _QUIET or path.startswith(_CUSTOM_FONTS):
             return
         self.server.hooks.show(f"{self._asked()} {getattr(code, 'value', code)}")
 
@@ -544,6 +568,11 @@ class _Handler(BaseHTTPRequestHandler):
             # The reader stopped otaku while this was in the queue. An
             # ordinary end, not a fault: no traceback, nothing recorded.
             self.send_error(503, "otaku is stopping")
+        except api.NotFound:
+            # The path parsed but names a subject that is not there — a
+            # story another tab deleted. The same 404 an unmatched path
+            # gets, because the spec draws no line between the two.
+            self.send_error(404)
         except Refused as e:
             self._json({"notice": str(e), "refused": True})
         except (KeyError, TypeError, ValueError) as e:
@@ -627,17 +656,21 @@ class _Handler(BaseHTTPRequestHandler):
         it — the last event, a closed tab, a failure — the generator is
         closed, which is what records a partial reply."""
         self._streaming = True
-        self.send_response(200)
-        self.send_header("Content-Type", _EVENT_STREAM)
-        self.send_header("Cache-Control", _NO_STORE)
-        # A stream has no length to declare, so the close IS the end of
-        # it: on a keep-alive connection the reader would sit waiting for
-        # a next turn that never comes, and the reply would never look
-        # finished.
-        self.send_header("Connection", "close")
-        self.close_connection = True
-        self.end_headers()
         try:
+            # Inside the try from the first byte: the header flush is a
+            # socket write too, and a tab that RST'd while this job sat
+            # queued behind another reply fails right here — the same
+            # ordinary end as a disconnect mid-stream, never a crash.
+            self.send_response(200)
+            self.send_header("Content-Type", _EVENT_STREAM)
+            self.send_header("Cache-Control", _NO_STORE)
+            # A stream has no length to declare, so the close IS the end
+            # of it: on a keep-alive connection the reader would sit
+            # waiting for a next turn that never comes, and the reply
+            # would never look finished.
+            self.send_header("Connection", "close")
+            self.close_connection = True
+            self.end_headers()
             for happened in events:
                 # Asked to stop: leaving the loop closes the generator
                 # below, which is the backend's cancel-and-keep door —
@@ -651,7 +684,10 @@ class _Handler(BaseHTTPRequestHandler):
                 # a rail button pressed mid-reply opens its screen now,
                 # not when the model stops.
                 self.server.runner.drain()
-        except (BrokenPipeError, ConnectionResetError):
+        except _DISCONNECTED:
+            # The whole family, not just the POSIX two: a closed tab on
+            # Windows raises ConnectionAbortedError, and filing that as
+            # a crash would log a traceback per reload.
             return
         finally:
             events.close()  # type: ignore[attr-defined]
@@ -685,11 +721,18 @@ class _Handler(BaseHTTPRequestHandler):
         self._frame(None, retry=_RETRY_MS)
         try:
             for name in _changes(_STATIC_PATH, self.server.custom_web_dir):
+                # A stopped server lets the stream go: held open, it
+                # would ping a still-working socket for the life of the
+                # process after `/web` hands the session back.
+                if self.server.stopping.is_set():
+                    return
                 if name is None:
                     self._ping()
                 else:
                     self._frame(name)
-        except (BrokenPipeError, ConnectionResetError):
+        except _DISCONNECTED:
+            # the reply stream's rule: a closed tab is the normal end,
+            # on every platform's spelling of it
             return
 
     # ---------- what goes on the wire ----------

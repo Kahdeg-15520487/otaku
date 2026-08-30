@@ -21,7 +21,13 @@ export async function openModels(answered = "", tab = "models") {
   // modal keeps further clicks from queueing screens behind it.
   if (!popup.open) popup.showModal();
 
-  const state = { popup, panel: await api.providers("local"), tab, picked: null };
+  /* One opening at a time: a catalog can take seconds, so a picker
+     closed and reopened inside that window has TWO openings in flight —
+     and the older one's answers must not rebuild the newer's panel. */
+  const epoch = ++_opening;
+  const local = await api.providers("local");
+  if (epoch !== _opening) return;
+  const state = { popup, panel: local, tab, picked: null };
   $("[data-memory]", popup).textContent = state.panel.memory || "";
   watchMemory(popup);
   const build = (wanted, notice = "") => {
@@ -45,15 +51,22 @@ export async function openModels(answered = "", tab = "models") {
   // panel — merged in and redrawn wherever the reader is by then.
   api.providers("cloud").then(
     guard((cloud) => {
-      if (!popup.open) return;
+      if (!popup.open || epoch !== _opening) return;
       state.panel = {
         ...state.panel,
         engines: [...state.panel.engines, ...cloud.engines],
       };
       build(state.tab);
     }),
+    // A cloud phase that could not be asked adds nothing: the local
+    // rows stand, and the heartbeat says if otaku itself is gone.
+    () => {},
   );
 }
+
+// The opening `openModels` is on — bumped per call, so an answer that
+// arrives for a superseded one is recognised and dropped.
+let _opening = 0;
 
 // How often the gauge is re-read while the picker is open: loading a
 // model fills a machine while the reader watches, so the figure moves.
@@ -107,12 +120,14 @@ function buildModels(state, notice) {
 
   const setLoaded = async (entry, wanted) => {
     if (!entry?.model.can_load_unload) return;
-    const { notice: said } = await api.setLoaded(entry.engine.name, entry.model.name, wanted);
+    const answer = await api.setLoaded(entry.engine.name, entry.model.name, wanted);
     /* One flag on one model changed, so that is what changes here:
        asking the catalogs again costs every provider a round trip to
-       redraw a lamp, and moves the list under the reader. */
-    entry.model.loaded = wanted;
-    state.build("models", said);
+       redraw a lamp, and moves the list under the reader. Only when the
+       engine actually DID it — a refused load must not light a lamp on
+       a model nothing loaded. */
+    if (!answer.refused) entry.model.loaded = wanted;
+    state.build("models", answer.notice);
   };
 
   if (!offered.length) $("[data-actions]", pane).replaceChildren();
@@ -371,8 +386,12 @@ function saveOnEnter(state, input, engine, attr) {
       if (event.key !== "Enter") return;
       event.preventDefault();
       /* An empty field is one nobody filled in: it must not clear the
-         url a provider is reached at, or its key. */
+         url a provider is reached at, or its key. An UNCHANGED url is
+         nothing to save either — the rule `dirty` and Save both hold —
+         and writing it anyway makes the no-op surgery answer with a
+         could-not-write warning for a value that needed no saving. */
       if (!input.value.trim() || input.dataset.mask) return;
+      if (attr === "url" && input.value.trim() === engine.url) return;
       const { notice } = await api.saveProviderField(engine.name, attr, input.value);
       await refreshProvider(state, engine, notice);
     }),
@@ -429,6 +448,12 @@ function testProvider(state, engine) {
       $(".otk-dialog__body", dialog).textContent = found?.connected
         ? `${engine.label} answered with ${models} ${models === 1 ? "model" : "models"}.`
         : `${engine.label} did not answer at ${engine.url}.`;
+    }),
+    guard(() => {
+      // The question itself could not be asked — the dialog still
+      // becomes the answer, never a "Checking" frozen forever.
+      $("[data-title]", dialog).textContent = "No answer";
+      $(".otk-dialog__body", dialog).textContent = `${engine.label} could not be asked — otaku did not answer.`;
     }),
   );
   // The list catches up once the reader is done with the answer: a

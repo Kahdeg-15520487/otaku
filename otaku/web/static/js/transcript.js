@@ -304,7 +304,12 @@ function draw(turn, happened) {
 const DRAW = {
   recorded(turn, happened) {
     ordinal += 1;
-    transcript.insertBefore(drawTurn(happened.turn, ordinal), turn.article);
+    const drawn = drawTurn(happened.turn, ordinal);
+    /* The record's own dim line — the dice a /roll rolled, verbatim.
+       Drawn at record time the way the terminal prints its dim block:
+       a redraw from the store does not carry it, and neither keeps it. */
+    if (happened.note) drawn.append(element("p", "otk-turn__note", happened.note));
+    transcript.insertBefore(drawn, turn.article);
   },
   thinking(turn, happened) {
     if (!turn.thinking) {
@@ -389,6 +394,10 @@ function endTurn(turn) {
        some text arrived), and counting it would number every later turn
        one too high. */
     ordinal += 1;
+  } else if (turn.article.isConnected) {
+    // Kept only to say what happened, storing nothing: marked, so a
+    // regenerate dropping it takes no number with it.
+    turn.article.dataset.unstored = "true";
   }
   showTurnBar();
   follow(turn);
@@ -407,6 +416,8 @@ function dropLastReply() {
   const last = [...$$(".otk-turn, .otk-reply", transcript)].pop();
   if (last && last.classList.contains("otk-reply")) {
     last.remove();
-    ordinal -= 1;
+    // an article kept only to say a take failed was never counted, so
+    // dropping it must not un-count a turn (`endTurn` marks those)
+    if (!last.dataset.unstored) ordinal -= 1;
   }
 }
