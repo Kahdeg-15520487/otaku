@@ -31,9 +31,12 @@ from otaku.store.schema import Character, Message
 
 @dataclass(frozen=True)
 class Recorded:
-    """The user's turn landed (autocorrect settled first) — echo it."""
+    """The user's turn landed (autocorrect settled first) — echo it.
+    `note` is the record's own line to show dim beside the echo — the
+    dice a /roll rolled; "" for every other turn."""
 
     message: Message
+    note: str = ""
 
 
 @dataclass(frozen=True)
@@ -148,14 +151,16 @@ def _submit_events(session: Session, frame: syntax.Line, line: str) -> Iterator[
             kind=frame.request_kind,
             # Resolved at RECORD time — the template is data on the turn,
             # filled with the line's own name and text only at wire time.
-            template=getattr(session._prompts, frame.template_field)
-            if frame.template_field
-            else None,
+            # `freeze_template` bakes in what must never re-compose: a
+            # /roll's dice are decided here, once, and never again.
+            template=frame.freeze_template(
+                getattr(session._prompts, frame.template_field) if frame.template_field else None
+            ),
             speaker=request_speaker.name if request_speaker else None,
             speaker_id=request_speaker.id if request_speaker else None,
         )
     )
-    yield Recorded(session._messages[-1])
+    yield Recorded(session._messages[-1], note=frame.note)
     reply_speaker = known if frame.speaks == "reply" else None
     yield from _reply_events(session, reply_kind=frame.reply_kind, reply_speaker=reply_speaker)
 

@@ -35,6 +35,7 @@ const _MEANS = {
   "/me": "send the message as a character",
   "/you": "ask the model to play a character",
   "/ooc": "talk to the model out of character",
+  "/roll": "roll real dice (1d20+5) — the model narrates exactly what fell",
   "… /ooc": "an aside out of character",
   "… /cue": "steer just the next reply — not kept in context afterwards",
 };

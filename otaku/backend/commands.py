@@ -58,6 +58,7 @@ GROUP_LABELS: dict[str, str] = {
     "inspect": "Inspect",
     "transfer": "Import/export",
     "settings": "Models and settings",
+    "special": "Special",
     "web": "Web UI",
     "meta": "Meta",
 }
@@ -84,12 +85,10 @@ class CommandSpec:
     kind: CommandKind
 
 
-def _direction(token: str, description: str) -> CommandSpec:
+def _direction(token: str, description: str, group: str = "playing") -> CommandSpec:
     """A direction's row: token and argument shape read off the Line
     class that owns them — one declaration, in `context.syntax`."""
-    return CommandSpec(
-        token, syntax.DIRECTIONS[token].args, description, "playing", CommandKind.SYNTAX
-    )
+    return CommandSpec(token, syntax.DIRECTIONS[token].args, description, group, CommandKind.SYNTAX)
 
 
 def _inliner(token: str, description: str) -> CommandSpec:
@@ -142,6 +141,8 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("/set autocorrect", "on|off", "Settle a character name you type in /you and /me commands to the cast's own spelling", "settings", CommandKind.OPERATION),
     CommandSpec("/set notification", "on|off", "Play a sound when a reply lands (the sound is configs/config.toml's notification_sound)", "settings", CommandKind.OPERATION),
     CommandSpec("/set max_context", "<tokens>", "Cap the prompt at this many tokens; 0 = the model's whole window", "settings", CommandKind.OPERATION),
+    # Special
+    _direction("/roll", "Roll real dice (1d20+5, 3d6, 2d20kh1) — the model narrates exactly what fell", group="special"),
     # Meta
     CommandSpec("/web", "", "Open this session in a browser", "web", CommandKind.INTERACTIVE),
     CommandSpec("/help", "", "Show this help", "meta", CommandKind.INTERACTIVE),

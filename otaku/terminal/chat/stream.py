@@ -73,8 +73,12 @@ def show(chat: Chat, events: Iterator[PlayEvent]) -> bool:
                 if isinstance(event, Recorded):
                     # The played turn echoes as the grey block; the reply
                     # streams under it. The wait resumes, so the spinner
-                    # comes back until the first delta.
+                    # comes back until the first delta. The record's own
+                    # note (a /roll's dice) prints dim under the block —
+                    # the card import's report line is the family.
                     chat.ledger.echo_block(message(event.message.body, "user"))
+                    if event.note:
+                        out.write(f"{DIM}[ {event.note} ]{RESET}\n\n")
                     spinner.start()
                 elif isinstance(event, Thinking):
                     if not in_thinking:

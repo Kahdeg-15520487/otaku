@@ -12,6 +12,10 @@
   {
    "token": "/ooc",
    "args": "PROMPT"
+  },
+  {
+   "token": "/roll",
+   "args": "DICE [PROMPT]"
   }
  ],
  "inliners": [

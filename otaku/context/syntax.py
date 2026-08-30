@@ -11,8 +11,10 @@ archive, a recap row IS its text.
 
 A line is stored exactly as typed and read again whenever the turn is
 used. Templates are data on the turn (`Message.template`); at RECORD
-time the caller resolves `Line.template_field` against its prompts —
-this module reads no settings.
+time the caller resolves `Line.template_field` against its prompts and
+hands the text through `freeze_template`, where a direction bakes in
+what must never re-compose — a dice roll's numbers are decided once,
+when the turn records, and never again. This module reads no settings.
 
 Why this lives in `context`, not `backend`: what a stored turn sends is
 context composition — the assembler runs `to_wire` for every row it puts
@@ -36,6 +38,7 @@ request, the input prompt the terminal draws), and the most overloaded
 word must not name the most precise concept.
 """
 
+import random
 import re
 from typing import ClassVar
 
@@ -127,6 +130,20 @@ class Line:
         inliner is `to_wire`'s to append after it."""
         return _join(self.text, filled)
 
+    def freeze_template(self, template: str | None) -> str | None:
+        """The template exactly as it is RECORDED onto the turn. A
+        direction that decides something at record time bakes it in
+        here — a dice roll's numbers — because a stored turn must never
+        re-compose it; the base records the prompts' text verbatim."""
+        return template
+
+    @property
+    def note(self) -> str:
+        """One line a frontend may show dim beside the recorded turn —
+        "" except where recording itself computed something (the dice a
+        /roll rolled)."""
+        return ""
+
 
 class _Me(Line):
     """`/me NAME: PROMPT` — the writer speaks as NAME. The only direction
@@ -192,9 +209,58 @@ class _Ooc(Line):
     template_field = "ooc_framing"
 
 
+class _Roll(Line):
+    """`/roll DICE [PROMPT]` — the writer rolls REAL dice and plays the
+    result: otaku rolls at record time (never the model — asked to roll,
+    a model picks dramatic numbers and bends them mid-narration), the
+    numbers freeze into the stored template, and the optional PROMPT is
+    the action the roll decides. DICE is `1d20+5`-shaped — `NdS` terms
+    and flat modifiers chained with + and -, `kh`/`kl` keeping the
+    highest or lowest (advantage and disadvantage).
+
+    The spec rides the NAME slot — the first token, what the command is
+    about — so the base machinery does its usual work: `needs_name`
+    demands the dice, the action stays optional, and `compose` sends the
+    text alone. The spec never reaches the wire from the body — the roll
+    rides the frozen template, and sending the spec again would invite
+    the model to roll it."""
+
+    token = "/roll"
+    args = "DICE [PROMPT]"
+    needs_name = True
+    template_field = "roll_framing"
+    _rolled: str = ""
+
+    def split_name(self, rest: str) -> tuple[str, str]:
+        spec, _, action = rest.partition(" ")
+        return spec, action.strip()
+
+    def join_name(self, name: str, text: str) -> str:
+        return f"{name} {text}" if text else name
+
+    def check(self) -> str | None:
+        error = super().check()
+        if error is not None:
+            return error
+        if _dice_terms(self.name) is None:
+            return f"{self.usage} — DICE like 1d20+5, 3d6 or 2d20kh1"
+        return None
+
+    def freeze_template(self, template: str | None) -> str | None:
+        rolled = roll_dice(self.name)
+        assert rolled is not None  # check() gated the line before recording
+        total, detail = rolled
+        self._rolled = f"{self.name} = {total} ({detail})"
+        return template.replace("{dice}", self._rolled) if template else template
+
+    @property
+    def note(self) -> str:
+        return f"dice: {self._rolled}" if self._rolled else ""
+
+
 # Every direction, keyed by the token that opens it — the one registry;
 # iterating it yields exactly the tokens the menus may offer.
-DIRECTIONS: dict[str, type[Line]] = {cls.token: cls for cls in (_Me, _You, _Ooc)}
+DIRECTIONS: dict[str, type[Line]] = {cls.token: cls for cls in (_Me, _You, _Ooc, _Roll)}
 
 
 def read(line: str) -> Line:
@@ -240,6 +306,82 @@ def to_wire(message: Message, *, is_last: bool, card_block: str | None = None) -
     if frame.tail and (frame.inliner == "/ooc" or (frame.inliner == "/cue" and is_last)):
         parts.append(OOC_FRAME.replace("{body}", frame.tail))
     return " ".join(part for part in parts if part)
+
+
+# ---------- dice ----------
+
+# One term of a dice spec: NdS with an optional keep suffix (2d20kh1 —
+# advantage — and kl1 for disadvantage), or a flat modifier. The caps
+# keep a typo from rolling a novel; a keep must keep fewer than it rolls
+# or it would keep everything and mean nothing.
+_DICE_TERM = re.compile(r"(\d*)[dD](\d+)(?:[kK]([hHlL])(\d+))?|(\d+)")
+_MAX_DICE = 100
+_MAX_SIDES = 1000
+
+
+def roll_dice(spec: str, rng: random.Random | None = None) -> tuple[int, str] | None:
+    """`spec` rolled: the total and the per-term detail — `14 + 5` for a
+    1d20+5 that came up 14, `[4, 5, 2]` for 3d6, `[18, 11 → 18]` for
+    2d20kh1 — or None when the spec is not dice. Real entropy by default
+    (`SystemRandom`, the OS's — dice must not be seedable by accident);
+    a seeded `rng` is for tests."""
+    terms = _dice_terms(spec)
+    if terms is None:
+        return None
+    rng = rng or random.SystemRandom()
+    total = 0
+    shown: list[str] = []
+    for sign, dice, sides, keep, kept_or_flat in terms:
+        if dice == 0:
+            value, detail = kept_or_flat, str(kept_or_flat)
+        else:
+            rolls = [rng.randint(1, sides) for _ in range(dice)]
+            if keep:
+                picked = sorted(rolls, reverse=keep == "h")[:kept_or_flat]
+                value = sum(picked)
+                rolled = ", ".join(str(r) for r in rolls)
+                detail = f"[{rolled} → {', '.join(str(p) for p in picked)}]"
+            elif dice == 1:
+                value, detail = rolls[0], str(rolls[0])
+            else:
+                value = sum(rolls)
+                detail = f"[{', '.join(str(r) for r in rolls)}]"
+        total += sign * value
+        shown.append((("+ " if sign > 0 else "- ") + detail) if shown else detail)
+    return total, " ".join(shown)
+
+
+def _dice_terms(spec: str) -> list[tuple[int, int, int, str, int]] | None:
+    """The spec as (sign, dice, sides, keep, kept-or-flat) terms — dice 0
+    for a flat modifier — or None when any piece of it is not dice. The
+    split keeps the signs, so an empty piece (a leading, trailing, or
+    doubled sign) fails the term match and the whole spec with it."""
+    if not spec:
+        return None
+    sign = 1
+    out: list[tuple[int, int, int, str, int]] = []
+    for i, part in enumerate(re.split(r"([+-])", spec)):
+        if i % 2:
+            sign = 1 if part == "+" else -1
+            continue
+        found = _DICE_TERM.fullmatch(part)
+        if found is None:
+            return None
+        if found.group(5) is not None:
+            out.append((sign, 0, 0, "", int(found.group(5))))
+            continue
+        dice = int(found.group(1) or 1)
+        sides = int(found.group(2))
+        keep = (found.group(3) or "").lower()
+        kept = int(found.group(4)) if found.group(4) else 0
+        if not (1 <= dice <= _MAX_DICE and 2 <= sides <= _MAX_SIDES):
+            return None
+        if keep and not (1 <= kept < dice):
+            return None
+        out.append((sign, dice, sides, keep, kept))
+    if all(dice == 0 for _, dice, _, _, _ in out):
+        return None  # flat numbers alone roll nothing, so they are not a roll
+    return out
 
 
 def _split_inliner(line: str) -> tuple[str, str | None, str]:

@@ -201,6 +201,14 @@ class TestPlaying:
         assert answer[0]["refused"] is True
         assert answer[0]["notice"]
 
+    def test_a_roll_arrives_with_its_note(self, page: Page) -> None:
+        # The dice are rolled below both frontends and ride the recorded
+        # event as its note — the page never rolls, and never parses the
+        # frozen template to find out what fell.
+        events = page.play("/roll 1d6 I duck behind the crates.")
+        assert events[0]["type"] == "recorded"
+        assert "1d6 = " in events[0]["note"]
+
 
 class TestWrites:
     def test_a_write_is_answered_with_its_sentence(self, page: Page) -> None:

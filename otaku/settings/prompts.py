@@ -131,6 +131,11 @@ _DEFAULTS = {
         "((OOC: {body}\n\nAnswer briefly out of character, as a co-author planning "
         "the story — do not continue the scene or write any prose.))"
     ),
+    "roll_framing": (
+        "((OOC: Dice roll {dice}. The dice are already rolled and the result is "
+        "final — narrate the outcome of exactly this result; never reroll it, "
+        "change it, or roll on your own.))\n{body}"
+    ),
     "card_framing": (
         "((OOC: {name} joins the story. Their card, to play them by:\n"
         "Description: {description}\n"
@@ -153,6 +158,9 @@ _REQUIRED = {
     "me_framing": ("name", "body"),
     "you_framing": ("name",),
     "ooc_framing": ("body",),
+    # {dice} is the roll itself — without it the numbers never reach the
+    # model and the command is a no-op wearing a frame.
+    "roll_framing": ("dice", "body"),
     # Only {name}: a card template line whose OTHER placeholders are absent
     # is a choice — omitting {examples} is how a user keeps examples off
     # the wire — and compose drops the lines of fields a card lacks.
@@ -175,6 +183,7 @@ class Prompts:
     me_framing: str = _DEFAULTS["me_framing"]
     you_framing: str = _DEFAULTS["you_framing"]
     ooc_framing: str = _DEFAULTS["ooc_framing"]
+    roll_framing: str = _DEFAULTS["roll_framing"]
     card_framing: str = _DEFAULTS["card_framing"]
     extract_prompt: str = _DEFAULTS["extract_prompt"]
     history_prompt: str = _DEFAULTS["history_prompt"]

@@ -29,6 +29,7 @@ const _MENU = {
   "/you": ["Take a turn", "speak to someone present"],
   "/ooc": ["Speak to the narrator", "a note, never played"],
   "/cue": ["Speak to the narrator", "steer the next reply"],
+  "/roll": ["Roll the dice", "otaku rolls; the model narrates"],
 };
 
 /** The word itself, without the `… ` the table marks an inliner with: the

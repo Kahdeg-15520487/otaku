@@ -17,7 +17,9 @@ inliner's text becomes its own enclosure; a cue is there only while its
 turn is the newest.
 """
 
-from otaku.context.syntax import DIRECTIONS, is_command, read, to_wire
+import random
+
+from otaku.context.syntax import DIRECTIONS, is_command, read, roll_dice, to_wire
 from otaku.store.schema import Message
 
 # What a v2 turn stores: the template, placeholders intact.
@@ -60,6 +62,17 @@ class TestCheck:
     def test_ooc_needs_prose(self) -> None:
         assert read("/ooc").check() == "Usage: /ooc PROMPT"
 
+    def test_a_well_formed_roll_passes_with_or_without_an_action(self) -> None:
+        assert read("/roll 1d20+5 I search the alcove").check() is None
+        assert read("/roll 2d20kh1").check() is None
+
+    def test_a_bare_roll_needs_dice(self) -> None:
+        assert read("/roll").check() is not None
+
+    def test_a_roll_spec_that_is_not_dice_is_refused(self) -> None:
+        error = read("/roll banana I flail").check()
+        assert error is not None and error.startswith("Usage: /roll DICE [PROMPT]")
+
     def test_an_inliner_needs_text_after_it(self) -> None:
         assert read("She looks up /cue").check() is not None
 
@@ -78,6 +91,7 @@ class TestTemplateField:
         assert read("/me Elara: hi").template_field == "me_framing"
         assert read("/you Elara").template_field == "you_framing"
         assert read("/ooc What genre?").template_field == "ooc_framing"
+        assert read("/roll 1d6").template_field == "roll_framing"
 
 
 class TestIsCommand:
@@ -89,6 +103,7 @@ class TestIsCommand:
         assert is_command("/me Elara: hi") is False
         assert is_command("/you Elara") is False
         assert is_command("/ooc what?") is False
+        assert is_command("/roll 1d20+5") is False
 
     def test_prose_is_never_a_command(self) -> None:
         assert is_command("She looks up.") is False
@@ -96,8 +111,8 @@ class TestIsCommand:
 
 
 class TestDirections:
-    def test_the_registry_holds_exactly_the_three(self) -> None:
-        assert set(DIRECTIONS) == {"/me", "/you", "/ooc"}
+    def test_the_registry_holds_exactly_the_four(self) -> None:
+        assert set(DIRECTIONS) == {"/me", "/you", "/ooc", "/roll"}
 
 
 class TestKinds:
@@ -106,6 +121,11 @@ class TestKinds:
 
     def test_me_plays_the_story(self) -> None:
         assert _kinds("/me Elara: hi") == ("dialogue", "dialogue")
+
+    def test_a_roll_plays_the_story(self) -> None:
+        # The mechanics ride the framing; the action is scene like any
+        # other, and the answer narrates in character.
+        assert _kinds("/roll 1d20+5 I search") == ("dialogue", "dialogue")
 
     def test_ooc_asks_and_answers_out_of_character(self) -> None:
         assert _kinds("/ooc What genre?") == ("ooc", "ooc")
@@ -274,6 +294,109 @@ class TestPromptToWire:
     def test_a_url_spelling_an_inliner_is_prose(self) -> None:
         got = wire("Read https://x.co/ooc now", None, is_last=True)
         assert got == "Read https://x.co/ooc now"
+
+
+class TestDice:
+    def test_a_die_and_a_modifier_read_like_the_table(self) -> None:
+        assert roll_dice("1d20+5", _dice(14)) == (19, "14 + 5")
+
+    def test_several_dice_show_each_roll(self) -> None:
+        assert roll_dice("3d6", _dice(4, 5, 2)) == (11, "[4, 5, 2]")
+
+    def test_keep_highest_is_advantage(self) -> None:
+        assert roll_dice("2d20kh1+5", _dice(18, 11)) == (23, "[18, 11 → 18] + 5")
+
+    def test_keep_lowest_is_disadvantage(self) -> None:
+        assert roll_dice("2d20kl1", _dice(18, 11)) == (11, "[18, 11 → 11]")
+
+    def test_a_modifier_subtracts_too(self) -> None:
+        assert roll_dice("1d20-2", _dice(10)) == (8, "10 - 2")
+
+    def test_a_bare_d_rolls_one_die(self) -> None:
+        assert roll_dice("d20", _dice(7)) == (7, "7")
+
+    def test_dice_terms_chain(self) -> None:
+        assert roll_dice("1d20+2d4-1", _dice(9, 3, 1)) == (12, "9 + [3, 1] - 1")
+
+    def test_case_does_not_matter(self) -> None:
+        assert roll_dice("2D20KH1", _dice(3, 15)) == (15, "[3, 15 → 15]")
+
+    def test_the_dice_ignore_any_seed(self) -> None:
+        # The promise is the OS's entropy, unseedable: dice that could
+        # be seeded could be loaded. Seeding Python's global generator
+        # must therefore change nothing — two rolls under identical
+        # seeds still disagree (ten thousand-sided dice cannot repeat
+        # by chance in any universe worth testing in).
+        random.seed(11)
+        first = roll_dice("10d1000")
+        random.seed(11)
+        second = roll_dice("10d1000")
+        assert first is not None and second is not None
+        assert first[1] != second[1]
+
+    def test_what_is_not_dice_is_none(self) -> None:
+        for spec in (
+            "",
+            "banana",
+            "1d",
+            "d",
+            "5",  # a flat number rolls nothing, so it is not a roll
+            "0d6",
+            "1d1",  # a one-sided die is not a die
+            "101d6",
+            "1d1001",
+            "2d20kh2",  # keeping everything rolled keeps nothing at all
+            "2d20kh0",
+            "1d20++5",
+            "+1d20",
+            "1d20+",
+            "1d6 2d4",
+        ):
+            assert roll_dice(spec, _dice(1, 1, 1)) is None, spec
+
+    def test_the_spec_never_reaches_the_wire_from_the_body(self) -> None:
+        # The roll rides the frozen template; the body contributes only
+        # the action, or nothing — sending the spec again would invite
+        # the model to roll it.
+        frozen = "<<rolled 1d20+5 = 19 (14 + 5)>> {body}"
+        got = wire("/roll 1d20+5 I search the alcove", frozen, is_last=True)
+        assert got == "<<rolled 1d20+5 = 19 (14 + 5)>> I search the alcove"
+        assert wire("/roll 1d20+5", "<<r>> {body}", is_last=True) == "<<r>>"
+
+    def test_an_inliner_still_closes_a_roll_line(self) -> None:
+        got = wire("/roll 1d6 I go /ooc really?", "<<r>> {body}", is_last=True)
+        assert got == "<<r>> I go ((OOC: really?))"
+
+    def test_freeze_bakes_the_roll_into_the_template(self) -> None:
+        frame = read("/roll 2d6+1 I strike.")
+        assert frame.note == ""  # nothing rolled until the record freezes it
+        frozen = frame.freeze_template("[{dice}] {body}")
+        assert frozen is not None and frozen.endswith("] {body}")
+        rolled = frozen[1 : -len("] {body}")]
+        total = int(rolled.split(" = ", 1)[1].split(" ", 1)[0])
+        assert rolled.startswith("2d6+1 = ")
+        assert 3 <= total <= 13
+        assert frame.note == f"dice: {rolled}"
+
+    def test_every_other_line_freezes_verbatim_and_notes_nothing(self) -> None:
+        frame = read("/me Elara: I step in.")
+        assert frame.freeze_template(ME) == ME
+        assert frame.note == ""
+
+
+def _dice(*values: int) -> random.Random:
+    """Dice that fall exactly as scripted — the grammar under test, not
+    the entropy."""
+
+    class Scripted(random.Random):
+        def __init__(self) -> None:
+            super().__init__()
+            self.left = list(values)
+
+        def randint(self, a: int, b: int) -> int:
+            return self.left.pop(0)
+
+    return Scripted()
 
 
 def _kinds(line: str) -> tuple[str, str]:

@@ -830,7 +830,9 @@ def event(happened: PlayEvent) -> dict[str, Any]:
     silence on the wire."""
     match happened:
         case Recorded():
-            return {"type": "recorded", "turn": _turn(happened.message)}
+            # `note` is the record's own dim line (a /roll's dice); ""
+            # rides along so the shape never depends on the turn.
+            return {"type": "recorded", "turn": _turn(happened.message), "note": happened.note}
         case Thinking():
             return {"type": "thinking", "text": happened.text}
         case Text():

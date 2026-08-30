@@ -215,7 +215,10 @@ function play(body, regenerate, signal) {
   if (regenerate) {
     store.dropLastReply();
   } else {
-    events.push({ type: "recorded", turn: store.recordTurn("user", line) });
+    // `note` is the record's own dim line (a /roll's dice in the real
+    // backend); the demo rolls nothing, so it is always empty — but the
+    // field arrives, because the shape must not depend on the turn.
+    events.push({ type: "recorded", turn: store.recordTurn("user", line), note: "" });
   }
   const reply = script.reply(regenerate);
   const promptTokens = store.contextTokens();

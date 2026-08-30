@@ -70,6 +70,15 @@ changes.
   is the likelier background and the only outcome Windows can reach, since there is nothing to ask
   there. A config from an earlier version gains the line at the head of that section on the first
   launch after upgrading, so the setting is there to see and edit.
+- `/roll` plays a dice roll: `/roll 1d20+5 I search the alcove` rolls REAL dice — the OS's
+  entropy, never the model's, because a model asked to roll picks dramatic numbers and bends
+  them mid-narration — shows what fell, and sends the roll and your action as one message,
+  framed so the model narrates exactly that outcome. `NdS` terms and flat modifiers chain with
+  + and - (`2d6+3`), and `kh`/`kl` keep the highest or lowest of the dice — `2d20kh1` is
+  advantage, `kl1` disadvantage. The numbers freeze into the turn as it records: `/regen`
+  re-tells the same roll, never re-rolls it, and editing the played line later does not either.
+  The framing is `roll_framing` in prompts.toml, editable like every prompt otaku sends; on the
+  web the composer's prefix menu offers `/roll` beside `/me` and `/you`.
 - The terminal's `/stories` browser drills into a four-tab dossier — Premise, Messages, Scenes,
   Cast — for any story, not only the open one, and everything editable there edits: the premise
   is written in place (a story that is not open included), a message corrects where it is read,

@@ -313,6 +313,51 @@ class TestOoc:
         assert (chain[-2].kind, chain[-1].kind) == ("ooc", "ooc")
 
 
+class TestRoll:
+    def test_a_roll_is_rolled_at_record_time_and_frozen(self, app: App) -> None:
+        # otaku rolls — the OS's dice, never the model's — and the numbers
+        # freeze into the turn's template as it records: the store, the
+        # wire, and every later request tell the same roll.
+        app.play("/roll 2d6+3 I strike at the shade.")
+        stored = app.store.stories.get_messages(app.session.story_id)[0]
+        assert stored.body == "/roll 2d6+3 I strike at the shade."  # the line as typed
+        assert stored.template is not None and "2d6+3 = " in stored.template
+        total = int(stored.template.split("2d6+3 = ", 1)[1].split(" ", 1)[0])
+        assert 5 <= total <= 15
+        wire = app.server.requests[-1]["messages"][-1]["content"]
+        assert f"2d6+3 = {total}" in wire  # the wire carries the same roll
+        assert wire.endswith("I strike at the shade.")
+        assert "/roll" not in wire  # the spec never reaches the model to re-roll
+
+    def test_a_regenerate_narrates_the_same_numbers(self, app: App) -> None:
+        # The roll happened; a fresh take re-tells it, never re-rolls it.
+        app.play("/roll 1d20 I leap the chasm.")
+        first = app.server.requests[-1]["messages"][-1]["content"]
+        app.play("/regen")
+        assert app.server.requests[-1]["messages"][-1]["content"] == first
+
+    def test_the_framing_comes_from_the_prompts_file(self, server, tmp_path) -> None:
+        # Like every direction: the file IS the injection (see TestTurns).
+        root = tmp_path / "state"
+        paths = Paths.resolve(root)
+        paths.ensure_tree()
+        paths.prompts_file.write_text('roll_framing = "<<rolled {dice}>> {body}"\n')
+        app = launch(root, server)
+        try:
+            app.play("/roll 1d4 I duck.")
+            assert sent(app).startswith("<<rolled 1d4 = ")
+            assert sent(app).endswith(">> I duck.")
+        finally:
+            app.close()
+
+    def test_a_spec_that_is_not_dice_records_nothing(self, app: App) -> None:
+        # Eager validation, like every direction: the refusal lands
+        # before a story, a row, or a request exists.
+        app.play("/roll banana I flail.")
+        assert app.session.story_id is None
+        assert app.server.requests == []
+
+
 class TestInliners:
     def test_prose_keeps_its_slashes_and_plays(self, app: App) -> None:
         line = "She looks up and/or down on 24/08/2026 at https://x.co/cue"

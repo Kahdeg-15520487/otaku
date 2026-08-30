@@ -1361,6 +1361,9 @@ components:
           properties:
             type: { const: recorded }
             turn: { $ref: "#/components/schemas/Turn" }
+            note:
+              type: string
+              description: 'The record''s own dim line — the dice a /roll rolled; "" otherwise.'
         - type: object
           properties:
             type: { const: thinking }
