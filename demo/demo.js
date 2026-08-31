@@ -22,13 +22,14 @@ let version = "";
 const ready = (async () => {
   const load = async (name) =>
     (await realFetch(new URL(`./fixtures/${name}.json`, import.meta.url))).json();
-  const [syntax, settings, river] = await Promise.all([
+  const [syntax, settings, river, tour] = await Promise.all([
     load("syntax"),
     load("settings"),
     load("river"),
+    load("tour"),
   ]);
   version = river.facts.version;
-  store.seed({ syntax, settings, river });
+  store.seed({ syntax, settings, river, tour });
 })();
 
 // ---------- the routes ----------

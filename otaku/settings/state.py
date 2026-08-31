@@ -15,7 +15,7 @@ from otaku.settings import row, write_atomic
 # vocabulary — the order a menu offers it in is a frontend-shared
 # decision and lives with the rest of the /set vocabulary
 # (`backend.session.THINK_MENU`).
-THINK_LEVELS = {"none", "low", "medium", "high", "max"}
+THINK_LEVELS = {"none", "low", "medium", "high", "xhigh", "max"}
 THINK_DEFAULT = "default"
 
 

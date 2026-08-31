@@ -103,6 +103,19 @@ class TestThink:
         app.play("I look around.")
         assert "reasoning_effort" not in app.server.requests[-1]
 
+    def test_a_400_to_the_knob_retries_once_without_it(self, app: App) -> None:
+        # Engines differ on the knob: a reasoning-mandatory model refuses
+        # "none", some engines reject the field outright — either way a
+        # 400 before any content. The same request goes again with no
+        # thinking field, and the engine's own default answers.
+        app.play("/set think low")
+        app.server.refuse = lambda body: 400 if "reasoning_effort" in body else None
+        app.play("I enter the hall.")
+        assert app.session.messages[-1].role == "assistant"
+        knobbed, knobless = app.server.requests[-2:]
+        assert knobbed["reasoning_effort"] == "low"
+        assert "reasoning_effort" not in knobless
+
     def test_thinking_streams_but_is_never_saved(self, app: App, capsys) -> None:
         app.play("/set think high")
         app.server.script = lambda body: ("Let me consider the hall.", "The door creaks open.")

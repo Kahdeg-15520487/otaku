@@ -9,6 +9,7 @@ ever read or written by this package.
 from otaku.providers.base import (
     Chunk,
     CloudClient,
+    DeclinedError,
     LocalSingleClient,
     ManagedClient,
     ModelInfo,
@@ -27,6 +28,7 @@ __all__ = [
     "CLIENTS",
     "Chunk",
     "CloudClient",
+    "DeclinedError",
     "LocalSingleClient",
     "ManagedClient",
     "ModelInfo",

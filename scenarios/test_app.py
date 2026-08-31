@@ -649,13 +649,15 @@ class TestConfigMigration:
 
 class TestFirstLaunch:
     """The install experience, end to end: a fresh database seeds the
-    sample story, the user lands in it — with or without a reachable
-    model — and every model-facing door explains itself until /model."""
+    sample stories, the user lands in the first of them by name — with
+    or without a reachable model — and every model-facing door explains
+    itself until /model."""
 
-    def test_a_fresh_database_seeds_the_sample_and_lands_in_it(self, server, tmp_path) -> None:
-        # The first launch over a new database imports the shipped story —
-        # a native import, zero model calls — and the user is in the
-        # middle of it, memory and all.
+    def test_a_fresh_database_seeds_the_samples_and_lands_first(self, server, tmp_path) -> None:
+        # The first launch over a new database imports every shipped
+        # story — native imports, zero model calls — and the user is in
+        # the middle of the first by name, memory and all; the rest wait
+        # in /stories.
         set_config(tmp_path / "state", seed_sample=True)
         app = launch(tmp_path / "state", server)
         try:
@@ -668,13 +670,19 @@ class TestFirstLaunch:
             ids = app.store.stories.get_messages_ids(story_id)
             assert len(app.store.scenes.get_current(story_id, ids)) == 2
             assert [c.name for c in app.store.characters.list(story_id)] == ["Maren", "Tallis"]
+            # The second sample landed whole: the long play, memory and all.
+            others = [s for s in app.store.stories.list() if s.id != story_id]
+            assert [s.title for s in others] == ["The Vermilion Tour"]
+            tour_ids = app.store.stories.get_messages_ids(others[0].id)
+            assert len(tour_ids) == 318
+            assert len(app.store.scenes.get_current(others[0].id, tour_ids)) == 15
         finally:
             app.close()
-        # Remembered: a relaunch resumes the sample and does NOT seed again.
+        # Remembered: a relaunch resumes the landing and does NOT seed again.
         relaunched = launch(tmp_path / "state", server)
         try:
             assert relaunched.session.story_id == story_id
-            assert len(relaunched.store.stories.list()) == 1
+            assert len(relaunched.store.stories.list()) == 2
         finally:
             relaunched.close()
 

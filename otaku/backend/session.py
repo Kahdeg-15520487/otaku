@@ -45,7 +45,7 @@ from otaku.worker import Worker
 # is `settings.state.THINK_LEVELS` (a set), and a unit test pins the
 # two consistent. The typed sugar (`on`/`off`) is the command surface's
 # and stays out of a menu of VALUES.
-THINK_MENU: tuple[str, ...] = (THINK_DEFAULT, "none", "low", "medium", "high", "max")
+THINK_MENU: tuple[str, ...] = (THINK_DEFAULT, "none", "low", "medium", "high", "xhigh", "max")
 
 # The inference parameters otaku understands, and how each is read from
 # the saved file or a `/set parameter` argument.

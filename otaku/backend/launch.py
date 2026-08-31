@@ -31,9 +31,10 @@ from otaku.settings.config import Config
 from otaku.store import Store, is_encrypted
 from otaku.worker import Worker
 
-_SAMPLE_NOTICE = (
-    "A sample story was imported so you can look around — type to play on, "
-    "or see every command with /help · /model chooses a model · /new starts your own play."
+_SAMPLES_NOTICE = (
+    "Sample stories were imported so you can look around — type to play on, "
+    "/stories switches between them, or see every command with /help · "
+    "/model chooses a model · /new starts your own play."
 )
 
 
@@ -46,10 +47,9 @@ def open_session(root: str | Path | None = None, *, ask_secret: AskSecret | None
     block headless. Order: config before cipher before store (the key
     ceremony must precede any content); the worker is built but not
     started — the frontend starts it once it can repaint. A fresh
-    database is seeded with the shipped sample story (package data when
-    installed — the build maps the repo's samples/ into the package —
-    and the repo's samples/ on a source run; the seeding tries the
-    package dir, then the repo), its hint landing in `session.notice`
+    database is seeded with the shipped sample stories (`otaku/samples`,
+    the package's own data; the session lands in the first by name), the
+    hint landing in `session.notice`
     (the one bold post-scene line); EVERY settings-file warning (state,
     prompts, providers, keys) joins `session.notices`, and the store's
     admin facts go to the system log — the ones it marks `show` (a
@@ -257,20 +257,27 @@ def _resolve_api_keys(
 
 def _seed_sample(session: Session) -> None:
     """A database created from scratch is seeded with the shipped sample
-    story, through the import operation's own machinery — a native
-    import, so no pass runs and no model is called — and remembered, so
-    the user lands (and stays) in the middle of a playable story."""
-    package = Path(__file__).parent.parent  # otaku/ (named otaku once installed)
-    for candidate in (package / "samples" / "story.md", package.parent / "samples" / "story.md"):
-        if candidate.is_file():
-            try:
-                transfer.import_file(session, candidate.read_text(encoding="utf-8"), candidate.name)
-            except (Refused, OSError) as e:
-                # Best effort, like the missing file below: a damaged
-                # sample says so and the session opens empty. A first
-                # launch is the worst possible place for a traceback.
-                session.notices.append(f"The sample story could not be imported ({e}).")
-                return
-            session._update_state()
-            session.notice = _SAMPLE_NOTICE
-            return
+    stories, through the import operation's own machinery — native
+    imports, so no pass runs and no model is called — and remembered, so
+    the user lands (and stays) in the middle of a playable story. Every
+    samples/*.md lands, in name order, and the session settles in the
+    FIRST of them: the short story is the landing, the rest wait in
+    /stories."""
+    samples = Path(__file__).parent.parent / "samples"  # the package's own
+    landed: list[int] = []
+    for file in sorted(samples.glob("*.md")) if samples.is_dir() else []:
+        try:
+            transfer.import_file(session, file.read_text(encoding="utf-8"), file.name)
+        except (Refused, OSError) as e:
+            # Best effort, per file: a damaged sample says so and the
+            # others still land. A first launch is the worst possible
+            # place for a traceback.
+            session.notices.append(f"The sample story {file.name} could not be imported ({e}).")
+        else:
+            if session.story_id is not None:
+                landed.append(session.story_id)
+    if not landed:
+        return
+    session._switch_to(landed[0])
+    session._update_state()
+    session.notice = _SAMPLES_NOTICE

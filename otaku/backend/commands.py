@@ -135,7 +135,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("/export", "[FILE]", "Export the whole story to Markdown (memory + messages)", "transfer", CommandKind.INTERACTIVE),
     # Models and settings
     CommandSpec("/model", "[PROVIDER/MODEL]", "Switch model", "settings", CommandKind.INTERACTIVE),
-    CommandSpec("/set think", "<level>", "Thinking effort for the model: on|off|none|low|medium|high|max|default", "settings", CommandKind.OPERATION),
+    CommandSpec("/set think", "<level>", "Thinking effort for the model: on|off|none|low|medium|high|xhigh|max|default", "settings", CommandKind.OPERATION),
     CommandSpec("/set parameter", "<name> <val>", "Set an inference parameter for the model; no <val> shows it, <val> = reset returns the default", "settings", CommandKind.OPERATION),
     CommandSpec("/set verbose", "on|off", "Show the stats line after each reply", "settings", CommandKind.OPERATION),
     CommandSpec("/set autocorrect", "on|off", "Settle a character name you type in /you and /me commands to the cast's own spelling", "settings", CommandKind.OPERATION),

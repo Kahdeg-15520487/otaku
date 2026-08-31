@@ -37,9 +37,9 @@ Character journals so far — their story to date; continue it, do not restart i
 {journals}
 
 LANGUAGE: write every value you produce — the title, the summary, the entries,
-the states — in the SAME LANGUAGE the scene below is written in. Do not
-translate it, and do not answer in English because these instructions are in
-English. Only the JSON keys stay in English.
+the states — in the SAME LANGUAGE the scene below is written in: an English
+scene gets English values, a French scene French ones. Match the scene, not
+these instructions. Only the JSON keys stay in English.
 
 Extract from THIS SCENE ONLY and reply with ONLY a JSON object, no prose, in this shape:
 {
@@ -92,32 +92,40 @@ SCENE (numbered messages):
 {chunk}
 """
 
-HISTORY_DEFAULT = """\
+# The story-so-far rollup over the scene summaries: the narrator's
+# ledger, third person like the summaries it combines.
+SCENE_HISTORY_DEFAULT = """\
+Combine the scene summaries below into one running "story so far" summary
+(4-8 sentences, chronological, no headings). Output the summary only.
+
+Write it in the SAME LANGUAGE the summaries below are written in — English
+summaries get an English summary, French ones a French one. Match the
+summaries, not these instructions.
+
+{summaries}
+"""
+
+# A character's rollup over their own journal: their memory, so it keeps
+# the entries' first-person voice.
+JOURNAL_HISTORY_DEFAULT = """\
 Write {name}'s history: everything they know of the story so far, drawn from
 their own journal entries below.
 
 Rules:
+- {name}'s own voice, first person, exactly like the entries themselves:
+  "I", never "{name} did". This is their memory, not a report about them.
 - Chronological prose, past tense, about 300 words. No headings, no bullets.
 - Compress the earliest entries hardest and keep the recent ones specific.
   Names, promises, debts, injuries, betrayals, and secrets survive compression;
   weather and scenery do not.
 - Only what {name} witnessed or was told. Add nothing that is not below.
-- Write in the SAME LANGUAGE as the entries below — do not translate them, and
-  do not answer in English because these instructions are in English.
+- Write in the SAME LANGUAGE the entries below are written in — English
+  entries get an English history, French ones a French one. Match the
+  entries, not these instructions.
 - Output the history only.
 
 {name}'s journal, oldest entry first:
 {entries}
-"""
-
-STORY_SO_FAR_DEFAULT = """\
-Combine the scene summaries below into one running "story so far" summary
-(4-8 sentences, chronological, no headings). Output the summary only.
-
-Write it in the SAME LANGUAGE as the summaries below — do not translate it,
-and do not answer in English because these instructions are in English.
-
-{summaries}
 """
 
 _DEFAULTS = {
@@ -145,8 +153,8 @@ _DEFAULTS = {
         "Standing note: {depth_note}))"
     ),
     "extract_prompt": EXTRACT_DEFAULT,
-    "history_prompt": HISTORY_DEFAULT,
-    "story_so_far_prompt": STORY_SO_FAR_DEFAULT,
+    "scene_history_prompt": SCENE_HISTORY_DEFAULT,
+    "journal_history_prompt": JOURNAL_HISTORY_DEFAULT,
     "recap_header": "[The story so far — the scenes between these moments:]",
 }
 
@@ -166,8 +174,8 @@ _REQUIRED = {
     # the wire — and compose drops the lines of fields a card lacks.
     "card_framing": ("name",),
     "extract_prompt": ("cast", "journals", "chunk"),
-    "history_prompt": ("name", "entries"),
-    "story_so_far_prompt": ("summaries",),
+    "scene_history_prompt": ("summaries",),
+    "journal_history_prompt": ("name", "entries"),
 }
 
 _HEADER = [
@@ -186,8 +194,8 @@ class Prompts:
     roll_framing: str = _DEFAULTS["roll_framing"]
     card_framing: str = _DEFAULTS["card_framing"]
     extract_prompt: str = _DEFAULTS["extract_prompt"]
-    history_prompt: str = _DEFAULTS["history_prompt"]
-    story_so_far_prompt: str = _DEFAULTS["story_so_far_prompt"]
+    scene_history_prompt: str = _DEFAULTS["scene_history_prompt"]
+    journal_history_prompt: str = _DEFAULTS["journal_history_prompt"]
     recap_header: str = _DEFAULTS["recap_header"]
 
 

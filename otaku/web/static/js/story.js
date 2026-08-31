@@ -509,14 +509,18 @@ function buildCast(view, pane, characterId = null) {
       ),
     );
   }
+  /* The card ARCHIVE: hand-kept source, so it wears a plain face and the
+     same verbs every corrected field wears — inert until `edit` is taken.
+     The fact's key already names it, so the hint line carries only the
+     verbs, anchored right. */
   facts.push(
     character.card
-      ? marginFact("card", editable("otk-derived", {
+      ? marginFact("card", edited(editable("otk-card", {
           text: character.card,
           save: (text) => saveField(view, "cast", () =>
             api.editCharacter(view.subject.id, character.id, { card: text }),
           ),
-        }))
+        }), ""))
       : marginFact(
           "card",
           element("p", "otk-derived", "none — extracted from the story, not imported"),

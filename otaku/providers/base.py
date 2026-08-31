@@ -91,6 +91,14 @@ class Provider:
     local: bool  # False: a hosted catalog — billed rows, nothing to size
 
 
+class DeclinedError(RuntimeError):
+    """The engine answered the request with a refusal or an in-stream
+    error instead of content. str(e) carries the provider's own sentence.
+    Its own type, so a caller can tell "the model declined" from a bug:
+    a background pass skips the piece and moves on, the reply path shows
+    the sentence."""
+
+
 class RequestSink(Protocol):
     """Where requests and their answers are recorded — the injected log
     seam; the session's request log satisfies it. `record_request`
@@ -241,14 +249,59 @@ class OpenAIClient:
             "stream_options": {"include_usage": True},
             **params,
         }
-        self._apply_thinking(body, think)
-        request_id = ""
-        if self._request_log is not None:
-            request_id = self._request_log.record_request(self.config.name, purpose, body)
-        stream = self._stream(model, body, timeout, purpose, request_id)
+        sent = dict(body)
+        self._apply_thinking(sent, think)
+        stream = self._request(model, sent, timeout, purpose)
+        if sent != body:
+            # The thinking knob rode along, and engines differ on it:
+            # "none" cannot be sent to a model whose reasoning is
+            # mandatory, and some engines reject the field outright —
+            # both as a 400 before anything streams. One retry without
+            # the knob leaves them their own default.
+            stream = self._retry_without_thinking(stream, model, body, timeout, purpose)
         if watched and self._smooth:
             return smoothing.smoothen(stream, on_idle)
         return stream
+
+    def _request(
+        self, model: str, body: dict[str, object], timeout: float, purpose: str
+    ) -> Iterator[Chunk]:
+        """One logged attempt: the request recorded, its stream returned."""
+        request_id = ""
+        if self._request_log is not None:
+            request_id = self._request_log.record_request(self.config.name, purpose, body)
+        return self._stream(model, body, timeout, purpose, request_id)
+
+    def _retry_without_thinking(
+        self,
+        stream: Iterator[Chunk],
+        model: str,
+        body: dict[str, object],
+        timeout: float,
+        purpose: str,
+    ) -> Iterator[Chunk]:
+        """Retry a thinking-carrying request that a 400 refused
+        before anything streamed, as `body` — the same request with no
+        thinking field, so the engine runs its own default. Only a
+        stream that produced NOTHING falls back: a mid-stream failure
+        has words on someone's screen, and a second take would repeat
+        them."""
+        yielded = False
+        try:
+            for chunk in stream:
+                yielded = True
+                yield chunk
+        except GeneratorExit:
+            # Deterministically, not at collection: cancel-and-keep
+            # records the partial the moment the consumer lets go.
+            close = getattr(stream, "close", None)
+            if callable(close):
+                close()
+            raise
+        except httpx.HTTPStatusError as e:
+            if yielded or e.response.status_code != 400:
+                raise
+            yield from self._request(model, body, timeout, purpose)
 
     def _stream(
         self, model: str, body: dict[str, object], timeout: float, purpose: str, request_id: str
@@ -300,6 +353,7 @@ class OpenAIClient:
                     with contextlib.suppress(httpx.HTTPError):
                         response.read()
                 response.raise_for_status()
+                trouble: list[str] = []
                 for event in _events(response):
                     usage = event.get("usage")
                     if isinstance(usage, dict):
@@ -308,10 +362,21 @@ class OpenAIClient:
                         cached = _cached_count(usage)
                         if cached is not None:
                             cached_tokens = cached
+                    # A refusal or an in-stream error arrives as its own
+                    # frame with no content; swallowed, the stream would
+                    # end as an empty "ok" reply. Collected and raised
+                    # once the stream ends, so the caller's failure
+                    # carries the provider's own sentence.
+                    failure = event.get("error")
+                    if isinstance(failure, dict) and failure.get("message"):
+                        trouble.append(str(failure["message"]))
                     choices = event.get("choices") or []
                     if not choices:
                         continue
                     delta = choices[0].get("delta") or {}
+                    refusal = delta.get("refusal")
+                    if refusal:
+                        trouble.append(str(refusal))
                     thinking = delta.get("reasoning_content") or delta.get("reasoning")
                     if thinking:
                         if first_token_at is None:
@@ -324,6 +389,8 @@ class OpenAIClient:
                             first_token_at = time.monotonic()
                         text.append(str(content))
                         yield Text(text=str(content))
+                if trouble:
+                    raise DeclinedError("the model declined: " + "; ".join(trouble))
         except GeneratorExit:
             answered("cancelled")
             raise

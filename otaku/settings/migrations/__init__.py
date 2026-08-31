@@ -17,7 +17,11 @@ from pathlib import Path
 from otaku.settings import row, write_atomic
 from otaku.settings.migrations.prompt_texts import (
     EXTRACT_0_2_2,
+    EXTRACT_0_3_0,
+    HISTORY_0_3_0,
+    STORY_SO_FAR_0_3_0,
     refresh_template,
+    rename_template,
     update_prompts,
 )
 from otaku.settings.migrations.providers_file import (
@@ -37,7 +41,11 @@ from otaku.settings.migrations.surgery import (
     update_config,
     update_providers,
 )
-from otaku.settings.prompts import EXTRACT_DEFAULT
+from otaku.settings.prompts import (
+    EXTRACT_DEFAULT,
+    JOURNAL_HISTORY_DEFAULT,
+    SCENE_HISTORY_DEFAULT,
+)
 from otaku.settings.providers import ProviderConfig
 
 __all__ = [
@@ -143,6 +151,23 @@ _PROMPT_MIGRATIONS: list[Migration] = [
     # 0.3.0 — journals become the record of presence: one per character
     # present, silent bystanders included, arrivals and departures named.
     refresh_template("extract_prompt", EXTRACT_0_2_2, EXTRACT_DEFAULT),
+    # 0.4.0 — the two rollups say WHOSE history each is: the story-so-far
+    # over scene summaries, and a character's own over their journal.
+    # Values ride along untouched, edited or shipped.
+    rename_template("story_so_far_prompt", "scene_history_prompt"),
+    rename_template("history_prompt", "journal_history_prompt"),
+    # 0.4.0 — the journal rollup keeps the entries' first-person voice; a
+    # file still holding the shipped third-person text follows. AFTER the
+    # rename, so one launch heals a file however far it got.
+    refresh_template("journal_history_prompt", HISTORY_0_3_0, JOURNAL_HISTORY_DEFAULT),
+    # 0.4.0 — the language rule stops spelling "do not answer in English":
+    # run without thinking (as extraction is), a model can read that
+    # negation as the command and answer an English story in another
+    # tongue. Every lore template now states the rule positively. The
+    # journal template's ride arrives with the refresh above; these carry
+    # the other two, whose 0.2.2 and 0.3.0 texts are identical.
+    refresh_template("extract_prompt", EXTRACT_0_3_0, EXTRACT_DEFAULT),
+    refresh_template("scene_history_prompt", STORY_SO_FAR_0_3_0, SCENE_HISTORY_DEFAULT),
 ]
 
 

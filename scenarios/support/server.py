@@ -57,6 +57,10 @@ class ModelServer:
         self.cached_tokens: int | None = None  # set → usage reports this many cached
         self.chunk_size: int | None = None  # stream in pieces this long; None → thirds
         self.fail_after: int | None = None  # abort the stream after N content chunks
+        # Answer a chat POST with this status instead of serving it;
+        # None serves. Per request, so a test can refuse the knobbed
+        # request and serve its bare retry.
+        self.refuse: Callable[[dict[str, Any]], int | None] = lambda body: None
         self.requests: list[dict[str, Any]] = []
         self.request_headers: list[dict[str, str]] = []  # one row per POST, same order
         self.script: Callable[[dict[str, Any]], str | tuple[str, str]] = default_script
@@ -166,6 +170,13 @@ class ModelServer:
                         outer.loaded.add(str(body.get("model")))
                     self._json({})
                     return
+                status = outer.refuse(body)
+                if status is not None:
+                    self.send_response(status)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(b'{"error": {"message": "refused by the script"}}')
+                    return
                 result = outer.script(body)
                 thinking, text = result if isinstance(result, tuple) else ("", result)
                 self.send_response(200)
@@ -212,6 +223,7 @@ class ModelServer:
 
     def reset(self) -> None:
         self.script = default_script
+        self.refuse = lambda body: None
         self.requests.clear()
         self.request_headers.clear()
 

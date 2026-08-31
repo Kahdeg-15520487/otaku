@@ -401,6 +401,14 @@ textarea.otk-editable { margin: 0; padding: 0; border: 0; }
   font-style: italic; color: var(--otk-faint);
 }
 
+/* a character's card archive: hand-kept source, not a derived quotation —
+   plain face, and its newlines are structure */
+.otk-card {
+  margin: 0; font-family: var(--otk-font-prose); font-size: var(--otk-size-note);
+  line-height: 1.5; color: var(--otk-body);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
 .otk-note {
   margin: 0; font-family: var(--otk-font-prose); font-size: var(--otk-size-note);
   font-style: italic; line-height: 1.55; color: var(--otk-faint);
@@ -753,10 +761,11 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
 .otk-margin__key { font-family: var(--otk-font-mono); font-size: var(--otk-size-label); letter-spacing: 0.1em; text-transform: uppercase; color: var(--otk-faint); }
 .otk-margin__block { padding-top: 10px; border-top: var(--otk-hair) solid var(--otk-line-soft); }
 /* A derived value stands off its key where a plain fact sits tight under it:
-   the ruled inset is a quotation from the extractor and needs air to read as
-   one. Scoped here — `.otk-derived` is also a row in the message detail and a
-   block in a report, and neither wants the space. */
-.otk-margin__fact > .otk-derived { margin: 16px 0; }
+   the ruled inset is a quotation from the extractor and takes a little air to
+   read as one — a little: the column's own gap does the separating. Scoped
+   here — `.otk-derived` is also a row in the message detail and a block in a
+   report, and neither wants the space. */
+.otk-margin__fact > .otk-derived { margin: 8px 0; }
 
 /* the detail pane of a panel: a body that scrolls, and verbs that do not */
 .otk-detail { min-height: 0; overflow: hidden; display: flex; flex-direction: column; padding: 22px var(--otk-panel-pad); }

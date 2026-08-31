@@ -72,11 +72,6 @@ path = "otaku/__init__.py"
 [tool.hatch.build.targets.wheel]
 packages = ["otaku"]
 
-[tool.hatch.build.targets.wheel.force-include]
-# The seed story ships inside the package; the source tree keeps it at the
-# repo root, where a source run's fallback reads it (see backend.launch).
-"samples" = "otaku/samples"
-
 [tool.ruff]
 line-length = 100
 # The supported floor, not the interpreter in use: syntax newer than this

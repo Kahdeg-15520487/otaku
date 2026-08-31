@@ -53,7 +53,7 @@ import httpx
 from otaku.context.assembler import WireTurn
 from otaku.context.syntax import OOC_FRAME, to_wire
 from otaku.formatting import format_duration, render
-from otaku.providers import OpenAIClient, Stats, Text, WireMessage
+from otaku.providers import DeclinedError, OpenAIClient, Stats, Text, WireMessage
 from otaku.store import Store
 from otaku.store.ops.lore import CharacterMemory
 from otaku.store.schema import Message
@@ -85,8 +85,8 @@ class ExtractionSettings:
     so they travel together (a Job field, an Extractor argument)."""
 
     extract_template: str
-    history_template: str
-    story_so_far_template: str
+    scene_history_template: str
+    journal_history_template: str
     settle: int
     min_chars: int
     min_messages: int
@@ -540,10 +540,13 @@ class Extractor:
             )
             try:
                 story_so_far = self.complete(
-                    render(self._settings.story_so_far_template, summaries="\n\n".join(summaries)),
+                    render(self._settings.scene_history_template, summaries="\n\n".join(summaries)),
                     "rollup",
                 ).strip()
-            except httpx.HTTPError as e:
+            except (httpx.HTTPError, DeclinedError) as e:
+                # A decline is skipped like a transport failure: the row
+                # stays NULL and the next pass tries again — best-effort,
+                # never the whole pass.
                 self._log(
                     f"story-so-far rollup failed (story {self._story_id}, scene {no}): "
                     f"{type(e).__name__} ({format_duration(time.monotonic() - started)})"
@@ -593,13 +596,15 @@ class Extractor:
                 f"character {character_id}): {len(entries)} entries"
             )
             prompt = render(
-                self._settings.history_template,
+                self._settings.journal_history_template,
                 name=name,
                 entries="\n\n".join(f"{n}. {text}" for n, text in enumerate(entries, 1)),
             )
             try:
                 text = self.complete(prompt, "rollup")
-            except httpx.HTTPError as e:
+            except (httpx.HTTPError, DeclinedError) as e:
+                # A decline is skipped like a transport failure: the row
+                # stays NULL and the next pass tries again.
                 self._log(
                     f"history rollup failed (story {self._story_id}, "
                     f"character {character_id}): {type(e).__name__} "

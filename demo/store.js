@@ -12,10 +12,13 @@
 // the picker's switch, load and unload have something real to do.
 export const PROVIDER = "demo";
 const MODELS = [
-  { name: "demo-model", loaded: true, can_load_unload: true, size: "4.7 GB", context: "8K" },
-  { name: "demo-model-mini", loaded: false, can_load_unload: true, size: "1.9 GB", context: "32K" },
+  { name: "demo-model", loaded: true, can_load_unload: true, size: "4.7 GB", context: "32K" },
+  { name: "demo-model-mini", loaded: false, can_load_unload: true, size: "1.9 GB", context: "8K" },
 ];
-const WINDOW = 8192;
+// The window the fixtures' context previews were captured under
+// (scripts/demo_fixtures.py) — the two must agree, or the demo's own
+// numbers argue with the captured ledes.
+const WINDOW = 32768;
 const LIMIT = WINDOW - 1024; // approximates the real assembler's adaptive reply reserve
 
 export const INSTALL = "install otaku from otaku.sh to do this for real";
@@ -31,30 +34,32 @@ const state = {
   history: [], // the composer's ↑/↓ lines, most recent first
   usage: [], // one row per completed reply: {story, prompt, completion, seconds}
   syntax: null, // the story's typed language, for the menu and the sheet
-  contextFixture: null, // the captured preview, served until the story moves
-  contextStory: null, // …for this story only
+  contextFixtures: new Map(), // id → captured preview, served until that story moves
   status: "", // what /api/alive reports the worker doing
 };
 
 export function seed(fixtures) {
-  const { river, settings, syntax } = fixtures;
+  const { river, tour, settings, syntax } = fixtures;
   state.syntax = syntax;
   state.settings = structuredClone(settings);
-  const id = state.nextStory++;
-  state.stories.set(id, {
-    title: river.story.title || "",
-    system: river.opened.premise || "",
-    turns: river.opened.messages.map((t) => ({ ...t })),
-    updatedAt: river.story.updated_at,
-  });
-  state.lore.set(id, {
-    scenes: structuredClone(river.opened.scenes),
-    characters: structuredClone(river.opened.characters),
-  });
-  state.open = id;
-  state.nextMessage = Math.max(0, ...river.opened.messages.map((t) => t.id)) + 1;
-  state.contextFixture = river.context;
-  state.contextStory = id;
+  // Both shipped samples, the way a fresh install seeds them; the row's
+  // own `open` flag says which one the demo lands in.
+  for (const sample of [river, tour].filter(Boolean)) {
+    const id = state.nextStory++;
+    state.stories.set(id, {
+      title: sample.story.title || "",
+      system: sample.opened.premise || "",
+      turns: sample.opened.messages.map((t) => ({ ...t })),
+      updatedAt: sample.story.updated_at,
+    });
+    state.lore.set(id, {
+      scenes: structuredClone(sample.opened.scenes),
+      characters: structuredClone(sample.opened.characters),
+    });
+    if (sample.context) state.contextFixtures.set(id, sample.context);
+    if (sample.story.open) state.open = id;
+    state.nextMessage = Math.max(state.nextMessage, ...sample.opened.messages.map((t) => t.id)) + 1;
+  }
 }
 
 // ---------- reads ----------
@@ -222,7 +227,8 @@ export function settings() {
 export function context() {
   // The captured preview is the real assembler's work and is served as
   // long as it is true; a story that moved gets an honest recompute.
-  if (state.open === state.contextStory && state.contextFixture) return state.contextFixture;
+  const fixture = state.contextFixtures.get(state.open);
+  if (fixture) return fixture;
   const story = state.stories.get(state.open);
   const bodies = story ? story.turns : [];
   const system = story ? story.system : "";
@@ -423,7 +429,7 @@ export function editMessage(messageId, body) {
     if (turn) {
       turn.body = body;
       touch(id);
-      moved();
+      moved(id);
       return say("Message edited.");
     }
   }
@@ -527,7 +533,7 @@ export function undo() {
   if (story && story.turns.at(-1)?.role === "user") popped.push(story.turns.pop());
   if (!popped.length) return refuse("Nothing to undo.");
   touch(state.open);
-  moved();
+  moved(state.open);
   return say(`Took back the last exchange (${popped.length} messages).`);
 }
 
@@ -623,7 +629,7 @@ export function recordTurn(role, body) {
   };
   story.turns.push(turn);
   touch(state.open);
-  moved();
+  moved(state.open);
   return { ...turn };
 }
 
@@ -632,7 +638,7 @@ export function dropLastReply() {
   if (!story || story.turns.at(-1)?.role !== "assistant") return null;
   const popped = story.turns.pop();
   touch(state.open);
-  moved();
+  moved(state.open);
   return popped;
 }
 
@@ -699,7 +705,7 @@ export function importStory(paragraphs) {
   const id = addStory("", "", []);
   state.stories.get(id).turns = turnsIn;
   state.open = id;
-  moved();
+  moved(id);
   return { id, count: turnsIn.length };
 }
 
@@ -738,10 +744,10 @@ function touch(id) {
   if (story) story.updatedAt = new Date().toISOString();
 }
 
-function moved() {
-  // The captured context preview stops being true the moment the story
-  // moves; the recompute takes over.
-  state.contextStory = null;
+function moved(id) {
+  // The captured context preview stops being true the moment its story
+  // moves; the recompute takes over for that story alone.
+  state.contextFixtures.delete(id);
 }
 
 function modelRow() {
