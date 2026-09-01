@@ -126,6 +126,17 @@ class TestStoryBrowser:
         assert app.store.stories.get_system(first) == "!"
         assert app.session.system == ""  # the open story's premise is untouched
 
+    def test_the_dossier_clears_a_premise(self, app: App) -> None:
+        # An emptied editor is a save too: the premise is removed, not
+        # reported — the trap this covers is "" falling through to the
+        # report and the clear silently not landing.
+        first, _second = two_stories(app)
+        assert self.pick(app, DOWN + ENTER + SHIFT_TAB + ENTER + "!" + CTRL_S + ESC + ESC) is None
+        assert app.store.stories.get_system(first) == "!"
+        keys = DOWN + ENTER + SHIFT_TAB + ENTER + DELETE + CTRL_S + ESC + ESC
+        assert self.pick(app, keys) is None
+        assert app.store.stories.get_system(first) == ""
+
     def test_the_dossier_edits_another_story_s_message(self, app: App) -> None:
         first, _second = two_stories(app)
         assert self.pick(app, DOWN + ENTER + "e" + "!" + CTRL_S + ESC + ESC) is None
@@ -241,6 +252,24 @@ class TestSystem:
         app.play("/system Answer briefly.")
         assert "System prompt set (15 chars)." in capsys.readouterr().out
         assert app.store.stories.get_system(app.session.story_id) == "Answer briefly."
+
+    def test_a_bare_system_reports_and_changes_nothing(self, app: App, capsys) -> None:
+        app.play("/system Answer briefly.")
+        capsys.readouterr()
+        app.play("/system")
+        assert "Answer briefly." in capsys.readouterr().out  # the premise, reported
+        assert app.session.system == "Answer briefly."
+
+    def test_a_dash_clears_the_premise(self, app: App) -> None:
+        app.play("I enter the hall.")
+        app.play("/system Answer briefly.")
+        app.play("/system -")
+        assert app.session.system == ""
+        assert app.store.stories.get_system(app.session.story_id) == ""
+        # The clear reaches the wire: the next request opens with the
+        # played story, no system row.
+        app.play("I look around.")
+        assert app.server.requests[-1]["messages"][0]["role"] == "user"
 
     def test_a_long_premise_is_text_not_a_filename(self, app: App, capsys) -> None:
         # An argument is TEXT until proven a path, and the proof is a

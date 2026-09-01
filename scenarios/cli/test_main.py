@@ -46,7 +46,7 @@ class TestFirstRun:
         # The seeding is silent (its counts are not launch chrome); the
         # story itself is the proof, resumed mid-scene.
         terminal.expect("You're late, mapmaker.")
-        terminal.expect("A sample story was imported")
+        terminal.expect("Sample stories were imported")
         terminal.send("Hello?")
         terminal.send(ENTER, 1.0)
         terminal.expect("No model selected")
@@ -78,12 +78,17 @@ class TestChat:
         set_config_provider(state, server)
         set_config(state, seed_sample=True)
         terminal = Terminal(str(state))
-        terminal.expect("Models (1)", "test-model")
+        # Seeding both samples (one of them 300+ messages) runs before
+        # the picker can draw, so the first screen earns a longer wait.
+        # The header's count region repaints in place, so the raw
+        # transcript may hold "Models (1)" split by cursor moves — the
+        # word and the row are the anchors that survive redraws.
+        terminal.expect("Models", "test-model", timeout=30.0)
         terminal.send(ENTER, 1.0)
         # The seeding is silent (its counts are not launch chrome); the
         # story itself is the proof, resumed mid-scene.
         terminal.expect("You're late, mapmaker.")
-        terminal.expect("A sample story was imported")
+        terminal.expect("Sample stories were imported")
         assert terminal.quit() == 0
 
 

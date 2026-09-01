@@ -45,6 +45,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
+from otaku.store.schema import SCHEMA_VERSION as CURRENT_SCHEMA  # noqa: E402
 from scenarios.support.server import ModelServer  # noqa: E402
 
 # Every published release this build claims to migrate. 0.2.0 and earlier
@@ -52,7 +53,6 @@ from scenarios.support.server import ModelServer  # noqa: E402
 # current schema is still rehearsed — the settings, the export and the
 # read-back all matter — it simply has no ladder to run.
 VERSIONS = ("0.2.1", "0.2.2", "0.3.0")
-CURRENT_SCHEMA = "3"
 PROVIDER, MODEL = "test", "test-model"
 WORK = Path(os.environ.get("REHEARSAL_DIR", "/tmp/otaku-rehearsal"))
 
@@ -166,11 +166,22 @@ def run_in_venv(python: str, code: str, *, check: bool = False) -> subprocess.Co
     )
 
 
+def _fresh_venv(venv: Path) -> None:
+    """(Re)create `venv` unless it is a REAL venv. macOS prunes /tmp by
+    file age, which can gut a reused venv into a husk — a bin/python
+    symlink with no pyvenv.cfg. Installing --python against that symlink
+    resolves into the BASE interpreter's environment (the developer's
+    conda env), overwriting its entry scripts with husk shebangs."""
+    if not (venv / "pyvenv.cfg").exists():
+        shutil.rmtree(venv, ignore_errors=True)
+        subprocess.run(["uv", "venv", "--python", "3.11", "-q", str(venv)], check=True)
+
+
 def install(version: str) -> tuple[str, str]:
     """The published release in its own venv; returns (binary, python)."""
     venv = WORK / f"v{version.replace('.', '')}"
-    if not (venv / "bin/otaku").exists():
-        subprocess.run(["uv", "venv", "--python", "3.11", "-q", str(venv)], check=True)
+    if not (venv / "bin/otaku").exists() or not (venv / "pyvenv.cfg").exists():
+        _fresh_venv(venv)
         subprocess.run(
             [
                 "uv",
@@ -192,8 +203,7 @@ def install_current() -> str:
     subprocess.run(["uv", "build", "--quiet"], cwd=REPO, check=True)
     version = (REPO / "otaku/__init__.py").read_text().split('__version__ = "')[1].split('"')[0]
     wheel = REPO / f"dist/otaku-{version}-py3-none-any.whl"
-    if not venv.exists():
-        subprocess.run(["uv", "venv", "--python", "3.11", "-q", str(venv)], check=True)
+    _fresh_venv(venv)
     subprocess.run(
         [
             "uv",

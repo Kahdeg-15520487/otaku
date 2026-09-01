@@ -511,7 +511,7 @@ paths:
     parameters:
       - { name: story, in: path, required: true, schema: { type: integer } }
     get:
-      operationId: getStoryExport
+      operationId: getExportedStory
       tags: [Stories]
       summary: The story as one Markdown document, and its filename
       description: Writing the file is the page's — the server never learns where.
@@ -538,7 +538,8 @@ paths:
       description: |
         Paragraphs, so a body and not a line. Read from a file by the
         PAGE, which reads it in the browser and sends the text: a path
-        over HTTP would name a file on the server.
+        over HTTP would name a file on the server. An empty text clears
+        the premise.
       requestBody:
         content:
           application/json:

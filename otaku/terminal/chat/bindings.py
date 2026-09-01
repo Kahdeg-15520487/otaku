@@ -174,7 +174,9 @@ def _regen(chat: Chat, raw: str) -> None:
         chat.ledger.invalidate()
         chat.ledger.rule()
         marker = f"{DIM}[ regenerating ]{RESET}"
-        chat.say(marker)
+        # The blank under the marker: the ledger's lead already counts
+        # it (`echo_block`'s `above` math), so the screen must print it.
+        chat.say(marker + "\n")
         # The typed line stays above the marker — nothing of it to erase.
         chat.ledger.typed_gone()
         chat.ledger.echo_block(message(prompt.body, "user") if prompt else "", above=marker)
@@ -216,11 +218,17 @@ def _clear(chat: Chat, raw: str) -> None:
 
 
 def _system(chat: Chat, raw: str) -> None:
-    """The terminal's file affordance: an argument naming a readable file
-    (a leading `@` stripped) becomes the prompt's text; then ONE backend
-    call — api.stories.set_system(text)."""
+    """The terminal's grammar over the one backend setter: bare reports,
+    `-` clears, a readable file (a leading `@` stripped) becomes the
+    prompt's text; then ONE backend call — api.stories.set_system."""
     text = raw.strip().removeprefix("@")
-    path = _existing_file(text) if text else None
+    if not text:
+        chat.say(api_stories.report_system(chat.session))
+        return
+    if text == "-":
+        chat.say(api_stories.set_system(chat.session, ""))
+        return
+    path = _existing_file(text)
     if path is not None:
         try:
             text = path.read_text(encoding="utf-8", errors="replace").strip()
@@ -393,7 +401,8 @@ def _import(chat: Chat, raw: str) -> None:
         if report is not None:
             chat.say(report)
     chat.ledger.rule()
-    chat.say(last_turns(list(chat.session.messages), RESUME_TURNS))
+    turns = last_turns(list(chat.session.messages), RESUME_TURNS)
+    chat.say(f"The last turns of this story:\n\n{turns}")
     chat.restore_tail(RESUME_TURNS)
 
 

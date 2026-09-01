@@ -1,4 +1,4 @@
-"""SillyTavern chats, read into the same `StoryExport` our document parses to."""
+"""SillyTavern chats, read into the same `ExportedStory` our document parses to."""
 
 import json
 

@@ -54,6 +54,7 @@ def show(chat: Chat, events: Iterator[PlayEvent]) -> bool:
     out = chat.ledger.reply
     session = chat.session
     in_thinking = False
+    thinking_nl = 0  # trailing newlines the thinking text itself printed
     streamed = False  # any prose shown yet (the error line's lead blank)
     chars = 0
     interrupted = False
@@ -84,11 +85,22 @@ def show(chat: Chat, events: Iterator[PlayEvent]) -> bool:
                     if not in_thinking:
                         out.write(DIM + "(thinking) ")
                         in_thinking = True
-                    out.write(printable(event.text))
+                        thinking_nl = 0
+                    shown = printable(event.text)
+                    if shown:
+                        tail = len(shown) - len(shown.rstrip("\n"))
+                        # A chunk of only newlines extends the run; any
+                        # other chunk restarts it at its own tail.
+                        thinking_nl = thinking_nl + tail if tail == len(shown) else tail
+                    out.write(shown)
                     out.flush()
                 elif isinstance(event, Text):
                     if in_thinking:
-                        out.write(RESET + "\n")
+                        # Exactly one blank line between thinking and the
+                        # prose, whatever the model's own trailing
+                        # newlines: write only what is missing — models
+                        # differ (none, one, two), and the screen must not.
+                        out.write(RESET + "\n" * max(0, 2 - thinking_nl))
                         in_thinking = False
                     streamer.feed(event.text)
                     streamed = True

@@ -5,17 +5,17 @@ Rendering is exercised end to end by the round-trip in
 story gets no heading.
 """
 
-from otaku.backend.formats import ExportedMessage, StoryExport
+from otaku.backend.formats import ExportedMessage, ExportedStory
 from otaku.backend.formats.exports import render_story
 
 
 class TestRenderStory:
     def test_an_untitled_export_has_no_heading(self) -> None:
-        bare = StoryExport(messages=(ExportedMessage(role="user", body="Hi."),))
+        bare = ExportedStory(messages=(ExportedMessage(role="user", body="Hi."),))
         assert not render(bare).lstrip().startswith("# ")
 
 
-def render(export: StoryExport) -> str:
+def render(export: ExportedStory) -> str:
     return render_story(
         export, otaku_version="0.2.0", model="omlx/test", exported="2026-07-29 12:00"
     )

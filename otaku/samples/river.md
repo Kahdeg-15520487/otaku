@@ -2,7 +2,7 @@
 
 <!-- otaku export
 otaku-version: 0.2.0
-format-version: 1
+format-version: 3
 model: handwritten
 exported: 2026-07-31 12:00
 -->
@@ -29,6 +29,8 @@ You are the narrator of a quiet fantasy mystery. Write in second person, present
 
 Maren, a traveling cartographer, follows the post road into the Meade valley and finds the river missing from its bed: a channel of pale dry stones, fish bones weathered far older than three days, and the ferry up on chocks with its rope still strung across the air. The only person left at the crossing is Tallis, the old ferryman. He tells her the water departed three nights ago and — quietly, like a man afraid of being overheard — that it went uphill. Maren writes his words in her notebook where he can watch her do it, choosing to treat his account as testimony rather than grief.
 
+**History:** Maren, a traveling cartographer, follows the post road into the Meade valley and finds the river missing from its bed: a channel of pale dry stones, fish bones weathered far older than three days, and the ferry up on chocks with its rope still strung across the air. The only person left at the crossing is Tallis, the old ferryman. He tells her the water departed three nights ago and — quietly, like a man afraid of being overheard — that it went uphill. Maren writes his words in her notebook where he can watch her do it, choosing to treat his account as testimony rather than grief.
+
 #### Maren
 
 **State:** Kneeling in the dry riverbed below the ferry landing, notebook open, more curious than afraid.
@@ -43,6 +45,8 @@ Maren, a traveling cartographer, follows the post road into the Meade valley and
 - **Messages:** 7-10
 
 Tallis leads Maren up the empty channel, where every mark a river leaves behind — scour grooves, combed grass, a climbing waterline — runs against the slope: the water was walking uphill when it left. Back on the ferry deck, Maren unrolls her survey and asks him to point to where the river bent wrong. His finger comes down on the weir at Harrow Lock, and before both their eyes the inked river shifts a hair's width toward his hand and holds its new course. Maren marks the true course in red ink and, with dusk coming down, sets out alone along the towpath for Harrow Lock.
+
+**History:** The traveling cartographer Maren came down into the Meade valley to update her survey and found the river gone from its bed — dry as old bone, the ferry up on chocks. Tallis, the old ferryman and the only soul who stayed, told her the water left three nights ago and that it went uphill, and the scour marks along the empty channel bear him out. On the ferry deck he pointed to the weir at Harrow Lock as the place the river always fought, and under his finger the inked river on Maren's own map moved. She has drawn the true course in red and set out for the lock as dusk comes down.
 
 #### Maren
 

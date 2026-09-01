@@ -9,14 +9,14 @@ from otaku.backend.formats import (
     ExportedJournal,
     ExportedMessage,
     ExportedScene,
-    StoryExport,
+    ExportedStory,
 )
 from otaku.backend.formats.imports import STRUCTURE_LINE
 from otaku.store import Store
 
 
-def read_story(store: Store, story_id: int) -> StoryExport:
-    """The story out of the store as a `StoryExport`: its current chain
+def read_story(store: Store, story_id: int) -> ExportedStory:
+    """The story out of the store as an `ExportedStory`: its current chain
     and current scenes, ready for `render_story`. Bodies export as
     stored — a card row keeps its typed `/card` line — and each cast
     row's card archive travels with the cast, so a re-import restores
@@ -39,10 +39,9 @@ def read_story(store: Store, story_id: int) -> StoryExport:
                     history=journal.history,
                 )
             )
-    return StoryExport(
+    return ExportedStory(
         title=story.title if story else "",
         system=story.system if story else "",
-        story_so_far=store.scenes.get_story_so_far(story_id, list(ordinal)),
         cast=tuple(
             ExportedCharacter(c.name, c.aliases, c.description, c.card or "")
             for c in store.characters.list(story_id)
@@ -54,6 +53,7 @@ def read_story(store: Store, story_id: int) -> StoryExport:
                 if s.start_message_id in ordinal and s.end_message_id in ordinal
                 else None,
                 summary=s.summary,
+                history=s.history,
                 journals=tuple(by_scene.get(s.id, ())),
             )
             for s in scenes
@@ -71,7 +71,7 @@ def read_story(store: Store, story_id: int) -> StoryExport:
     )
 
 
-def render_story(export: StoryExport, *, otaku_version: str, model: str, exported: str) -> str:
+def render_story(export: ExportedStory, *, otaku_version: str, model: str, exported: str) -> str:
     """The export document for `export` — see the module docstring for the
     layout. `otaku_version`, `model`, and `exported` are provenance only;
     the parser reads none of them."""
@@ -88,10 +88,13 @@ def render_story(export: StoryExport, *, otaku_version: str, model: str, exporte
         "",
     ]
 
-    if export.story_so_far or export.system or export.cast:
+    # The story-so-far preface IS the newest scene's history — one fact,
+    # written twice for the reader opening the file, carried once.
+    arc = export.scenes[-1].history if export.scenes else ""
+    if arc or export.system or export.cast:
         out += ["## Story", ""]
-        if export.story_so_far:
-            out += ["### Story so far", "", _escape(export.story_so_far), ""]
+        if arc:
+            out += ["### Story so far", "", _escape(arc), ""]
         if export.system:
             out += ["### System", "", _escape(export.system), ""]
         if export.cast:
@@ -118,6 +121,8 @@ def render_story(export: StoryExport, *, otaku_version: str, model: str, exporte
             out.append("")
             if scene.summary:
                 out += [_escape(scene.summary), ""]
+            if scene.history:
+                out += [f"**History:** {_escape(scene.history)}", ""]
             for journal in scene.journals:
                 out += [f"#### {journal.character}", ""]
                 if journal.state:

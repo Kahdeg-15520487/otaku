@@ -26,13 +26,58 @@ This module holds the data model every reader and writer shares and the
 two facts that recognize a file; the parsers are the sibling modules
 (`exports`, `imports`, `sillytavern`, `plaintext`, `cards`)."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 
 # Bumped when the layout changes in a way an older reader would misread.
-EXPORT_FORMAT_VERSION = 2  # 2: `card` message kind; cast carries card archives
+#  2: `card` message kind; cast carries card archives
+#  3: each scene carries its own **History:** (the arc through it) — a
+#     v2 reader would fold the field line into the summary, so the
+#     version fences it out.
+EXPORT_FORMAT_VERSION = 3
 
 # What recognizes the document — the first line of its metadata block.
 EXPORT_MARKER = "<!-- otaku export"
+
+
+# The classes follow the DDL's table order (schema.py: stories,
+# messages, scenes, characters, journals), and each one's fields follow
+# its table's columns — the ids and audit columns absent because the
+# document has neither: names are its keys, nesting its foreign keys.
+# ExportedStory's collections stay in DOCUMENT order (cast, scenes,
+# messages), the file's own layout.
+
+
+@dataclass(frozen=True)
+class ExportedStory:
+    """One story's transferable whole — what the document holds."""
+
+    title: str = ""
+    system: str = ""
+    cast: tuple[ExportedCharacter, ...] = ()
+    scenes: tuple[ExportedScene, ...] = ()
+    messages: tuple[ExportedMessage, ...] = ()
+
+
+@dataclass(frozen=True)
+class ExportedMessage:
+    # DDL order puts kind and speaker before body, but a dataclass
+    # cannot: they carry defaults and body does not.
+    role: str  # 'user' | 'assistant'
+    body: str
+    kind: str = "dialogue"
+    speaker: str | None = None
+    template: str | None = None
+
+
+@dataclass(frozen=True)
+class ExportedScene:
+    span: tuple[int, int] | None = None  # (first, last) message ordinal, 1-based
+    title: str = ""
+    summary: str = ""
+    history: str = ""  # the story so far through this scene
+    journals: tuple[ExportedJournal, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -49,32 +94,3 @@ class ExportedJournal:
     entry: str = ""
     state: str = ""
     history: str = ""
-
-
-@dataclass(frozen=True)
-class ExportedScene:
-    title: str = ""
-    span: tuple[int, int] | None = None  # (first, last) message ordinal, 1-based
-    summary: str = ""
-    journals: tuple[ExportedJournal, ...] = ()
-
-
-@dataclass(frozen=True)
-class ExportedMessage:
-    role: str  # 'user' | 'assistant'
-    body: str
-    kind: str = "dialogue"
-    speaker: str | None = None
-    template: str | None = None
-
-
-@dataclass(frozen=True)
-class StoryExport:
-    """One story's transferable whole — what the document holds."""
-
-    title: str = ""
-    system: str = ""
-    story_so_far: str = ""
-    cast: tuple[ExportedCharacter, ...] = ()
-    scenes: tuple[ExportedScene, ...] = ()
-    messages: tuple[ExportedMessage, ...] = ()

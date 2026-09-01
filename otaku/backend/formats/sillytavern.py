@@ -3,7 +3,7 @@ parses to."""
 
 import json
 
-from otaku.backend.formats import ExportedMessage, StoryExport
+from otaku.backend.formats import ExportedMessage, ExportedStory
 
 # ST's own .jsonl acceptance test is just "the header parses and has one of
 # these keys" — match that tolerance.
@@ -13,8 +13,8 @@ _ST_HEADER_KEYS = ("user_name", "character_name", "chat_metadata")
 _ST_NOT_A_NAME = frozenset({"you", "user", "assistant", "system", "narrator", "unknown"})
 
 
-def parse_sillytavern(text: str) -> StoryExport | None:
-    """A SillyTavern chat (.jsonl) as a `StoryExport` — or None when the
+def parse_sillytavern(text: str) -> ExportedStory | None:
+    """A SillyTavern chat (.jsonl) as a `ExportedStory` — or None when the
     text isn't one (the first non-empty line must be a JSON object
     carrying ST's header signature and no `mes`).
 
@@ -57,4 +57,4 @@ def parse_sillytavern(text: str) -> StoryExport | None:
                 speaker=speaker,
             )
         )
-    return StoryExport(messages=tuple(messages))
+    return ExportedStory(messages=tuple(messages))

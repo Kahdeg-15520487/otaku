@@ -455,9 +455,7 @@ def _js_keys(name: str, constant: str) -> set[str]:
     """The keys of one JavaScript object literal, read as text —
     quoted (`"/me":`) or bare (`verbose:`)."""
     body = _page_source(name).split(f"const {constant} = {{", 1)[1].split("\n};", 1)[0]
-    return {
-        quoted or bare for quoted, bare in re.findall(r'^\s*(?:"([^"]+)"|(\w+)):', body, re.M)
-    }
+    return {quoted or bare for quoted, bare in re.findall(r'^\s*(?:"([^"]+)"|(\w+)):', body, re.M)}
 
 
 class TestWebTheme:

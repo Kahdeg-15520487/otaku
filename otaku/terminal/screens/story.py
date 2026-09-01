@@ -844,7 +844,7 @@ class Dossier(ListScreen):
         try:
             if self.tab == "premise":
                 self.notice = api_stories.set_system(self.session, new, self.story_id)
-                self.premise = new if new else self.premise
+                self.premise = new  # "" is a save too: the premise cleared
                 return
             if self.tab == "messages":
                 orig = self.turn_filtered[self.cursor]

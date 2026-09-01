@@ -161,23 +161,27 @@ def get_system(session: Session, story_id: int) -> str:
 
 
 def set_system(session: Session, text: str, story_id: int | None = None) -> str:
-    """Set a story's system prompt (the premise) to `text` verbatim; ""
-    reports the current one. It lives on the story, never on the model.
-    `story_id` names a story that is not open, for a browser correcting
-    one from the outside — the open story's own when it is None, which
-    is the only form the terminal ever uses. The terminal's file
-    affordance (`/system FILE`) resolves the file to text on ITS side —
-    over HTTP a path must never name a server-side file. Returns the
-    confirmation (or the report)."""
+    """Set a story's system prompt (the premise) to `text` verbatim — ""
+    CLEARS it: every caller is an editor or a command that has already
+    decided to write, so an emptied premise is a premise removed, never
+    a question (the bare `/system` report is `report_system`'s). It
+    lives on the story, never on the model. `story_id` names a story
+    that is not open, for a browser correcting one from the outside —
+    the open story's own when it is None, which is the only form the
+    terminal ever uses. The terminal's file affordance (`/system FILE`)
+    resolves the file to text on ITS side — over HTTP a path must never
+    name a server-side file. Returns the confirmation."""
     if story_id is not None and story_id != session.story_id:
-        if not text:
-            return f'System: "{session._store.stories.get_system(story_id)}"'
         session._store.stories.set_system(story_id, text)
-        return f"System prompt set ({len(text)} chars)."
-    if not text:
-        return f'System: "{session.system}"' if session.system else "System: (none)"
-    session._set_system(text)
-    return f"System prompt set ({len(text)} chars)."
+    else:
+        session._set_system(text)
+    return f"System prompt set ({len(text)} chars)." if text else "System prompt cleared."
+
+
+def report_system(session: Session) -> str:
+    """What the bare `/system` answers: the open story's premise, or
+    that there is none. A report, so nothing changes."""
+    return f'System: "{session.system}"' if session.system else "System: (none)"
 
 
 def delete(session: Session, story_id: int) -> None:

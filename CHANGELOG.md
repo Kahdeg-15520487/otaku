@@ -5,7 +5,7 @@ All notable changes to otaku are documented in this file. The format is based on
 [Semantic Versioning](https://semver.org/) — while pre-1.0, minor releases may include breaking
 changes.
 
-## [0.4.0] - [planned]
+## [0.4.0] - 2026-09-01
 
 **TL;DR**
 
@@ -18,6 +18,7 @@ changes.
   the story messages.
 - Prompt caching for OpenRouter.
 - Sound notifications.
+- A second, longer sample story.
 
 **Full version:**
 
@@ -91,6 +92,12 @@ changes.
   resumes, an earlier one still asks fork / truncate / cancel. Each scene's detail also gains a
   read-only history row — the story so far through that scene, which the web page already showed
   (as "the arc through here") and the terminal never did.
+- A second sample story is seeded on a first launch beside the short one: *The Vermilion Tour*, a
+  318-message ensemble play with its memory fully extracted — 15 scenes, a cast of dozens with
+  journals and histories — so the story browser, the dossier and the context preview have a story
+  long enough to show what they do before you have played one that size yourself. Every sample
+  story ships inside the package and all of them are imported; the session still lands in the
+  short one.
 
 ### Changed
 - The codebase is restructured around a frontend-agnostic core. Everything that is not the
@@ -106,6 +113,25 @@ changes.
   looks, beside the `[web]` section that arrived this version. Your file is renamed in place on
   the first launch after upgrading — the header line and nothing else, so every value and comment
   under it stays exactly as you left it.
+- The export document records the story so far through EVERY scene, not only the newest — an
+  imported story's dossier reads whole, scene by scene, instead of one arc and a column of
+  blanks. This is export format 3: every older document still imports exactly as before, its one
+  story-so-far landing on the newest scene, where it always lived — and an older otaku refuses a
+  format-3 file with directions rather than folding the new field into a summary by accident.
+- The lore templates in prompts.toml are retold in three ways, and a file still holding the
+  shipped wording follows on the first launch after upgrading (an edited template stays yours, as
+  always). The two rollup templates say whose history each is: `story_so_far_prompt` is now
+  `scene_history_prompt` and `history_prompt` is `journal_history_prompt` — your values ride the
+  rename untouched. A character's history rollup now keeps the journal's first-person voice
+  instead of retelling their own memory about them in third person. And the language rule in all
+  three stops spelling "do not answer in English": run without thinking, as extraction is, a model
+  could read that negation as the command and answer an English story in Dutch. The extract
+  template also pins the reply's shape — one flat JSON object, never lore nested inside the scene —
+  which a reply once got wrong and cost its scene's memory. The sizes tightened with the words:
+  a scene summary's 250-400 words is now a stated bound, the story-so-far caps at 200 words
+  instead of "4-8 sentences" (a count a model games with hundred-word sentences), and a
+  character's history says at most 300 — these all reach the wire, and an oversized memory
+  crowds out the story it exists to keep.
 - `/info` no longer prints the story's premise. A premise is a document rather than a fact about
   the session — as long as the reader made it, and a lorebook imported into it filled the report
   with itself — so it is left to `/system`, which reports it on its own and at whatever length it

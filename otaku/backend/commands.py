@@ -116,7 +116,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     # Stories
     CommandSpec("/stories", "", "Browse stories, resume an old one", "stories", CommandKind.INTERACTIVE),
     CommandSpec("/fork", "[TITLE]", "Continue in a copy of this story; the original stays", "stories", CommandKind.OPERATION),
-    CommandSpec("/system", "<text | FILE>", "Set the system prompt for this story — either directly or from a file", "stories", CommandKind.INTERACTIVE),
+    CommandSpec("/system", "<text | FILE>", "Set the system prompt for this story — from text or a file; - clears it", "stories", CommandKind.INTERACTIVE),
     CommandSpec("/title", "NEW", "Set the story title", "stories", CommandKind.OPERATION),
     CommandSpec("/new", "[TITLE]", "Clear context and start a new story", "stories", CommandKind.OPERATION),
     # Lore

@@ -11,7 +11,7 @@ extraction pass builds the memory afterwards, exactly as for live play.
 
 import re
 
-from otaku.backend.formats import ExportedMessage, StoryExport
+from otaku.backend.formats import ExportedMessage, ExportedStory
 
 # Prose splitting: quotes and dashes mark speech; the rest is narration.
 _QUOTE_SPAN = re.compile(r'"[^"\n]*"|“[^”\n]*”|«[^»\n]*»|„[^“\n]*“')
@@ -27,7 +27,7 @@ _SAID_VERB = re.compile(
 )
 
 
-def parse_plaintext(text: str) -> StoryExport | None:
+def parse_plaintext(text: str) -> ExportedStory | None:
     """`text` as a story of verbatim narration turns — or None when it
     holds nothing to import. Plain text is the open class — it never
     rejects a format, so the caller routes here only when no marked
@@ -36,7 +36,7 @@ def parse_plaintext(text: str) -> StoryExport | None:
     segments = split_segments(text)
     if not segments:
         return None
-    return StoryExport(
+    return ExportedStory(
         messages=tuple(
             ExportedMessage(role="user", body=segment, kind="narration") for segment in segments
         )

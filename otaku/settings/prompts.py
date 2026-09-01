@@ -54,6 +54,9 @@ Extract from THIS SCENE ONLY and reply with ONLY a JSON object, no prose, in thi
 }
 
 Rules:
+- Reply with ONE flat JSON object: "scene", "speakers", "characters" and
+  "journals" are ALL top-level keys of it — never put "characters" or
+  "journals" inside "scene".
 - "summary": prose, chronological, written like a story recap — not a synopsis.
   This summary is the ONLY record the story keeps of this scene: once it scrolls
   out of the recent messages, nothing else about it reaches the model. Write it
@@ -62,7 +65,8 @@ Rules:
   matters; every decision, promise, threat, or refusal, and who made it; what is
   revealed, and to whom; anything given, taken, shown, or hidden; how moods and
   relationships shift; and what is left unresolved. Quote a line verbatim when
-  its exact wording matters.
+  its exact wording matters. Stay inside 250-400 words — past that the recap
+  stops being memory and starts crowding the story itself out of the context.
 - "speakers": for EVERY numbered message, the single character who speaks or acts
   in it (their exact name); null when it is narration, several characters, or out
   of character.
@@ -95,8 +99,8 @@ SCENE (numbered messages):
 # The story-so-far rollup over the scene summaries: the narrator's
 # ledger, third person like the summaries it combines.
 SCENE_HISTORY_DEFAULT = """\
-Combine the scene summaries below into one running "story so far" summary
-(4-8 sentences, chronological, no headings). Output the summary only.
+Combine the scene summaries below into one running "story so far" summary —
+at most 200 words, chronological, no headings. Output the summary only.
 
 Write it in the SAME LANGUAGE the summaries below are written in — English
 summaries get an English summary, French ones a French one. Match the
@@ -114,7 +118,7 @@ their own journal entries below.
 Rules:
 - {name}'s own voice, first person, exactly like the entries themselves:
   "I", never "{name} did". This is their memory, not a report about them.
-- Chronological prose, past tense, about 300 words. No headings, no bullets.
+- Chronological prose, past tense, at most 300 words. No headings, no bullets.
 - Compress the earliest entries hardest and keep the recent ones specific.
   Names, promises, debts, injuries, betrayals, and secrets survive compression;
   weather and scenery do not.
@@ -141,8 +145,9 @@ _DEFAULTS = {
     ),
     "roll_framing": (
         "((OOC: Dice roll {dice}. The dice are already rolled and the result is "
-        "final — narrate the outcome of exactly this result; never reroll it, "
-        "change it, or roll on your own.))\n{body}"
+        "final — say what was rolled and the total in your reply, then narrate "
+        "the outcome of exactly this result; never reroll it, change it, or "
+        "roll on your own.))\n{body}"
     ),
     "card_framing": (
         "((OOC: {name} joins the story. Their card, to play them by:\n"

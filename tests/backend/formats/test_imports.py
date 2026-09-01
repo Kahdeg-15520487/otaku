@@ -16,15 +16,14 @@ from otaku.backend.formats import (
     ExportedJournal,
     ExportedMessage,
     ExportedScene,
-    StoryExport,
+    ExportedStory,
 )
 from otaku.backend.formats.exports import render_story
 from otaku.backend.formats.imports import NewerFormatError, parse_story
 
-FULL = StoryExport(
+FULL = ExportedStory(
     title="Болотная часовня",
     system="Ты — рассказчик.",
-    story_so_far="Кассиан добрался до часовни.",
     cast=(
         ExportedCharacter(
             "Кассиан",
@@ -42,6 +41,7 @@ FULL = StoryExport(
             title="Часовня",
             span=(1, 3),
             summary="Кассиан входит и встречает Элоизу.",
+            history="Кассиан пришёл в часовню.\nТам ждала Элоиза.",
             journals=(
                 ExportedJournal(
                     "Кассиан", entry="Я вошёл.", state="у алтаря", history="Всё, что я видел."
@@ -49,7 +49,9 @@ FULL = StoryExport(
                 ExportedJournal("Элоиза", entry="Он пришёл.", state="в тени"),
             ),
         ),
-        ExportedScene(span=(4, 4), summary="Разговор продолжается."),
+        # The newest scene's history doubles as the document's story-so-far
+        # preface; the round-trip proves the fold never overwrites it.
+        ExportedScene(span=(4, 4), summary="Разговор продолжается.", history="Кассиан в часовне."),
     ),
     messages=(
         ExportedMessage(role="user", body="Я вхожу в часовню.", speaker="Кассиан"),
@@ -70,13 +72,13 @@ class TestRoundTrip:
         assert parse_story(render(FULL)) == FULL
 
     def test_a_body_led_by_a_heading_survives(self) -> None:
-        x = StoryExport(
+        x = ExportedStory(
             messages=(ExportedMessage(role="user", body="### Chapter One\nThe hall was dark."),)
         )
         assert parse_story(render(x)) == x
 
     def test_a_body_with_a_section_heading_keeps_later_messages(self) -> None:
-        x = StoryExport(
+        x = ExportedStory(
             messages=(
                 ExportedMessage(role="user", body="## Recap\nSo far so good."),
                 ExportedMessage(role="assistant", body="A later reply."),
@@ -85,7 +87,7 @@ class TestRoundTrip:
         assert parse_story(render(x)) == x
 
     def test_an_unbalanced_fence_swallows_nothing(self) -> None:
-        x = StoryExport(
+        x = ExportedStory(
             messages=(
                 ExportedMessage(role="user", body="An unbalanced fence:\n```\ncode here"),
                 ExportedMessage(role="assistant", body="The next reply."),
@@ -94,22 +96,28 @@ class TestRoundTrip:
         assert parse_story(render(x)) == x
 
     def test_an_escape_shaped_line_survives(self) -> None:
-        x = StoryExport(
+        x = ExportedStory(
             messages=(ExportedMessage(role="user", body="\\### literally backslashed"),)
         )
         assert parse_story(render(x)) == x
 
     def test_a_summary_and_a_system_with_headings_survive(self) -> None:
-        x = StoryExport(
+        x = ExportedStory(
             system="## House rules\nNo dragons.",
-            story_so_far="### So far\nA guest arrived.",
-            scenes=(ExportedScene(title="One", span=(1, 1), summary="## Twist\nIt happened."),),
+            scenes=(
+                ExportedScene(
+                    title="One",
+                    span=(1, 1),
+                    summary="## Twist\nIt happened.",
+                    history="### So far\nA guest arrived.",
+                ),
+            ),
             messages=(ExportedMessage(role="user", body="Hi."),),
         )
         assert parse_story(render(x)) == x
 
     def test_a_bare_story_survives(self) -> None:
-        bare = StoryExport(
+        bare = ExportedStory(
             messages=(
                 ExportedMessage(role="user", body="Hi."),
                 ExportedMessage(role="assistant", body="Hello."),
@@ -119,7 +127,7 @@ class TestRoundTrip:
 
     def test_multiline_framing_survives_verbatim(self) -> None:
         template = "((OOC: line one.\n\nline two.))\n{body}"
-        export = StoryExport(
+        export = ExportedStory(
             messages=(ExportedMessage(role="user", body="Go.", template=template),)
         )
         parsed = parse_story(render(export))
@@ -127,7 +135,7 @@ class TestRoundTrip:
         assert parsed.messages[0].template == template
 
     def test_body_edges_strip_but_interior_blank_lines_stay(self) -> None:
-        export = StoryExport(messages=(ExportedMessage(role="assistant", body="One.\n\nTwo."),))
+        export = ExportedStory(messages=(ExportedMessage(role="assistant", body="One.\n\nTwo."),))
         parsed = parse_story(render(export))
         assert parsed is not None
         assert parsed.messages[0].body == "One.\n\nTwo."
@@ -158,6 +166,20 @@ class TestFormatVersion:
 
     def test_no_version_line_is_read_best_effort(self) -> None:
         assert parse_story(_with_version(render(FULL), "")) == FULL
+
+    def test_an_old_documents_story_so_far_folds_onto_the_newest_scene(self) -> None:
+        # Before format 3, the arc lived only in the `### Story so far`
+        # block; the parser IS the upward migration, so it lands as the
+        # newest scene's own history.
+        doc = (
+            "<!-- otaku export\nformat-version: 2\n-->\n\n## Story\n\n"
+            "### Story so far\n\nA guest arrived.\n\n## Scenes\n\n"
+            "### 1 · One\n- **Messages:** 1\n\nIt happened.\n\n"
+            "## Messages\n\n### 1 · user\nHi.\n"
+        )
+        parsed = parse_story(doc)
+        assert parsed is not None
+        assert parsed.scenes[-1].history == "A guest arrived."
 
 
 class TestMessageHeaders:
@@ -201,7 +223,7 @@ class TestMessageHeaders:
         assert self.parse_one("1 · user · [1]").speaker == "[1]"
 
 
-def render(export: StoryExport) -> str:
+def render(export: ExportedStory) -> str:
     return render_story(
         export, otaku_version="0.2.0", model="omlx/test", exported="2026-07-29 12:00"
     )

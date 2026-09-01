@@ -670,12 +670,18 @@ class TestFirstLaunch:
             ids = app.store.stories.get_messages_ids(story_id)
             assert len(app.store.scenes.get_current(story_id, ids)) == 2
             assert [c.name for c in app.store.characters.list(story_id)] == ["Maren", "Tallis"]
+            # The samples ship their whole memory: every scene arrives
+            # with its own story-so-far, nothing left for a first pass
+            # (and no model on a fresh install) to rebuild.
+            assert all(s.history for s in app.store.scenes.get_current(story_id, ids))
             # The second sample landed whole: the long play, memory and all.
             others = [s for s in app.store.stories.list() if s.id != story_id]
             assert [s.title for s in others] == ["The Vermilion Tour"]
             tour_ids = app.store.stories.get_messages_ids(others[0].id)
             assert len(tour_ids) == 318
-            assert len(app.store.scenes.get_current(others[0].id, tour_ids)) == 15
+            tour_scenes = app.store.scenes.get_current(others[0].id, tour_ids)
+            assert len(tour_scenes) == 15
+            assert all(s.history for s in tour_scenes)
         finally:
             app.close()
         # Remembered: a relaunch resumes the landing and does NOT seed again.

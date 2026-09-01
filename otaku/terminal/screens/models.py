@@ -127,6 +127,10 @@ _SIZE_COL = 8
 _CONTEXT_COL = 4
 _COL_GAP = 3
 
+# How long an edit's "loading…" holds before the fresh rows land — see
+# `_refresh_provider(settled=...)`.
+_EDIT_DWELL = 0.5
+
 
 def _style() -> Style:
     """Shared chrome from `base_style` plus the picker's row, preview and
@@ -709,7 +713,7 @@ class ModelPicker(ListScreen):
             # The registry took the value, the file did not — say so, or
             # the next launch silently forgets what the panel confirmed.
             self.notice = warning
-        self._refresh_provider(name)
+        self._refresh_provider(name, settled=True)
 
     def _set_field(self, text: str) -> None:
         """A paste onto a CLOSED field sets it outright: the field opens,
@@ -739,7 +743,8 @@ class ModelPicker(ListScreen):
         if warning:
             self.notice = warning
             return
-        self._refresh_provider(name)  # the vanished (set) mark reports it
+        # The vanished (set) mark reports it.
+        self._refresh_provider(name, settled=True)
 
     def _fetch_rows(self, name: str) -> list[Provider]:
         """One provider's fresh listing, through the picker's one query —
@@ -753,7 +758,7 @@ class ModelPicker(ListScreen):
             self.connected.discard(name)
         return rows
 
-    def _refresh_provider(self, name: str) -> None:
+    def _refresh_provider(self, name: str, *, settled: bool = False) -> None:
         """Re-list one provider — at the open, and again whenever its
         settings change, so the models side follows an edit without a
         relaunch; a provider that stopped answering simply loses its rows.
@@ -762,9 +767,22 @@ class ModelPicker(ListScreen):
         than by its callers: every listing is one of these, so every
         listing says so in the panel and nothing has to remember to. The
         add is under the lock the worker's discard takes, or a fetch that
-        answers instantly could clear the mark before it was made."""
+        answers instantly could clear the mark before it was made.
+
+        `settled` is the edit-triggered shape: the edited provider's old
+        rows leave with the edit and the fresh ones arrive only when the
+        loading mark goes, held to a minimum dwell — a local engine
+        answers in milliseconds, and an instant blink reads as "nothing
+        happened" rather than "asked again". The wait sleeps on the
+        fetch's own worker thread, where the network wait already lives;
+        the screen never blocks."""
         with self._lock:
             self.pending.add(name)
+            if settled:
+                entries = [e for e in self.all if e.provider_name != name]
+                self.all = _ordered(entries, self._order)
+                self._refilter()
+        started = time.monotonic()
 
         def worker() -> None:
             try:
@@ -772,6 +790,10 @@ class ModelPicker(ListScreen):
             except Exception:
                 fetched = []  # the reread found nothing — honest emptiness
                 self.connected.discard(name)
+            if settled:
+                remaining = _EDIT_DWELL - (time.monotonic() - started)
+                if remaining > 0:
+                    time.sleep(remaining)
             rows = [
                 ModelEntry(
                     full_spec=f"{name}/{model.name}",

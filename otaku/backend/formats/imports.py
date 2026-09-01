@@ -1,14 +1,15 @@
 """The import side: the document back into its parts, and any
-`StoryExport` into the store.
+`ExportedStory` into the store.
 
 `parse_story` reads the export document; `write_story` puts a
-`StoryExport` — whichever reader produced it — into the store as a new
+`ExportedStory` — whichever reader produced it — into the store as a new
 story: the messages, and, when it carries scenes, the memory verbatim
 with no model calls.
 """
 
 import json
 import re
+from dataclasses import replace
 
 from otaku.backend.formats import (
     EXPORT_FORMAT_VERSION,
@@ -17,7 +18,7 @@ from otaku.backend.formats import (
     ExportedJournal,
     ExportedMessage,
     ExportedScene,
-    StoryExport,
+    ExportedStory,
 )
 from otaku.store import Store
 from otaku.store.schema import Message
@@ -52,7 +53,7 @@ class NewerFormatError(Exception):
         self.declared = declared
 
 
-def parse_story(text: str) -> StoryExport | None:
+def parse_story(text: str) -> ExportedStory | None:
     """The document back into its parts, or None when `text` isn't one
     (no export marker). Any older format parses — the current parser
     reads every version ever written — and a newer declared format
@@ -106,12 +107,20 @@ def parse_story(text: str) -> StoryExport | None:
         head, journal_secs = _split_by_header(sbody, "#### ")
         span: tuple[int, int] | None = None
         summary_lines: list[str] = []
+        scene_fields: list[str] = []
         for line in head:
-            if (sm := _SPAN_BULLET.match(line.strip())) is not None:
+            if scene_fields:
+                # A field block runs to the head's end (`_labeled_fields`
+                # keeps multi-line values whole).
+                scene_fields.append(line)
+            elif (sm := _SPAN_BULLET.match(line.strip())) is not None:
                 first = int(sm.group(1))
                 span = (first, int(sm.group(2)) if sm.group(2) else first)
+            elif (fm := _FIELD.match(line)) and fm.group(1).strip().lower() == "history":
+                scene_fields.append(line)
             else:
                 summary_lines.append(line)
+        history = _unescape(_labeled_fields(scene_fields).get("history", ""))
         journals = tuple(
             ExportedJournal(
                 character=name.strip(),
@@ -122,7 +131,13 @@ def parse_story(text: str) -> StoryExport | None:
             for name, jbody in journal_secs
         )
         scenes.append(
-            ExportedScene(scene_title, span, _unescape(_strip_edges(summary_lines)), journals)
+            ExportedScene(
+                title=scene_title,
+                span=span,
+                summary=_unescape(_strip_edges(summary_lines)),
+                history=history,
+                journals=journals,
+            )
         )
 
     messages: list[ExportedMessage] = []
@@ -142,17 +157,23 @@ def parse_story(text: str) -> StoryExport | None:
             )
         )
 
-    return StoryExport(
+    if story_so_far and scenes and not scenes[-1].history:
+        # An older document carries the arc only as its `### Story so
+        # far` block — and the arc IS the newest scene's history, so it
+        # folds in here and needs no field of its own. Fill-only: a file
+        # carrying both keeps the per-scene value.
+        scenes[-1] = replace(scenes[-1], history=story_so_far)
+
+    return ExportedStory(
         title=title,
         system=system,
-        story_so_far=story_so_far,
         cast=tuple(cast),
         scenes=tuple(scenes),
         messages=tuple(messages),
     )
 
 
-def write_story(store: Store, export: StoryExport) -> int:
+def write_story(store: Store, export: ExportedStory) -> int:
     """Write an export into the store as a new story: the messages, and —
     when it carries scenes — the memory verbatim (cast, summaries,
     journals, histories), with no model calls. The title is applied only
@@ -207,8 +228,7 @@ def write_story(store: Store, export: StoryExport) -> int:
             card=member.card or None,
         )
 
-    newest_with_history = len(export.scenes) - 1 if export.story_so_far else None
-    for i, scene in enumerate(export.scenes):
+    for scene in export.scenes:
         if scene.span is None or not (1 <= scene.span[0] <= scene.span[1] <= len(ids)):
             continue
         scene_id = store.scenes.add(
@@ -217,8 +237,7 @@ def write_story(store: Store, export: StoryExport) -> int:
             end_message_id=ids[scene.span[1] - 1],
             title=scene.title or None,
             summary=scene.summary or None,
-            # The story so far rides the newest scene — all it ever is.
-            history=export.story_so_far if i == newest_with_history else None,
+            history=scene.history or None,
         )
         for journal in scene.journals:
             journal_id = store.journals.add(
