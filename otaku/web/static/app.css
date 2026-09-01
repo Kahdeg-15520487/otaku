@@ -638,6 +638,9 @@ textarea.otk-editable { margin: 0; padding: 0; border: 0; }
 .otk-prefix { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 10px; align-items: baseline; width: 100%; padding: 3px 16px; }
 .otk-prefix__token { font-family: var(--otk-font-mono); font-size: var(--otk-size-mono-sm); color: var(--otk-accent-ink); }
 .otk-prefix__desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--otk-font-prose); font-size: var(--otk-size-note); line-height: var(--otk-leading-row); color: var(--otk-body); }
+.otk-prefixes--cast { width: 320px; max-height: 200px; overflow-y: auto; }
+.otk-prefix--name { grid-template-columns: minmax(0, 1fr); }
+.otk-prefix--name .otk-prefix__token { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .otk-prefix[aria-selected="true"] { background: var(--otk-accent-tint); }
 .otk-prefix[aria-selected="true"] .otk-prefix__desc { color: var(--otk-ink); }
 
@@ -674,9 +677,9 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
 .otk-panel__head > .otk-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .otk-tabs { flex: none; display: flex; align-items: center; gap: 36px; padding: 0 var(--otk-panel-pad); border-bottom: var(--otk-hair) solid var(--otk-line-soft); }
-.otk-tab { font-family: var(--otk-font-display); font-size: 16px; font-weight: 600; letter-spacing: -0.01em; padding-bottom: 18px; color: var(--otk-muted); border-bottom: var(--otk-mark) solid transparent; }
+.otk-tab { font-family: var(--otk-font-display); font-size: 16px; font-weight: 600; letter-spacing: -0.01em; padding-bottom: 14px; color: var(--otk-muted); border-bottom: var(--otk-mark) solid transparent; }
 .otk-tab[aria-selected="true"] { color: var(--otk-ink); border-bottom-color: var(--otk-accent); }
-.otk-tabs__aside { margin-left: auto; padding-bottom: 18px; font-family: var(--otk-font-mono); font-size: var(--otk-size-small); color: var(--otk-faint); }
+.otk-tabs__aside { margin-left: auto; padding-bottom: 14px; font-family: var(--otk-font-mono); font-size: var(--otk-size-small); color: var(--otk-faint); }
 
 .otk-panel__body { flex: 1; min-height: 0; display: grid; }
 .otk-panel__body--split   { grid-template-columns: 1.1fr 1fr; }
@@ -768,7 +771,7 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
 .otk-margin__fact > .otk-derived { margin: 8px 0; }
 
 /* the detail pane of a panel: a body that scrolls, and verbs that do not */
-.otk-detail { min-height: 0; overflow: hidden; display: flex; flex-direction: column; padding: 22px var(--otk-panel-pad); }
+.otk-detail { min-height: 0; overflow: hidden; display: flex; flex-direction: column; padding: 22px var(--otk-panel-pad) 14px; }
 .otk-detail--reader { flex: 0 1 var(--otk-reader-w); min-width: 300px; }
 .otk-detail__scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
 .otk-detail__head { display: flex; align-items: baseline; gap: 10px; }
@@ -792,13 +795,17 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
 .otk-panel__body--premise { display: flex; justify-content: center; padding: 26px 40px 20px; }
 .otk-premise { width: var(--otk-premise-w); max-width: 100%; display: flex; flex-direction: column; }
 .otk-premise__lede { margin-bottom: 18px; }
-.otk-premise__state { margin-left: auto; font-family: var(--otk-font-prose); font-size: var(--otk-size-note); font-style: italic; color: var(--otk-accent-ink); }
 .otk-premise__body {
-  flex: 1; min-height: 0; width: 100%; resize: none;
+  flex: 1; min-height: 0; width: 100%; resize: none; overflow-y: auto;
   border: 0; border-top: var(--otk-hair) solid var(--otk-line); border-radius: 0;
-  outline: none; background: none; padding: 18px 0 0;
+  outline: none; background: none; padding: 18px 0 0; margin: 0;
   font-family: var(--otk-font-prose); font-size: var(--otk-size-lead); line-height: 1.74; color: var(--otk-ink);
 }
+/* the field fills the pane the way the bare textarea did, and the edit
+   pair inside it takes the premise measure, not the reading one */
+.otk-premise__field { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.otk-premise__field .otk-edit { flex: 1; min-height: 0; max-width: none; }
+.otk-premise__field .otk-reader { flex: 1; min-height: 0; }
 
 /* context: the request as a document, its stages as live figures */
 .otk-context { display: flex; flex-direction: column; gap: 22px; flex: 1; min-height: 0; overflow-y: auto; padding: 2px 30px 26px; }
@@ -840,7 +847,6 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
 .otk-docket__title { font-family: var(--otk-font-display); font-size: 24px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; color: var(--otk-ink); overflow-wrap: anywhere; }
 .otk-docket__story { font-family: var(--otk-font-prose); font-size: 21px; line-height: 1.3; color: var(--otk-ink); }
 .otk-tabs--docket { gap: 22px; padding: 0; border-bottom: var(--otk-hair) solid var(--otk-line); }
-.otk-tabs--docket .otk-tab { padding-bottom: 11px; }
 .otk-rule { height: var(--otk-hair); background: var(--otk-line); }
 .otk-rule--double { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; }
 .otk-rule--double::before, .otk-rule--double::after { content: ""; height: var(--otk-hair); background: var(--otk-ink); }

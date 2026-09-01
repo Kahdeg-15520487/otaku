@@ -355,17 +355,23 @@ NO_KEY = "no key set"
 NO_ANSWER = "\u2014"
 
 
-def balances(session: Session) -> BalanceReport:
+def balances(session: Session, *, probe: bool = True) -> BalanceReport:
     """Every provider with an account to bill, and what each says it has
     left. EVERY one: a provider with no key, a wrong key or an outage
     keeps its row with a dash, because a report of only what answered
     cannot be told apart from one that found nothing — and the row with
     the dash is usually the one the reader came to look at. The cloud
-    catalogs are asked concurrently; a local engine has no account."""
+    catalogs are asked concurrently; a local engine has no account.
+
+    `probe=False` asks no network at all and returns the ROSTER — each
+    keyed row with no figure and an EMPTY note, meaning "not asked yet"
+    rather than "would not answer": the page paints the whole slip from
+    it and fills the figures from one probed report. The terminal asks
+    plainly and gets everything in one wait."""
     registry = session._providers_registry
     configured = {config.name for config in registry.configured()}
 
-    def probe(provider: str, config: ProviderConfig) -> Balance | None:
+    def account(provider: str, config: ProviderConfig) -> Balance | None:
         client = registry.get_client(provider)
         if not isinstance(client, CloudClient):
             return None  # a local engine has no account to ask
@@ -381,13 +387,15 @@ def balances(session: Session) -> BalanceReport:
         # reader can act on one of them.
         if not config.api_key:
             return Balance(provider, named, None, NO_KEY)
+        if not probe:
+            return Balance(provider, named, None, "")
         try:
             money = client.balance(timeout=5.0)
         except Exception:
             money = None
         return Balance(provider, named, money, "" if money else NO_ANSWER)
 
-    rows = [row for row in registry.map(probe) if row]
+    rows = [row for row in registry.map(account) if row]
     # A cloud engine otaku ships a client for and nobody has configured
     # is still an account a reader may be about to open: it belongs in
     # the list, with nothing in it.

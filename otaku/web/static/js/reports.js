@@ -111,13 +111,13 @@ function stages(shape) {
 // ---------- the dockets: usage, balance, info ----------
 
 export async function openUsage(scope = "") {
-  openSlip("usage", "Token spend");
+  openSlip("usage", "Usage");
   const report = await api.usage(scope);
   /* A refusal is the whole answer, shown IN the slip rather than behind
      it: this report has two scopes, and the tab beside the empty one is
      the way to the other. */
   if (report.notice) {
-    showDocket("usage", "Token spend", [element("p", "otk-note", report.notice)]);
+    showDocket("usage", "Usage", [element("p", "otk-note", report.notice)]);
     scopeTabs(report.scopes, scope);
     return;
   }
@@ -145,7 +145,7 @@ export async function openUsage(scope = "") {
   // The closing sentence is the report's own — the page spells no figure
   // it was not given.
   blocks.push(element("p", "otk-note", report.note));
-  showDocket("usage", "Token spend", blocks, `${report.scope} · ${count(report.requests)} requests`);
+  showDocket("usage", "Usage", blocks, `${report.scope} · ${count(report.requests)} requests`);
   scopeTabs(report.scopes, scope);
 }
 
@@ -197,34 +197,57 @@ function scopeTabs(scopes, current) {
 
 export async function openBalance() {
   openSlip("balance", "Balance");
-  const report = await api.balance();
+  /* Everything but the figures shows at once: the ROSTER costs no
+     network — every row, its note, the spending sentence — and ONE
+     plain read then fills the numbers and the total in place. */
+  const roster = await api.balanceRoster();
   // A refusal is the whole answer, shown IN the slip the reader opened
   // — behind the modal is where a sentence goes unread.
-  if (report.notice) {
-    showDocket("balance", "Balance", [element("p", "otk-note", report.notice)]);
+  if (roster.notice) {
+    showDocket("balance", "Balance", [element("p", "otk-note", roster.notice)]);
     return;
   }
-  /* Every provider with an account to bill, and what each has left. A
-     row with no figure says which KIND of nothing it is: no key set, or
-     an account that would not answer — only one of which is actionable. */
+  /* Every provider with an account to bill. A row with no figure says
+     which KIND of nothing it is: no key set, an account that would not
+     answer — or, on the roster, not asked yet. */
+  const drawRow = (row) =>
+    leader(row.label, row.money ? row.value : row.note || "…", row.money ? "" : "otk-absent");
   const rows = element("div", "otk-v otk-v--sm");
-  for (const row of report.rows) {
+  const lines = new Map();
+  for (const row of roster.rows) {
     /* Named by its CAPTION, as the terminal names it: what a provider is
        called is decided below both frontends (`reports.balances`). */
-    rows.append(leader(row.label, row.value, row.money ? "" : "otk-absent"));
+    const line = drawRow(row);
+    lines.set(row.provider, line);
+    rows.append(line);
   }
-  const blocks = [element("div", "otk-hr"), rows];
+  /* The total's box stands from the first paint — the rule, the label,
+     and a figure-sized blank — so nothing below it moves when the
+     number lands. Emptied only for the rare report with no
+     single-currency total to put in it. */
+  // A blank with the FIGURE's own metrics — `otk-absent` swaps face
+  // and would move the line 3px when the number lands.
+  const totalFigure = span("otk-total__figure", "\u00a0");
+  const total = element("div", "otk-total");
+  total.append(span("otk-label", "on account"), totalFigure);
+  const tail = element("div", "otk-v otk-v--sm");
+  tail.append(element("div", "otk-rule--double"), total);
+  const blocks = [element("div", "otk-hr"), rows, tail];
+  // What the story on screen spends — the report's own sentence, which
+  // is the half of "what have I got left" a list of accounts cannot say.
+  if (roster.note) blocks.push(element("p", "otk-note", roster.note));
+  showDocket("balance", "Balance", blocks);
+
+  const report = await api.balance().catch(() => null);
+  if (!report?.rows) return;
+  for (const row of report.rows) lines.get(row.provider)?.replaceWith(drawRow(row));
   // The total is the backend's arithmetic, not the page's: it is there
   // only when one currency covers every account that answered.
   if (report.total) {
-    const total = element("div", "otk-total");
-    total.append(span("otk-label", "on account"), span("otk-total__figure", report.total.text));
-    blocks.push(element("div", "otk-rule--double"), total);
+    totalFigure.textContent = report.total.text;
+  } else {
+    tail.replaceChildren();
   }
-  // What the story on screen spends — the report's own sentence, which
-  // is the half of "what have I got left" a list of accounts cannot say.
-  if (report.note) blocks.push(element("p", "otk-note", report.note));
-  showDocket("balance", "Balance", blocks);
 }
 
 export async function openInfo() {
@@ -291,11 +314,11 @@ function openSlip(kind, title) {
 
 /* The BOX each report gets, decided by kind and not by what arrived:
    balance is a column of figures on a narrow slip, usage and info take
-   the default width. Height is torn to what a slip says, except
-   balance, whose figures land one account at a time and need a box
-   settled before they arrive. */
+   the default width. Every slip is torn to what it says — the balance
+   included, whose whole shape stands from the roster with only the
+   figures to land, so nothing about its height ever changes. */
 const _SIZE = {
-  balance: ["otk-docket--narrow", "otk-docket--fixed"],
+  balance: ["otk-docket--narrow"],
   usage: [],
   info: [],
 };

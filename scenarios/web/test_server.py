@@ -148,6 +148,21 @@ class TestReading:
         # A refusal IS the answer — 200 and a notice, not an error page.
         assert page.get("/api/usage")["notice"].startswith("No story yet")
 
+    def test_the_cast_read_answers_the_composers_name_menu(self, page: Page) -> None:
+        # Empty with no story — a menu question is never a refusal —
+        # and the story's characters once a pass has named them.
+        assert page.get("/api/cast") == {"characters": []}
+
+    def test_the_balance_roster_asks_no_network_and_marks_the_unasked(self, page: Page) -> None:
+        """`?probe=none` is the slip's first paint: every cloud row
+        present, a KEYED one carrying an empty note (not asked yet) and
+        no figure — offline-provable, since nothing may be probed."""
+        page.patch("/api/providers/openrouter", {"api_key": "k-test"})
+        rows = {row["provider"]: row for row in page.get("/api/balance?probe=none")["rows"]}
+        assert rows["openrouter"]["note"] == ""  # keyed: not asked yet
+        assert rows["openrouter"]["money"] is None
+        assert rows["nanogpt"]["note"]  # keyless: says which nothing it is
+
     def test_the_settings_read_carries_the_shared_effort_ladder(self, page: Page) -> None:
         # The order is declared ONCE, below both frontends — the page
         # draws it, never re-sorts it.

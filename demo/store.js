@@ -308,6 +308,19 @@ export function usage(scope) {
   };
 }
 
+export function cast() {
+  /* The open story's characters, shaped as the product's `/api/cast`
+     answers — the composer's name menu reads it in the demo too. */
+  const memory = state.lore.get(state.open);
+  return {
+    characters: (memory?.characters ?? []).map((person) => ({
+      id: person.id,
+      name: person.name,
+      description: person.description ?? "",
+    })),
+  };
+}
+
 export function balance() {
   // Nobody has a key in a browser tab, so every account says the same
   // thing — and the total is null, as it is whenever nothing answered.
@@ -318,6 +331,7 @@ export function balance() {
     note: "no key set",
     value: "no key set",
   });
+  // `?probe=none` changes nothing here: no key is ever probed.
   return {
     rows: [nothing("openrouter", "OpenRouter"), nothing("nanogpt", "NanoGPT")],
     total: null,

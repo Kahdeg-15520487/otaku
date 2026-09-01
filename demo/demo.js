@@ -42,6 +42,7 @@ const ROUTES = {
   // Playing
   "GET /api/play": () => ({ messages: store.turns() }),
   "GET /api/play/syntax": () => store.syntax(),
+  "GET /api/cast": () => store.cast(),
   "DELETE /api/play/last": () => store.undo(),
   "GET /api/history": () => ({ lines: store.history() }),
   "POST /api/history": (p, q, b) => store.recordHistory(String(b.line ?? "")),

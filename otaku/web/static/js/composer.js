@@ -113,11 +113,24 @@ export function wire() {
 }
 
 function onKey(event) {
-  // While the menu is up it owns Enter and the arrows.
+  // While the menu is up it owns Enter, the arrows and the page keys.
   if (!menu.hidden && offered.length) {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       picked = (picked + (event.key === "ArrowDown" ? 1 : offered.length - 1)) % offered.length;
+      paintMenu();
+      return;
+    }
+    if (event.key === "PageDown" || event.key === "PageUp") {
+      // A page is what the box shows; the jump clamps at the ends
+      // rather than wrapping, as page keys do everywhere.
+      event.preventDefault();
+      const row = $(".otk-prefix", menu);
+      const step = row ? Math.max(1, Math.floor(menu.clientHeight / row.offsetHeight) - 1) : 1;
+      picked =
+        event.key === "PageDown"
+          ? Math.min(offered.length - 1, picked + step)
+          : Math.max(0, picked - step);
       paintMenu();
       return;
     }
@@ -207,6 +220,62 @@ function _prefixes() {
   }));
 }
 
+/* Cast names where a direction expects one — the RULE is the
+   terminal's (`terminal.prompt.completion._cast_rows`, its home, held
+   there because the two menus must offer one gesture): names come from
+   `api.lore.cast`, filter on the raw argument so spaced names match
+   whole, none are offered past a `:`, and `/me` inserts `Name: ` where
+   the others insert the bare name (the hint is a colon away). */
+
+let _cast = null; // fetched when a name slot first asks; dropped with the menu
+let _castAsked = 0;
+
+function nameSlot() {
+  /* The opener taking a NAME and the partial before the caret — null
+     when the caret is anywhere else. One-line lines only, like the
+     opener menu itself. */
+  if (composer.value.includes("\n")) return null;
+  const before = composer.value.slice(0, composer.selectionStart ?? composer.value.length);
+  const m = before.match(/^\s*(\/[a-z]+)\s+([^:]*)$/);
+  if (!m) return null;
+  const spec = _prefixes().find((row) => !row.inline && row.token === m[1]);
+  if (!spec || !spec.args.startsWith("NAME")) return null;
+  return { token: m[1], partial: m[2], start: before.length - m[2].length };
+}
+
+async function offerNames({ token, partial, start }) {
+  /* Per keystroke, answered out of order like the browser's filter:
+     only the newest paints. The cast is read once per menu visit —
+     `hideMenu` drops it, so a `/merge` a moment ago is not stale. */
+  const mine = ++_castAsked;
+  if (_cast === null) {
+    try {
+      _cast = (await api.cast()).characters;
+    } catch {
+      _cast = [];
+    }
+  }
+  if (mine !== _castAsked) return;
+  const needle = partial.toLowerCase();
+  const insert = (name) => (token === "/me" ? `${name}: ` : `${name} `);
+  const was = offered.map((spec) => spec.token).join(" ");
+  const matched = _cast.filter((row) => row.name.toLowerCase().startsWith(needle));
+  // Every match, in the menu's own scroll — the header carrying the
+  // count once the cast runs past what fits at a glance.
+  const caption = matched.length > 7 ? `Cast (${matched.length} total)` : "Cast";
+  offered = matched.map((row) => ({
+    isName: true,
+    token: row.name,
+    caption,
+    insert: insert(row.name),
+    start,
+  }));
+  if (offered.map((spec) => spec.token).join(" ") !== was) picked = 0;
+  picked = Math.min(picked, Math.max(0, offered.length - 1));
+  menu.hidden = offered.length === 0;
+  paintMenu();
+}
+
 function typing() {
   /* The slash word the caret is in, and whether it opens the line. "" if
      the caret is not in one — the menu has nothing to offer then. */
@@ -220,6 +289,19 @@ function updateMenu({ everything = false } = {}) {
   /* `everything` is the hint button: with the caret outside a slash
      word, position decides which half applies — a line being opened
      takes the directions, a sentence underway the inline words. */
+  const names = everything ? null : nameSlot();
+  if (names) {
+    if (!offered[0]?.isName) {
+      /* The openers must not keep standing — and answering Enter —
+         while the cast is fetched: a beat with no menu over a stale
+         accept. The names paint the moment the read returns. */
+      offered = [];
+      menu.hidden = true;
+    }
+    offerNames(names);
+    return;
+  }
+  _castAsked++; // a paint in flight must not land over the openers
   const { word, opens } = typing();
   const was = offered.map((spec) => spec.token).join(" ");
   if (everything) {
@@ -241,12 +323,18 @@ function updateMenu({ everything = false } = {}) {
 }
 
 function paintMenu() {
+  // The cast wears its own box: narrower, capped, scrolling.
+  menu.classList.toggle("otk-prefixes--cast", Boolean(offered[0]?.isName));
   const rows = [];
   let heading = null;
   offered.forEach((spec, i) => {
     // Every token has a row in `_MENU` — held by the architecture test,
     // so a new framing word fails the suite instead of a blank caption.
-    const [group, means] = _MENU[_bare(spec.token)] ?? [null, ""];
+    // A cast name is not a token: its caption is the cast's own, and
+    // the row is the name alone — full width, never wrapped.
+    const [group, means] = spec.isName
+      ? [spec.caption, ""]
+      : (_MENU[_bare(spec.token)] ?? [null, ""]);
     // A caption between the rows, wherever the half of the language changes.
     // It is not a row: the cursor walks `.otk-prefix` alone.
     if (group && group !== heading) {
@@ -255,11 +343,12 @@ function paintMenu() {
       caption.append(span("otk-label", group));
       rows.push(caption);
     }
-    const option = element("button", "otk-prefix");
+    const option = element("button", spec.isName ? "otk-prefix otk-prefix--name" : "otk-prefix");
     option.type = "button";
     option.setAttribute("role", "option");
     option.setAttribute("aria-selected", String(i === picked));
-    option.append(span("otk-prefix__token", _bare(spec.token)), span("otk-prefix__desc", means));
+    option.append(span("otk-prefix__token", _bare(spec.token)));
+    if (!spec.isName) option.append(span("otk-prefix__desc", means));
     if (i === picked) queueMicrotask(() => option.scrollIntoView({ block: "nearest" }));
     option.onmousedown = (event) => {
       event.preventDefault();
@@ -271,6 +360,17 @@ function paintMenu() {
 }
 
 function accept(spec) {
+  if (spec.isName) {
+    // The name replaces the argument typed so far; what follows it is
+    // the rule's (`Name: ` after /me, the bare name elsewhere).
+    const caret = composer.selectionStart ?? composer.value.length;
+    setValue(composer, composer.value.slice(0, spec.start) + spec.insert + composer.value.slice(caret));
+    composer.focus();
+    const at = spec.start + spec.insert.length;
+    composer.setSelectionRange(at, at);
+    hideMenu();
+    return;
+  }
   /* A prefix is chosen to be written after, so the space comes with it.
      It replaces the slash word the caret is in — or lands at the caret
      when the menu was opened by the hint — and leaves the prompt around
@@ -284,9 +384,13 @@ function accept(spec) {
   composer.focus();
   composer.setSelectionRange(opened + taken.length, opened + taken.length);
   hideMenu();
+  // A framing word that takes a name continues straight into the cast:
+  // the menu follows the caret rather than waiting for a keystroke.
+  updateMenu();
 }
 
 function hideMenu() {
   menu.hidden = true;
   offered = [];
+  _cast = null;
 }

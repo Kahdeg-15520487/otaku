@@ -120,6 +120,21 @@ function buildModels(state, notice) {
 
   const setLoaded = async (entry, wanted) => {
     if (!entry?.model.can_load_unload) return;
+    /* Asked first, as the terminal's picker asks: a load takes the
+       engine's memory and its time, and `u` sits one key beside `l`. */
+    const verb = wanted ? "Load" : "Unload";
+    const choice = await ask("confirm", (dialog) => {
+      $("[data-title]", dialog).textContent = `${verb} ${entry.model.name}?`;
+      $(".otk-dialog__body", dialog).textContent = wanted
+        ? "The engine loads it into memory, which can take a while."
+        : "The engine frees its memory; picking the model later loads it again.";
+      const aside = $("[data-note]", dialog);
+      aside.textContent = "";
+      aside.hidden = true;
+      $('[data-choice="confirm"]', dialog).textContent = verb;
+      $('[data-choice="cancel"]', dialog).textContent = "Cancel";
+    });
+    if (choice !== "confirm") return;
     const answer = await api.setLoaded(entry.engine.name, entry.model.name, wanted);
     /* One flag on one model changed, so that is what changes here:
        asking the catalogs again costs every provider a round trip to

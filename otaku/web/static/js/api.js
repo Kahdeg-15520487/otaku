@@ -85,6 +85,7 @@ export const alive = () => get("/api/alive");
 
 export const turns = () => get("/api/play").then((it) => it.messages);
 export const syntax = () => get("/api/play/syntax");
+export const cast = () => get("/api/cast");
 export const undo = () => remove("/api/play/last");
 
 export const history = () => get("/api/history").then((it) => it.lines);
@@ -157,6 +158,9 @@ export const setHead = (story, message, discard = false) =>
 export const context = () => get("/api/session/context");
 export const info = () => get("/api/session/info");
 export const balance = () => get("/api/balance");
+// The slip's first paint: the roster costs no network — rows and notes
+// with no figures — and one plain `balance` read then fills them.
+export const balanceRoster = () => get("/api/balance?probe=none");
 export const usage = (scope = "") => get(`/api/usage${query({ scope })}`);
 
 // ---------- settings ----------

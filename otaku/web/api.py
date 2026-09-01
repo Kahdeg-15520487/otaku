@@ -183,6 +183,18 @@ def syntax() -> dict[str, Any]:
     }
 
 
+def cast(session: Session) -> dict[str, Any]:
+    """The open story's cast, for the composer's name menu — the cheap
+    per-keystroke read `backend.api.lore.cast` exists for. Empty with no
+    story or an empty cast: a menu question is never a refusal."""
+    return {
+        "characters": [
+            {"id": row.id, "name": row.name, "description": row.description}
+            for row in api_lore.cast(session)
+        ]
+    }
+
+
 def stories(session: Session, query: str = "") -> list[dict[str, Any]]:
     """The story browser's rows, most recently played first. `label` is
     the listing's own fallback rule — title, then the newest rollup,
@@ -469,13 +481,17 @@ def _money(money: Money | None) -> dict[str, Any] | None:
     return {"amount": str(money.amount), "currency": money.currency, "text": str(money)}
 
 
-def _balance(session: Session) -> dict[str, Any]:
+def _balance(session: Session, ask: Ask) -> dict[str, Any]:
     """What each cloud account has left, as Money — and the note that
     stands where a figure would be for an account nobody has a key for
     or one that would not answer. `total` is everything on account when
     one currency covers every row, and null when it does not: adding
-    across currencies is a conversion, and otaku has no rate."""
-    report = reports.balances(session)
+    across currencies is a conversion, and otaku has no rate.
+
+    `?probe=none` returns the roster without asking any network (keyed
+    rows carry an empty note — not asked yet): the page paints the whole
+    slip from it, then fills the figures from one plain read."""
+    report = reports.balances(session, probe=ask.query.get("probe") != "none")
     return {
         "rows": [
             {
@@ -967,6 +983,7 @@ ROUTES: dict[tuple[str, str], _Route] = {
     ("GET", "/api/play"): lambda session, ask: {"messages": _turns(session)},
     ("DELETE", "/api/play/last"): lambda session, ask: _undo(session),
     ("GET", "/api/play/syntax"): lambda session, ask: syntax(),
+    ("GET", "/api/cast"): lambda session, ask: cast(session),
     ("GET", "/api/history"): lambda session, ask: {"lines": _history(session)},
     ("POST", "/api/history"): _record_history,
     # All stories
@@ -1003,7 +1020,7 @@ ROUTES: dict[tuple[str, str], _Route] = {
     ("PUT", "/api/session/head"): _head,
     ("GET", "/api/session/context"): lambda session, ask: context(session),
     ("GET", "/api/session/info"): lambda session, ask: _info(session),
-    ("GET", "/api/balance"): lambda session, ask: _balance(session),
+    ("GET", "/api/balance"): _balance,
     ("GET", "/api/usage"): lambda session, ask: _usage(session, ask.query.get("scope", "")),
     # Settings
     ("GET", "/api/settings"): lambda session, ask: settings(session),

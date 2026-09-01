@@ -44,13 +44,20 @@ const _PREMISE_FILES = ".txt,.md,.markdown,text/plain,text/markdown";
     row of the browser's). `tab` is where it opens; `answered` is what a
     write this screen triggered came back with; `allStories` is where
     the back button goes when no story browser waits underneath. */
-export async function openStory({ story = null, tab = "messages", answered = "", allStories } = {}) {
+export async function openStory({
+  story = null,
+  tab = "messages",
+  answered = "",
+  allStories,
+  target = null,
+} = {}) {
   const popup = popups.get("/story");
-  // The panel is up before its data: a click must answer now, and the
-  // modal keeps further clicks from queueing screens behind it.
-  $("[data-story-title]", popup).textContent = label(story?.label) || "Story";
-  if (!popup.open) popup.showModal();
-
+  /* ONE paint, after the read: the dialog appears — or a save's reopen
+     swaps — already whole. Painting before the data flashed a half
+     state every time: an opening click showed the shell (its "← All
+     stories" button reading as another screen) or the LAST visit's
+     pane, and every save blinked the panel empty and back. The reads
+     are local and quick; the click answers with the finished panel. */
   const facts = await api.facts();
   const subject = story ?? { id: facts.story_id, label: facts.story || "" };
   const inside = subject.id === null || subject.id === facts.story_id;
@@ -84,7 +91,6 @@ export async function openStory({ story = null, tab = "messages", answered = "",
   };
 
   for (const button of $$(".otk-tab", popup)) {
-    button.disabled = false;
     button.onclick = () => show(view, button.dataset.tab);
   }
   $("[data-back]", popup).onclick = () => {
@@ -93,8 +99,28 @@ export async function openStory({ story = null, tab = "messages", answered = "",
     popup.close();
     if (!popups.get("/stories")?.open) allStories?.(subject.id);
   };
-  show(view, tab);
+  show(view, tab, target);
+  if (!popup.open) popup.showModal();
   if (answered) footnote(popup, answered);
+}
+
+/** The fork question, asked the same way from every door that forks —
+    the rail's /fork and the story browser's button — before a story is
+    made. `run` fires only on the answer, after the screens go. */
+export async function confirmFork(run) {
+  const choice = await ask("confirm", (dialog) => {
+    $("[data-title]", dialog).textContent = "Fork this story?";
+    $(".otk-dialog__body", dialog).textContent =
+      "A copy from here on. The original stays as it is, and play continues in the copy.";
+    const aside = $("[data-note]", dialog);
+    aside.textContent = "";
+    aside.hidden = true;
+    $('[data-choice="confirm"]', dialog).textContent = "Fork";
+    $('[data-choice="cancel"]', dialog).textContent = "Cancel";
+  });
+  if (choice !== "confirm") return;
+  closeAll();
+  await run();
 }
 
 /** The landing every "continue here" goes through — exported because the
@@ -120,28 +146,38 @@ function show(view, tab, targetId = null) {
     pane.hidden = pane.dataset.pane !== tab;
   }
   const pane = $(`[data-pane="${tab}"]`, view.popup);
-  if (tab === "messages") buildMessages(view, pane);
+  if (tab === "messages") buildMessages(view, pane, targetId);
   else if (tab === "scenes") buildScenes(view, pane, targetId);
   else if (tab === "cast") buildCast(view, pane, targetId);
   else buildPremise(view, pane);
 }
 
 /** Reopen this dossier after a write, on the same tab, carrying what
-    the write answered — the one way every save here comes back. */
-function reopen(view, tab, notice) {
+    the write answered — the one way every save here comes back.
+    `target` is the row the write was made on: a save must not move the
+    reader, so the rebuilt pane opens where they were. */
+function reopen(view, tab, notice, target = null) {
   return openStory({
     story: view.subjectArg,
     tab,
     answered: notice,
     allStories: view.allStories,
+    target,
   });
 }
 
 // ---------- messages: index rail, one line a turn, a reader ----------
 
-function buildMessages(view, pane) {
-  sceneIndex(view, $("[data-index]", pane), null, {
-    onPick: (scene) => show(view, "scenes", scene.id),
+function buildMessages(view, pane, targetId = null, sceneId = null) {
+  /* The index beside the list JUMPS WITHIN it: picking a scene selects
+     its first message — the reader asked where something is, not for
+     another tab. A scene whose span fell off the chain has no first
+     message and the pick does nothing. */
+  sceneIndex(view, $("[data-index]", pane), sceneId, {
+    onPick: (scene) => {
+      const first = sceneStart(view, scene);
+      if (first !== null) buildMessages(view, pane, first, scene.id);
+    },
   });
   const rows = view.messages.map((message, i) => ({
     ...message,
@@ -153,7 +189,7 @@ function buildMessages(view, pane) {
   if (!rows.length) $("[data-actions]", pane).replaceChildren();
   // `e` is the keyboard's way to the same verb the pointer takes.
   const edit = () => $("[data-detail] .otk-edit__verb--edit", pane)?.click();
-  browser(view.popup, {
+  const list = browser(view.popup, {
     root: pane,
     rows,
     drawRow: (message) => {
@@ -174,6 +210,14 @@ function buildMessages(view, pane) {
         ? { line: "No turn matches that.", hint: `clear the filter to see all ${rows.length}` }
         : { line: "Nothing played yet.", hint: "continue this story to play into it" },
   });
+  if (targetId !== null) list.select((message) => message.id === targetId);
+}
+
+/** The id of a scene's first message on the current chain — null when
+    its span fell off it (an edit moved the head past the scene). */
+function sceneStart(view, scene) {
+  const first = parseInt(scene.span, 10);
+  return Number.isNaN(first) ? null : (view.messages[first - 1]?.id ?? null);
 }
 
 function reader(text, save) {
@@ -260,7 +304,7 @@ async function saveMessage(view, message, text) {
   const answer = await api.editMessage(view.subject.id, message.id, text);
   if (answer.refused) return answer;
   await landed("", { redraw: "always" });
-  reopen(view, "messages", answer.notice);
+  reopen(view, "messages", answer.notice, message.id);
   return answer;
 }
 
@@ -333,10 +377,10 @@ function buildScenes(view, pane, sceneId = null) {
       "otk-label otk-label--accent",
       scene.span ? `Scene ${scene.number} · messages ${scene.span}` : `Scene ${scene.number}`,
     ),
-    title(view, "scenes", scene.title, "(untitled scene)", (text) =>
+    title(view, "scenes", scene.id, scene.title, "(untitled scene)", (text) =>
       api.editScene(view.subject.id, scene.id, { title: text }),
     ),
-    ...lede(view, "scenes", {
+    ...lede(view, "scenes", scene.id, {
       text: scene.summary,
       empty: "(no summary yet)",
       name: "summary",
@@ -345,6 +389,7 @@ function buildScenes(view, pane, sceneId = null) {
     journalPassages(
       view,
       "scenes",
+      scene.id,
       scene.journals,
       (record) => named(view.memory?.characters, record.character, "name", "someone"),
       (name) => `${name} records`,
@@ -477,7 +522,7 @@ function buildCast(view, pane, characterId = null) {
        `/merge` is how two become one — so it takes the label line
        without the verbs, in the box a scene's title sits in. */
     edited(element("h3", "otk-reading__title", character.name), "name", "otk-edit--title"),
-    ...lede(view, "cast", {
+    ...lede(view, "cast", character.id, {
       text: character.description,
       empty: "(no description yet)",
       name: "description",
@@ -486,6 +531,7 @@ function buildCast(view, pane, characterId = null) {
     journalPassages(
       view,
       "cast",
+      character.id,
       character.journals,
       (record) => named(view.memory?.scenes, record.scene, "title", "a scene"),
       (name) => name,
@@ -519,6 +565,7 @@ function buildCast(view, pane, characterId = null) {
           text: character.card,
           save: (text) => saveField(view, "cast", () =>
             api.editCharacter(view.subject.id, character.id, { card: text }),
+            character.id,
           ),
         }), ""))
       : marginFact(
@@ -531,20 +578,20 @@ function buildCast(view, pane, characterId = null) {
 
 // ---------- the field shapes both lenses share ----------
 
-function title(view, tab, text, fallback, save) {
+function title(view, tab, target, text, fallback, save) {
   /* The scene's own name, edited where it is READ: its heading, not a
      row in the apparatus column — that column holds what the extractor
      writes, and a hand may correct a title. */
   const head = editable("otk-reading__title", {
     text,
-    save: (corrected) => saveField(view, tab, () => save(corrected)),
+    save: (corrected) => saveField(view, tab, () => save(corrected), target),
   });
   head.placeholder = fallback;
   head.rows = 1;
   return edited(head, "title", "otk-edit--title");
 }
 
-function lede(view, tab, { text, empty, name, save }) {
+function lede(view, tab, target, { text, empty, name, save }) {
   /* The reading column's own text — a scene's summary, a character's
      description. It IS a field, with the line under it naming what it
      holds and then how to commit it. */
@@ -553,14 +600,14 @@ function lede(view, tab, { text, empty, name, save }) {
     edited(
       editable("otk-reading__lede", {
         text,
-        save: (edited) => saveField(view, tab, () => save(edited)),
+        save: (edited) => saveField(view, tab, () => save(edited), target),
       }),
       name,
     ),
   ];
 }
 
-function journalPassages(view, tab, journals, nameOf, rubricOf) {
+function journalPassages(view, tab, target, journals, nameOf, rubricOf) {
   /* One passage per record: the rubric names who (or which scene)
      records, the body is the entry, and the state rides under it as a
      note. The entry opens for correction where it is read; the state is
@@ -578,8 +625,11 @@ function journalPassages(view, tab, journals, nameOf, rubricOf) {
         editable("otk-passage__body", {
           text: record.entry,
           save: (text) =>
-            saveField(view, tab, () =>
-              api.editJournal(view.subject.id, record.id, { entry: text }),
+            saveField(
+              view,
+              tab,
+              () => api.editJournal(view.subject.id, record.id, { entry: text }),
+              target,
             ),
         }),
         "entry",
@@ -605,15 +655,16 @@ function inScenes(character) {
   return `in ${scenes} ${scenes === 1 ? "scene" : "scenes"}`;
 }
 
-async function saveField(view, tab, write) {
+async function saveField(view, tab, write, target = null) {
   /* WHICH row a correction addresses is the caller's; what is shared is
      what happens after. The answer is carried INTO the redraw, or the
      screen rebuilding on the write puts its standing footnote over it —
      and a REFUSAL skips the redraw entirely: the editor must stay open
      with the reader's words, so the answer travels back instead
-     (`browser.editable` reads the flag and shows the sentence). */
+     (`browser.editable` reads the flag and shows the sentence).
+     `target` keeps the rebuilt pane on the row that was corrected. */
   const answer = await write();
-  if (!answer.refused) reopen(view, tab, answer.notice);
+  if (!answer.refused) reopen(view, tab, answer.notice, target);
   return answer;
 }
 
@@ -676,46 +727,40 @@ function derivedRow(key, flag, valueNode) {
 function buildPremise(view, pane) {
   wiring(view.popup);
   footnote(view.popup, "sent as the system message");
-  const box = $(".otk-premise__body", pane);
-  const state = $("[data-premise-state]", pane);
-  const save = $("[data-save-system]", pane);
-  const read = $("[data-import-system]", pane);
-  box.value = view.premise;
-  // nothing to save until something changed, and a door that does
-  // nothing should not look like one
-  const settle = () => {
-    const changed = box.value !== view.premise;
-    save.setAttribute("aria-disabled", String(!changed));
-    if (!state.textContent || state.textContent === "Unsaved changes") {
-      state.textContent = changed ? "Unsaved changes" : "";
-    }
-  };
-  settle();
-  box.oninput = settle;
-  read.onclick = guard(async () => {
+  /* The premise is a field like every other on this dossier: inert
+     until `edit` is taken, closed by `save` or `cancel` alone. */
+  const field = editable("otk-premise__body", {
+    text: view.premise,
+    save: (text) => savePremise(view, text),
+  });
+  field.placeholder = "(no premise yet)";
+  const box = edited(field, "premise");
+  $("[data-premise-field]", pane).replaceChildren(box);
+  $("[data-import-system]", pane).onclick = guard(async () => {
     /* The file is read HERE, so what is saved is what the reader can see
        and correct — and a path sent over HTTP would name a file on the
-       machine otaku runs on, not the one it was picked from. */
+       machine otaku runs on, not the one it was picked from. It lands in
+       the OPEN editor: reading a file is an edit half-made, and the same
+       save or cancel settles it. */
     const picked = await pickFile(_PREMISE_FILES);
     if (!picked) return;
-    box.value = await picked.text();
-    state.textContent = `Read ${picked.name}. Save to keep it.`;
-    save.setAttribute("aria-disabled", "false");
+    if (!box.dataset.editing) $(".otk-edit__verb--edit", box).click();
+    field.value = await picked.text();
   });
-  save.onclick = guard(async () => {
-    if (save.getAttribute("aria-disabled") === "true") return;
-    /* A premise lives ON a story, so one written before the first
-       message has to make one (the terminal reaches the same place
-       through `session._ensure_story`). The view KEEPS it: a second save
-       corrects the premise it just wrote, not starts another story. */
-    if (view.subject.id === null) view.subject.id = (await api.newStory()).story;
-    const { notice } = await api.setPremise(view.subject.id, box.value);
-    await landed("");
-    view.premise = box.value;
-    state.textContent = "";
-    settle();
-    footnote(view.popup, notice);
-  });
+}
+
+async function savePremise(view, text) {
+  /* A premise lives ON a story, so one written before the first message
+     has to make one (the terminal reaches the same place through
+     `session._ensure_story`). The view KEEPS it: a second save corrects
+     the premise it just wrote, not starts another story. */
+  if (view.subject.id === null) view.subject.id = (await api.newStory()).story;
+  const answer = await api.setPremise(view.subject.id, text);
+  if (answer.refused) return answer;
+  await landed("");
+  view.premise = text;
+  reopen(view, "premise", answer.notice);
+  return answer;
 }
 
 // ---------- small shared shapes ----------

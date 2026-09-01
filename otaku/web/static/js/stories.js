@@ -14,7 +14,7 @@ import { ask, browser, footnote, guard, popups } from "./browser.js";
 import { $, actionButton, element, row, span } from "./dom.js";
 import { ago, label, since, when } from "./format.js";
 import { landed } from "./shell.js";
-import { land, openStory } from "./story.js";
+import { confirmFork, land, openStory } from "./story.js";
 import { exportStory } from "./transfer.js";
 
 export async function openStories(answered = "", { selectId = null } = {}) {
@@ -52,7 +52,10 @@ export async function openStories(answered = "", { selectId = null } = {}) {
         }),
         actionButton("Into the story →", { onclick: guard(() => goInside(story)) }),
         actionButton("Rename", { onclick: guard(() => renameStory(story)) }),
-        actionButton("Fork", { off: !story.turns, onclick: guard(() => landOn(story, "fork")) }),
+        actionButton("Fork", {
+          off: !story.turns,
+          onclick: guard(() => confirmFork(() => landOn(story, "fork"))),
+        }),
         actionButton("Export", { off: !story.turns, onclick: guard(() => exportOne(story)) }),
         actionButton("Delete", {
           kind: "otk-btn--danger",

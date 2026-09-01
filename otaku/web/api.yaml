@@ -294,6 +294,35 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Syntax" }
 
+  /api/cast:
+    get:
+      operationId: getCast
+      tags: [Playing]
+      summary: The open story's cast, for the composer's name menu
+      description: |
+        The cheap per-keystroke read behind name suggestions in the
+        framing words (`/me`, `/you`). Empty with no story or an empty
+        cast — a menu question is never a refusal.
+      responses:
+        default: { $ref: "#/components/responses/Failed" }
+        "200":
+          description: The open story's cast.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [characters]
+                properties:
+                  characters:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, name, description]
+                      properties:
+                        id: { type: integer }
+                        name: { type: string }
+                        description: { type: string }
+
   /api/history:
     get:
       operationId: getHistory
@@ -1046,6 +1075,19 @@ paths:
       operationId: getBalance
       tags: [Session]
       summary: What each cloud account has left
+      description: |
+        `?probe=none` returns the roster without asking any network:
+        every row present, a keyed one carrying no figure and an EMPTY
+        note — "not asked yet", distinct from the dash of an account
+        that would not answer. The page paints the whole slip from the
+        roster and fills the figures from one bare read — which is also
+        the whole report in one wait, as the terminal takes it.
+      parameters:
+        - name: probe
+          in: query
+          required: false
+          schema: { type: string, enum: [none] }
+          description: '"none" answers the roster without probing.'
       responses:
         default: { $ref: "#/components/responses/Failed" }
         "200":

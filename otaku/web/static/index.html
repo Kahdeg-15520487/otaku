@@ -208,12 +208,11 @@
       <span class="otk-label otk-label--accent">the premise of this story</span>
       <h3 class="otk-reading__title otk-reading__title--lg">Premise</h3>
       <p class="otk-note otk-premise__lede">Sent as the system message, ahead of the scene, the cast and the recent turns.</p>
-      <label class="otk-label" for="otk-premise-text" hidden>Premise</label>
-      <textarea class="otk-premise__body" id="otk-premise-text" spellcheck="false"></textarea>
+      <!-- the field is built like every other edited field on this
+           dossier: inert until its edit verb is taken -->
+      <div class="otk-premise__field" data-premise-field></div>
       <div class="otk-actions">
-        <button type="button" class="otk-btn otk-btn--primary" data-save-system>Save premise</button>
         <button type="button" class="otk-btn" data-import-system>Read from a file&hellip;</button>
-        <span class="otk-premise__state" data-premise-state></span>
       </div>
     </div>
   </div>
@@ -337,7 +336,6 @@
   </div>
   <p class="otk-dialog__body"></p>
   <div class="otk-dialog__foot">
-    <span class="otk-dialog__escape">esc cancels</span>
     <button type="button" class="otk-btn" data-choice="cancel" autofocus>Cancel</button>
     <button type="button" class="otk-btn otk-btn--danger" data-choice="delete">Delete</button>
   </div>
@@ -358,7 +356,6 @@
     </button>
   </div>
   <div class="otk-dialog__foot">
-    <span class="otk-dialog__escape">esc cancels</span>
     <button type="button" class="otk-btn" data-choice="cancel">Cancel</button>
     <button type="button" class="otk-btn otk-btn--primary" data-choice="confirm">Fork</button>
   </div>
@@ -373,7 +370,6 @@
   </div>
   <p class="otk-note">Leave it empty and the listing names the story from its first scene.</p>
   <div class="otk-dialog__foot">
-    <span class="otk-dialog__escape">esc cancels</span>
     <button type="button" class="otk-btn" data-choice="cancel">Cancel</button>
     <button type="button" class="otk-btn otk-btn--primary" data-choice="start">Start</button>
   </div>
@@ -386,7 +382,6 @@
   <label class="otk-label" for="otk-rename" hidden>Title</label>
   <input class="otk-field" id="otk-rename" type="text">
   <div class="otk-dialog__foot">
-    <span class="otk-dialog__escape">esc cancels</span>
     <button type="button" class="otk-btn" data-choice="cancel">Cancel</button>
     <button type="button" class="otk-btn otk-btn--primary" data-choice="rename">Rename</button>
   </div>
@@ -398,7 +393,6 @@
   <p class="otk-dialog__body"></p>
   <p class="otk-note" data-note hidden></p>
   <div class="otk-dialog__foot">
-    <span class="otk-dialog__escape">esc cancels</span>
     <button type="button" class="otk-btn" data-choice="cancel">Cancel</button>
     <button type="button" class="otk-btn otk-btn--primary" data-choice="confirm" autofocus></button>
   </div>
@@ -409,7 +403,6 @@
   <span class="otk-eyebrow" data-title id="otk-told-title"></span>
   <p class="otk-dialog__body"></p>
   <div class="otk-dialog__foot">
-    <span class="otk-dialog__escape">esc closes</span>
     <button type="button" class="otk-btn otk-btn--primary" data-choice="ok" autofocus>Close</button>
   </div>
 </dialog>

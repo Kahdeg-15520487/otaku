@@ -15,7 +15,7 @@ import { openModels } from "./models.js";
 import { openBalance, openContext, openInfo, openUsage } from "./reports.js";
 import { landed, refresh, watchExtraction } from "./shell.js";
 import { openStories } from "./stories.js";
-import { openStory } from "./story.js";
+import { confirmFork, openStory } from "./story.js";
 import { tell } from "./status.js";
 import { clear, isPlaying, play, stopPlaying } from "./transcript.js";
 import { exportStory, importCard, importDocument } from "./transfer.js";
@@ -28,16 +28,11 @@ const SCREENS = {
      to the backend — the reader who spelled it out has said yes. */
   "/new": newStory,
   "/fork": () =>
-    confirmed({
-      title: "Fork this story?",
-      body: "A copy from here on. The original stays as it is, and play continues in the copy.",
-      action: "Fork",
-      run: async () => {
-        const story = (await api.facts()).story_id;
-        if (story === null) return tell(_NO_STORY.fork, "otk-error");
-        const { notice } = await api.fork(story);
-        await landed(notice, { redraw: "always" });
-      },
+    confirmFork(async () => {
+      const story = (await api.facts()).story_id;
+      if (story === null) return tell(_NO_STORY.fork, "otk-error");
+      const { notice } = await api.fork(story);
+      await landed(notice, { redraw: "always" });
     }),
   /* The story dossier answers three commands, one tab each — the bare
      token opens it there; `/system some text` is answered by the
