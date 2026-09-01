@@ -22,7 +22,7 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 
 from otaku.formatting import toml_string
-from otaku.settings import write_atomic
+from otaku.settings import read_settings, write_atomic
 
 # The big lore templates, named here so the _DEFAULTS table stays readable.
 
@@ -213,7 +213,7 @@ def load(path: Path) -> tuple[Prompts, list[str]]:
         return Prompts(), []
     warnings: list[str] = []
     try:
-        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+        raw = tomllib.loads(read_settings(path))
     except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as e:
         return Prompts(), [f"Ignoring {path.name} ({e})."]
     known = {f.name for f in fields(Prompts)}

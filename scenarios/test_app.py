@@ -397,6 +397,31 @@ class TestConfigMigration:
             assert section in rendered
         assert set(providers) == {"llamacpp", "koboldcpp", "ollama", "omlx", "lmstudio"}
 
+    def test_a_locale_encoded_config_from_windows_0_3_0_heals_to_utf8(
+        self, server: ModelServer, tmp_path
+    ) -> None:
+        """0.3.0's writer passed no encoding, so a native-Windows state
+        carries the ANSI codepage — cp1252, where "…" is one byte no
+        strict UTF-8 reader accepts. The launch must read such a file
+        rather than die, and the migration re-encodes it for good, the
+        pre-edit file backed up like any other change."""
+        app = launch(tmp_path / "state", server)
+        app.close()
+        config_file = app.paths.config_file
+        text = config_file.read_text(encoding="utf-8") + "# …my note\n"
+        config_file.write_bytes(text.replace("\n", "\r\n").encode("cp1252"))
+        with pytest.raises(UnicodeDecodeError):
+            config_file.read_text(encoding="utf-8")  # the legacy byte is really there
+
+        load_config(app.paths)
+        healed = config_file.read_bytes()
+        assert b"\r" not in healed  # LF on every platform, or Windows re-mangles
+        assert "# …my note" in healed.decode("utf-8")  # the user's line, re-encoded
+        assert list(app.paths.config_backups_dir.glob("config-*.toml"))
+        # And it CONVERGES: the next launch finds nothing left to heal.
+        load_config(app.paths)
+        assert config_file.read_bytes() == healed
+
     def test_an_old_config_gains_the_new_section_and_a_backup(
         self, server: ModelServer, tmp_path
     ) -> None:

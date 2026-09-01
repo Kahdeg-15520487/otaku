@@ -8,7 +8,7 @@ release tag (the DB steps' convention)."""
 from pathlib import Path
 
 from otaku.formatting import toml_string
-from otaku.settings.migrations.surgery import Migration, apply_migrations, backup_path, commit
+from otaku.settings.migrations.surgery import Migration, update_settings_file
 
 EXTRACT_0_2_2 = """\
 You are a story analyst. Read the scene below — the latest exchange of an
@@ -200,13 +200,7 @@ def refresh_template(key: str, stale: str, current: str) -> Migration:
 
 
 def update_prompts(prompts_path: Path, backups_dir: Path, changes: list[Migration]) -> bool:
-    """One committed edit of prompts.toml — same machinery, same
-    guarantees as the config edits. Returns whether the file changed."""
-    try:
-        text = prompts_path.read_text(encoding="utf-8")
-    except OSError:
-        return False
-    migrated = apply_migrations(text, changes)
-    if migrated == text:
-        return False
-    return commit(prompts_path, backup_path(backups_dir, "prompts"), text, migrated)
+    """One committed edit of prompts.toml — the same read-heal-commit
+    every settings file gets, with this file's stem. Returns whether
+    the file changed."""
+    return update_settings_file(prompts_path, backups_dir, "prompts", changes)

@@ -4,7 +4,7 @@ import tomllib
 from pathlib import Path
 
 from otaku.formatting import toml_key, toml_scalar
-from otaku.settings import write_atomic
+from otaku.settings import read_settings, write_atomic
 
 _HEADER = [
     "# Per-model inference parameters, written by /set parameter.",
@@ -19,7 +19,7 @@ def load(path: Path) -> dict[str, dict[str, object]]:
     if not path.exists():
         return {}
     try:
-        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+        raw = tomllib.loads(read_settings(path))
     except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
         return {}
     return {str(name): dict(entry) for name, entry in raw.items() if isinstance(entry, dict)}
@@ -32,7 +32,7 @@ def save_parameters(path: Path, model: str, parameters: dict[str, object]) -> No
     data: dict[str, dict[str, object]] = {}
     if path.exists():
         try:
-            raw = tomllib.loads(path.read_text(encoding="utf-8"))
+            raw = tomllib.loads(read_settings(path))
         except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as e:
             raise ValueError(f"{path} is unreadable ({e}); fix or move it") from e
         data = {str(name): dict(entry) for name, entry in raw.items() if isinstance(entry, dict)}

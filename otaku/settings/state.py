@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from otaku.formatting import toml_scalar
-from otaku.settings import row, write_atomic
+from otaku.settings import read_settings, row, write_atomic
 
 # Thinking effort as this file spells it. "default" is not a level: it
 # means send nothing and let the model decide. This is the FILE's
@@ -56,7 +56,7 @@ def load(path: Path) -> tuple[State, list[str]]:
     if not path.exists():
         return State(), []
     try:
-        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+        raw = tomllib.loads(read_settings(path))
     except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as e:
         return State(), [f"Ignoring {path.name} ({e})."]
     story = raw.get("story")

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from otaku.formatting import toml_scalar
-from otaku.settings import row
+from otaku.settings import read_settings, row
 
 
 class ConfigError(Exception):
@@ -160,7 +160,7 @@ def load(path: Path) -> Config:
     """Read and validate config.toml. Raises ConfigError with a message
     that names the file — it is hand-edited, so errors must be human."""
     try:
-        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+        raw = tomllib.loads(read_settings(path))
     except FileNotFoundError as e:
         raise ConfigError(f"{path} does not exist") from e
     except UnicodeDecodeError as e:

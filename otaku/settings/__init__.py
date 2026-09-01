@@ -14,6 +14,8 @@ key material.
 
 from pathlib import Path
 
+from otaku.formatting import decode_text
+
 # Written config lines align their comments to one column, so the values
 # read as a column instead of a wall of prose.
 _COMMENT_COLUMN = 30
@@ -29,9 +31,21 @@ def row(setting: str, comment: str) -> str:
     return f"{setting}  # {comment}"
 
 
+def read_settings(path: Path) -> str:
+    """A settings file as text, whatever encoding wrote it — see
+    `formatting.decode_text`: a 0.3.0 on native Windows wrote the ANSI
+    codepage, and an upgrade must read it rather than die. The next
+    settings write re-encodes the file as UTF-8."""
+    return decode_text(path.read_bytes())
+
+
 def write_atomic(path: Path, text: str) -> None:
-    """Write via tmp + rename, so a kill mid-write can never truncate."""
+    """Write via tmp + rename, so a kill mid-write can never truncate.
+    Newlines go out verbatim (`newline=""`): Windows' \n → \r\n
+    translation would re-mangle a file the lenient read just
+    normalized, and settings files are LF on every platform."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
+    with tmp.open("w", encoding="utf-8", newline="") as f:
+        f.write(text)
     tmp.replace(path)

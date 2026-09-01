@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import ClassVar
 
 from otaku.encryption import Cipher, PlainCipher
-from otaku.formatting import printable
+from otaku.formatting import decode_text, printable
 
 __all__ = ["DailyLog", "Entry", "ErrorLog", "RequestLog", "SystemLog"]
 
@@ -209,7 +209,7 @@ class RequestLog(DailyLog):
     def read(self, day: str) -> Iterator[Entry]:
         """The day's entries in order; a body the cipher cannot open (or
         a corrupt line) yields body=None rather than failing the day."""
-        for line in self.get_path(day).read_text(encoding="utf-8").splitlines():
+        for line in decode_text(self.get_path(day).read_bytes()).splitlines():
             try:
                 raw = json.loads(line)
             except json.JSONDecodeError:
@@ -263,7 +263,7 @@ def _count(value: object) -> int | None:
 def render_plain(log: DailyLog, stamp: str) -> str:
     """One day of a plain-text log (system, error) as its pager text —
     those files are written display-ready, so rendering is reading."""
-    return log.get_path(stamp).read_text(encoding="utf-8")
+    return decode_text(log.get_path(stamp).read_bytes())
 
 
 def render_requests(log: RequestLog, stamp: str) -> Iterator[str]:

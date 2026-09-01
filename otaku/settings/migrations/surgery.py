@@ -22,6 +22,7 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
+from otaku.formatting import decode_text
 from otaku.settings import write_atomic
 
 # One shape change: config text in, config text out (unchanged when the
@@ -208,23 +209,31 @@ def update_config(config_path: Path, backups_dir: Path, changes: list[Migration]
     """One committed edit of config.toml — the launch table rides this.
     A missing file is bootstrap's business, and OSError is swallowed: an
     edit is never worth a crash. Returns whether the file changed."""
-    return _update(config_path, backups_dir, "config", changes)
+    return update_settings_file(config_path, backups_dir, "config", changes)
 
 
 def update_providers(providers_path: Path, backups_dir: Path, changes: list[Migration]) -> bool:
     """Same machinery over providers.toml — the provider moves and the
     model picker's field saves ride this. Returns whether the file
     changed; False also covers an edit that could not land."""
-    return _update(providers_path, backups_dir, "providers", changes)
+    return update_settings_file(providers_path, backups_dir, "providers", changes)
 
 
-def _update(path: Path, backups_dir: Path, stem: str, changes: list[Migration]) -> bool:
+def update_settings_file(
+    path: Path, backups_dir: Path, stem: str, changes: list[Migration]
+) -> bool:
     try:
-        text = path.read_text(encoding="utf-8")
+        raw = path.read_bytes()
     except OSError:
         return False
+    # A file 0.3.0 wrote on native Windows carries the locale codepage
+    # (`formatting.decode_text`); it counts as changed even when no
+    # shape move applies, so this commit re-encodes it as UTF-8 for
+    # good — backup first, like any other edit. Legacy shows in the
+    # round-trip: valid UTF-8 re-encodes byte-exact, a fallback never.
+    text = decode_text(raw)
     migrated = apply_migrations(text, changes)
-    if migrated == text:
+    if migrated == text and text.encode("utf-8") == raw:
         return False
     return commit(path, backup_path(backups_dir, stem), text, migrated)
 
@@ -256,7 +265,7 @@ def commit(file: Path, backup: Path, text: str, migrated: str) -> bool:
         os.chmod(backup.parent, 0o700)
         # Born 0600: never a moment (or a crash residue) at umask perms.
         fd = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
             f.write(text)
         write_atomic(file, migrated)
     except OSError:

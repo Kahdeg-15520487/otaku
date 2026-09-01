@@ -27,6 +27,7 @@ terminal resized must throw the count away rather than trust it.
 
 import re
 import shutil
+import sys
 
 from prompt_toolkit.utils import get_cwidth
 
@@ -137,9 +138,53 @@ def terminal_width() -> int:
 
 
 def cursor_row() -> int | None:
-    """The cursor's 1-based screen row (DSR 6 → CPR, through `tty.ask`),
-    or None when it cannot be known — the ground truth the
-    screen-erasing paths check the simulation against. The terminal must
-    be in cooked mode (between prompts, after a stream)."""
+    """The cursor's 1-based screen row, or None when it cannot be known —
+    the ground truth the screen-erasing paths check the simulation
+    against. On POSIX it is asked of the terminal itself (DSR 6 → CPR,
+    through `tty.ask` — cooked mode required, so between prompts, after
+    a stream); the Windows consoles answer no escape query but hold the
+    same fact one API call away, so there it is read from the screen
+    buffer instead."""
+    if sys.platform == "win32":
+        return _console_row()
     match = tty.ask("\x1b[6n", _CPR)
     return int(match.group(1)) if match else None
+
+
+if sys.platform == "win32":
+    import ctypes
+
+    class _Coord(ctypes.Structure):
+        _fields_ = [("X", ctypes.c_short), ("Y", ctypes.c_short)]
+
+    class _SmallRect(ctypes.Structure):
+        _fields_ = [
+            ("Left", ctypes.c_short),
+            ("Top", ctypes.c_short),
+            ("Right", ctypes.c_short),
+            ("Bottom", ctypes.c_short),
+        ]
+
+    class _ScreenBufferInfo(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", _Coord),
+            ("dwCursorPosition", _Coord),
+            ("wAttributes", ctypes.c_ushort),
+            ("srWindow", _SmallRect),
+            ("dwMaximumWindowSize", _Coord),
+        ]
+
+    _kernel32 = ctypes.windll.kernel32
+    _kernel32.GetStdHandle.restype = ctypes.c_void_p
+
+    def _console_row() -> int | None:
+        """`cursor_row`'s Windows half: GetConsoleScreenBufferInfo gives
+        the cursor and the visible window in buffer coordinates; their
+        difference is the CPR row. The call itself is the console test —
+        it fails when stdout is a pipe or a file, and None keeps the
+        POSIX contract."""
+        info = _ScreenBufferInfo()
+        handle = _kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+        if not _kernel32.GetConsoleScreenBufferInfo(handle, ctypes.byref(info)):
+            return None
+        return int(info.dwCursorPosition.Y) - int(info.srWindow.Top) + 1

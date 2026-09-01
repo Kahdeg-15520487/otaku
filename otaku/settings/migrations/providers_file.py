@@ -8,7 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from otaku.formatting import toml_key, toml_scalar
-from otaku.settings import write_atomic
+from otaku.settings import read_settings, write_atomic
 from otaku.settings.migrations.surgery import (
     Migration,
     attached_start,
@@ -35,11 +35,11 @@ def move_providers(config_path: Path, providers_path: Path, backups_dir: Path) -
     the two writes (the new file first, so nothing is ever lost) heals
     on the next run. The pre-move config waits as a dated backup."""
     try:
-        text = config_path.read_text(encoding="utf-8")
+        text = read_settings(config_path)
     except OSError:
         return
     try:
-        existing = providers_path.read_text(encoding="utf-8")
+        existing = read_settings(providers_path)
     except OSError:
         existing = ""
     taken = parse(existing) or {}

@@ -18,9 +18,12 @@ import { $, $$, element, span } from "./dom.js";
 const DEFAULT_VALUE = "default";
 
 export async function openSettings(answered = "") {
-  const popup = popups.get("/set");
-  if (!popup.open) popup.showModal();
+  // Read before the docket shows: it takes its height from the slip, so
+  // opened empty it stands minimal and grows when the answer lands. The
+  // pickers open before their data because a catalog can take seconds;
+  // this read cannot, and the dossier (story.js) opens the same way.
   const knobs = await api.settings();
+  const popup = popups.get("/set");
 
   const global = element("div", "otk-v otk-v--md");
   global.append(section("Global", "every story"));
@@ -72,6 +75,10 @@ export async function openSettings(answered = "") {
 
   $("[data-knobs]", popup).replaceChildren(global, element("div", "otk-rule--double"), perModel);
   footnote(popup, answered);
+  // After `showModal`: its focusing steps would land on the docket
+  // body's `autofocus`, and a focus() into a still-closed dialog is
+  // silently dropped — the knobs' focus only sticks once it is open.
+  if (!popup.open) popup.showModal();
   knobKeys(popup);
 }
 

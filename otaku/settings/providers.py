@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from otaku.formatting import toml_key, toml_scalar
+from otaku.settings import read_settings
 from otaku.settings.config import ConfigError
 
 
@@ -34,7 +35,7 @@ def load(path: Path) -> dict[str, ProviderConfig]:
     Raises ConfigError — the file is hand-edited, so errors must be
     human."""
     try:
-        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+        raw = tomllib.loads(read_settings(path))
     except FileNotFoundError as e:
         raise ConfigError(f"{path} does not exist") from e
     except UnicodeDecodeError as e:

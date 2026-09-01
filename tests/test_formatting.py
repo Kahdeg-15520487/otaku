@@ -4,6 +4,7 @@ import tomllib
 from pathlib import Path
 
 from otaku.formatting import (
+    decode_text,
     flatten,
     format_context,
     format_size,
@@ -15,6 +16,28 @@ from otaku.formatting import (
     truncate,
     truncate_label,
 )
+
+
+class TestDecodeText:
+    def test_utf8_reads_as_itself(self) -> None:
+        assert decode_text("…and on which port".encode()) == "…and on which port"
+
+    def test_a_windows_ansi_file_reads_instead_of_raising(self) -> None:
+        # 0x85 is "…" in cp1252 (and cp1251 alike): what 0.3.0's
+        # unencoded writer left on native Windows.
+        assert "…" in decode_text("…and on which port".encode("cp1252"))
+
+    def test_no_bytes_can_make_it_raise(self) -> None:
+        # 0x81 is undefined even in cp1252 — latin-1 still answers.
+        assert decode_text(b"\xff\x81ok").endswith("ok")
+
+    def test_newlines_normalize_as_read_text_always_did(self) -> None:
+        # A 0.3.0 on Windows wrote CRLF; a stray \r is an invalid
+        # character to a TOML parser, so none may survive the read —
+        # including the \r\r\n a healing write once mangled through
+        # Windows' own newline translation.
+        assert decode_text(b"a\r\nb\rc") == "a\nb\nc"
+        assert decode_text("# …\r\r\n[x]\r\n".encode("cp1252")) == "# …\n\n[x]\n"
 
 
 class TestPrettyPath:

@@ -3,6 +3,7 @@ TOML escaping helpers and `render` moved in from the old settings
 package: text functions, not settings.
 """
 
+import locale
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -99,6 +100,39 @@ def pretty_path(path: Path) -> str:
     except ValueError:
         return str(path)
     return "~" if relative == Path() else f"~/{relative}"
+
+
+def decode_text(raw: bytes) -> str:
+    """`raw` as text, whatever wrote it.
+
+    Everything current writes UTF-8 — but 0.3.0's writer passed no
+    encoding, so a file it wrote on native Windows carries the locale's
+    ANSI codepage, and a strict read would end an upgrade in a
+    traceback. The ladder: UTF-8, the locale's own encoding (the file
+    was written on this machine), cp1252 (the common ANSI, for a file
+    that crossed machines), then latin-1, which cannot fail. A caller
+    that needs to KNOW the file was legacy compares the round-trip:
+    valid UTF-8 with plain newlines re-encodes byte-exact, a fallback
+    decode or a CRLF file never does.
+
+    Newlines normalize to \n — what `read_text`'s universal-newline
+    mode always did, and what reading bytes must not silently lose: a
+    0.3.0 on Windows wrote CRLF, and a stray \r is an invalid
+    character to a TOML parser."""
+
+    def normalized(text: str) -> str:
+        return text.replace("\r\n", "\n").replace("\r", "\n")
+
+    try:
+        return normalized(raw.decode("utf-8"))
+    except UnicodeDecodeError:
+        pass
+    for encoding in (locale.getpreferredencoding(False), "cp1252"):
+        try:
+            return normalized(raw.decode(encoding))
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return normalized(raw.decode("latin-1"))
 
 
 def printable(text: str) -> str:
