@@ -4,7 +4,6 @@
 .venv/
 __pycache__/
 build/
-demo/terminal/
 dist/
 migration/
 notes/
@@ -15,3 +14,8 @@ notes/
 
 # the playwright MCP writes its page snapshots here
 .playwright-mcp/
+
+# the terminal demo's smoke-test node deps
+demo/terminal/node_modules/
+demo/terminal/package.json
+demo/terminal/package-lock.json

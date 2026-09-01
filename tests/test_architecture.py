@@ -501,13 +501,13 @@ def _dark_overrides(opener: str) -> dict[str, str]:
 
 
 class TestDemo:
-    """The deployable web demo (`demo/`) fakes the whole HTTP surface in
+    """The deployable web demo (`demo/web/`) fakes the whole HTTP surface in
     the visitor's browser. Its router must know every path the spec
     lists — read as text, like everything else here — or a new endpoint
     ships with a demo that silently cannot answer it."""
 
     def test_the_demo_routes_every_path_the_spec_lists(self) -> None:
-        router = (_ROOT / "demo" / "demo.js").read_text()
+        router = (_ROOT / "demo" / "web" / "demo.js").read_text()
         missing = [path for path in _spec_paths() if path not in router]
         assert not missing, f"paths the demo does not route: {missing}"
 

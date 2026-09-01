@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Regenerate demo/fixtures/ from a real session over the shipped
+"""Regenerate demo/web/fixtures/ from a real session over the shipped
 sample stories.
 
 The session is opened over a THROWAWAY state dir this script creates and
@@ -7,13 +7,13 @@ deletes — never anyone's real ~/.otaku — so a regeneration can never
 capture personal library content into a committed file. The scenario
 suite's scripted server stands in for an engine so the session has a
 real context window (32K — the demo's own model claims the same in
-`demo/store.js`), and the context previews are the real assembler's
+`demo/web/store.js`), and the context previews are the real assembler's
 work over both samples: the river verbatim, the tour as the
 head-recap-tail ladder. The captured payloads are exactly what
 `otaku/web/api.py` serves; the harness engine's name and the throwaway
 path are scrubbed before writing.
 
-Run from the repo root:  conda run -n otaku python scripts/demo_fixtures.py
+Run from the repo root:  conda run -n otaku python demo/capture_fixtures_web.py
 """
 
 import json
@@ -28,9 +28,9 @@ from otaku.web import api as web_api
 from scenarios.support.harness import launch, set_config, set_config_provider
 from scenarios.support.server import ModelServer
 
-FIXTURES = Path(__file__).resolve().parent.parent / "demo" / "fixtures"
+FIXTURES = Path(__file__).resolve().parent / "web" / "fixtures"
 
-# The window the previews are captured under. `demo/store.js` claims the
+# The window the previews are captured under. `demo/web/store.js` claims the
 # same for its model, so the demo's numbers and the captured ledes agree.
 WINDOW = 32768
 
@@ -66,7 +66,7 @@ def main() -> None:
 
                 facts = web_api.facts(session)
                 # The harness engine is scaffolding, not content; the
-                # demo names its own model (`demo/store.js`).
+                # demo names its own model (`demo/web/store.js`).
                 facts.update(model="", engine="", context="")
                 settings = web_api.settings(session)
                 settings["model"] = ""
