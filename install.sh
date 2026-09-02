@@ -6,6 +6,8 @@
 # This file's canonical home is the otaku repository itself —
 # github.com/enclavum/otaku — and otaku.sh serves it from there by
 # redirect, so what you audit here is exactly what the pipe runs.
+# Windows has a sibling of this file, install.ps1, which does the same
+# things in PowerShell; a change to what either promises belongs in both.
 #
 # All it does is make sure uv is on the machine and then run
 # `uv tool install otaku`. uv is the reason this stays short: it brings
@@ -54,7 +56,8 @@ die()  { printf '%serror:%s %s\n' "$RED" "$RESET" "$*" >&2; exit 1; }
 # What the owner of an already-installed otaku needs: how to run it, and
 # how to bring it to the newest release.
 hints() {
-    say "  otaku            start playing"
+    say "  otaku            start playing in terminal"
+    say "  otaku web        start playing in web interface"
     say "  otaku update     update to the newest version"
 }
 
@@ -127,9 +130,10 @@ check_platform() {
     case "$OS" in
         Darwin|Linux) ;;
         MINGW*|MSYS*|CYGWIN*)
-            die "otaku is a Unix program — Git Bash and MSYS cannot run it.
-       On Windows it runs under WSL: install it with \`wsl --install\`,
-       open your Linux shell, and run this same line there." ;;
+            die "Git Bash and MSYS cannot run otaku — their shells emulate a
+       terminal otaku's own cannot drive. Windows has an installer of
+       its own; run this in PowerShell instead:
+       powershell -ExecutionPolicy Bypass -c \"irm https://otaku.sh/install.ps1 | iex\"" ;;
         *) die "unsupported system: $OS — otaku runs on macOS and Linux" ;;
     esac
 
@@ -304,7 +308,8 @@ finish() {
     say ""
     step "$VERSION"
     say ""
-    say "  otaku            start playing"
+    say "  otaku            start playing in terminal"
+    say "  otaku web        start playing in web interface"
     say ""
     say "Your stories and settings are in ~/.otaku"
 

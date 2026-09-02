@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from otaku.providers.clients.nanogpt import NanoGptClient
-from otaku.settings.config import ProviderConfig
+from otaku.settings.providers import ProviderConfig
 from scenarios.support.live import live_app as build_app
 from scenarios.support.live import require_env
 
@@ -27,9 +27,10 @@ class TestNanoGpt:
         assert any(row.context for row in rows)
 
     def test_the_balance_reads_in_dollars(self, client: NanoGptClient) -> None:
-        value = client.balance()
-        assert value is not None
-        assert value.startswith("$")
+        money = client.balance()
+        assert money is not None
+        assert money.currency == "USD"
+        assert str(money).startswith("$")
 
     def test_a_short_prompt_answers(self, live_app) -> None:  # type: ignore[no-untyped-def]
         live_app.play("Reply with the single word: ok")

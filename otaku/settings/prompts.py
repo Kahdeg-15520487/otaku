@@ -1,31 +1,28 @@
-"""Model-facing text templates: configs/prompts.toml.
+"""Model-facing text templates: prompts.toml.
 
-Every string otaku puts in front of a model is a template here, loaded once
-into a `Prompts` value, in two groups. The `/me`, `/you`, and `/ooc`
-commands write their template into a turn's `template` verbatim — nothing
-is filled at write time, so the turn keeps the wording this file had when
-it played; the `((OOC: …))` enclosure lives IN the template, so the code
-wraps nothing and what you edit is exactly what the model sees. `{name}`
-and `{body}`, where a template has them, mark where the turn's own name and
-text are slotted at wire time. The lore templates build the memory — one scene (`extract_prompt`),
-a character's rolled-up history, the story-so-far — and `recap_header` is
-the line that carries the finished scene summaries back into the request.
+Every string otaku puts in front of a model is a template here, loaded
+once into a `Prompts` value. The direction commands write their template
+into a turn's `template` verbatim — nothing is filled at write time, so
+the turn keeps the wording this file had when it played; `{name}` and
+`{body}` mark where the turn's own name and text slot in at wire time.
+The lore templates build the memory; `recap_header` carries the finished
+scene summaries back into the request.
 
-The stub is written on first use with every template active; once the file
-exists it is the source — edit a value to change it, delete the file to
-regenerate the release defaults. A key absent from the file falls back to
-the built-in, and a malformed file (or a template missing a required
-placeholder) is reported once and ignored — a bad override must never cost
-a session.
+The stub is written on first use with every template active; once the
+file exists it is the source — edit a value to change it, delete the
+file to regenerate the release defaults. A key absent from the file
+falls back to the built-in, and a malformed file or template is IGNORED
+with a returned warning — a bad override must never cost a session, and
+this module never prints (the launch folds warnings into the session's
+notices).
 """
 
-import re
-import sys
 import tomllib
 from dataclasses import dataclass, fields
+from pathlib import Path
 
-from otaku.paths import Paths
-from otaku.settings.files import write_atomic
+from otaku.formatting import toml_string
+from otaku.settings import read_settings, write_atomic
 
 # The big lore templates, named here so the _DEFAULTS table stays readable.
 
@@ -40,9 +37,9 @@ Character journals so far — their story to date; continue it, do not restart i
 {journals}
 
 LANGUAGE: write every value you produce — the title, the summary, the entries,
-the states — in the SAME LANGUAGE the scene below is written in. Do not
-translate it, and do not answer in English because these instructions are in
-English. Only the JSON keys stay in English.
+the states — in the SAME LANGUAGE the scene below is written in: an English
+scene gets English values, a French scene French ones. Match the scene, not
+these instructions. Only the JSON keys stay in English.
 
 Extract from THIS SCENE ONLY and reply with ONLY a JSON object, no prose, in this shape:
 {
@@ -57,6 +54,9 @@ Extract from THIS SCENE ONLY and reply with ONLY a JSON object, no prose, in thi
 }
 
 Rules:
+- Reply with ONE flat JSON object: "scene", "speakers", "characters" and
+  "journals" are ALL top-level keys of it — never put "characters" or
+  "journals" inside "scene".
 - "summary": prose, chronological, written like a story recap — not a synopsis.
   This summary is the ONLY record the story keeps of this scene: once it scrolls
   out of the recent messages, nothing else about it reaches the model. Write it
@@ -65,7 +65,8 @@ Rules:
   matters; every decision, promise, threat, or refusal, and who made it; what is
   revealed, and to whom; anything given, taken, shown, or hidden; how moods and
   relationships shift; and what is left unresolved. Quote a line verbatim when
-  its exact wording matters.
+  its exact wording matters. Stay inside 250-400 words — past that the recap
+  stops being memory and starts crowding the story itself out of the context.
 - "speakers": for EVERY numbered message, the single character who speaks or acts
   in it (their exact name); null when it is narration, several characters, or out
   of character.
@@ -95,32 +96,40 @@ SCENE (numbered messages):
 {chunk}
 """
 
-HISTORY_DEFAULT = """\
+# The story-so-far rollup over the scene summaries: the narrator's
+# ledger, third person like the summaries it combines.
+SCENE_HISTORY_DEFAULT = """\
+Combine the scene summaries below into one running "story so far" summary —
+at most 200 words, chronological, no headings. Output the summary only.
+
+Write it in the SAME LANGUAGE the summaries below are written in — English
+summaries get an English summary, French ones a French one. Match the
+summaries, not these instructions.
+
+{summaries}
+"""
+
+# A character's rollup over their own journal: their memory, so it keeps
+# the entries' first-person voice.
+JOURNAL_HISTORY_DEFAULT = """\
 Write {name}'s history: everything they know of the story so far, drawn from
 their own journal entries below.
 
 Rules:
-- Chronological prose, past tense, about 300 words. No headings, no bullets.
+- {name}'s own voice, first person, exactly like the entries themselves:
+  "I", never "{name} did". This is their memory, not a report about them.
+- Chronological prose, past tense, at most 300 words. No headings, no bullets.
 - Compress the earliest entries hardest and keep the recent ones specific.
   Names, promises, debts, injuries, betrayals, and secrets survive compression;
   weather and scenery do not.
 - Only what {name} witnessed or was told. Add nothing that is not below.
-- Write in the SAME LANGUAGE as the entries below — do not translate them, and
-  do not answer in English because these instructions are in English.
+- Write in the SAME LANGUAGE the entries below are written in — English
+  entries get an English history, French ones a French one. Match the
+  entries, not these instructions.
 - Output the history only.
 
 {name}'s journal, oldest entry first:
 {entries}
-"""
-
-STORY_SO_FAR_DEFAULT = """\
-Combine the scene summaries below into one running "story so far" summary
-(4-8 sentences, chronological, no headings). Output the summary only.
-
-Write it in the SAME LANGUAGE as the summaries below — do not translate it,
-and do not answer in English because these instructions are in English.
-
-{summaries}
 """
 
 _DEFAULTS = {
@@ -134,6 +143,12 @@ _DEFAULTS = {
         "((OOC: {body}\n\nAnswer briefly out of character, as a co-author planning "
         "the story — do not continue the scene or write any prose.))"
     ),
+    "roll_framing": (
+        "((OOC: Dice roll {dice}. The dice are already rolled and the result is "
+        "final — say what was rolled and the total in your reply, then narrate "
+        "the outcome of exactly this result; never reroll it, change it, or "
+        "roll on your own.))\n{body}"
+    ),
     "card_framing": (
         "((OOC: {name} joins the story. Their card, to play them by:\n"
         "Description: {description}\n"
@@ -143,8 +158,8 @@ _DEFAULTS = {
         "Standing note: {depth_note}))"
     ),
     "extract_prompt": EXTRACT_DEFAULT,
-    "history_prompt": HISTORY_DEFAULT,
-    "story_so_far_prompt": STORY_SO_FAR_DEFAULT,
+    "scene_history_prompt": SCENE_HISTORY_DEFAULT,
+    "journal_history_prompt": JOURNAL_HISTORY_DEFAULT,
     "recap_header": "[The story so far — the scenes between these moments:]",
 }
 
@@ -156,13 +171,16 @@ _REQUIRED = {
     "me_framing": ("name", "body"),
     "you_framing": ("name",),
     "ooc_framing": ("body",),
+    # {dice} is the roll itself — without it the numbers never reach the
+    # model and the command is a no-op wearing a frame.
+    "roll_framing": ("dice", "body"),
     # Only {name}: a card template line whose OTHER placeholders are absent
     # is a choice — omitting {examples} is how a user keeps examples off
     # the wire — and compose drops the lines of fields a card lacks.
     "card_framing": ("name",),
     "extract_prompt": ("cast", "journals", "chunk"),
-    "history_prompt": ("name", "entries"),
-    "story_so_far_prompt": ("summaries",),
+    "scene_history_prompt": ("summaries",),
+    "journal_history_prompt": ("name", "entries"),
 }
 
 _HEADER = [
@@ -178,63 +196,52 @@ class Prompts:
     me_framing: str = _DEFAULTS["me_framing"]
     you_framing: str = _DEFAULTS["you_framing"]
     ooc_framing: str = _DEFAULTS["ooc_framing"]
+    roll_framing: str = _DEFAULTS["roll_framing"]
     card_framing: str = _DEFAULTS["card_framing"]
     extract_prompt: str = _DEFAULTS["extract_prompt"]
-    history_prompt: str = _DEFAULTS["history_prompt"]
-    story_so_far_prompt: str = _DEFAULTS["story_so_far_prompt"]
+    scene_history_prompt: str = _DEFAULTS["scene_history_prompt"]
+    journal_history_prompt: str = _DEFAULTS["journal_history_prompt"]
     recap_header: str = _DEFAULTS["recap_header"]
 
 
-def load(paths: Paths) -> Prompts:
-    """The templates, with the file's overrides applied over the built-ins."""
-    path = paths.prompts_file
+def load(path: Path) -> tuple[Prompts, list[str]]:
+    """The templates, with the file's overrides applied over the
+    built-ins, plus the warnings to show — a malformed file, an unknown
+    key, a template missing a required placeholder (ignored, each with
+    its sentence)."""
     if not path.exists():
-        return Prompts()
+        return Prompts(), []
+    warnings: list[str] = []
     try:
-        raw = tomllib.loads(path.read_text())
-    except (OSError, tomllib.TOMLDecodeError) as e:
-        print(f"otaku: ignoring {path} ({e})", file=sys.stderr)
-        return Prompts()
+        raw = tomllib.loads(read_settings(path))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as e:
+        return Prompts(), [f"Ignoring {path.name} ({e})."]
     known = {f.name for f in fields(Prompts)}
     unknown = sorted(set(raw) - known)
     if unknown:
-        # A key otaku no longer reads (or a typo) would otherwise sit there
-        # looking active while doing nothing — say so once.
-        keys = ", ".join(unknown)
-        print(f"otaku: {path}: ignoring unknown prompt key(s): {keys}", file=sys.stderr)
+        # A key otaku no longer reads (or a typo) would otherwise sit
+        # there looking active while doing nothing — say so once.
+        warnings.append(f"{path.name}: ignoring unknown prompt key(s): {', '.join(unknown)}.")
     overrides: dict[str, str] = {}
     for key in known:
         value = raw.get(key)
         if value is None:
             continue
         if not isinstance(value, str):
-            print(f"otaku: {path}: {key} must be a string — ignored", file=sys.stderr)
+            warnings.append(f"{path.name}: {key} must be a string — ignored.")
             continue
         missing = [p for p in _REQUIRED.get(key, ()) if "{" + p + "}" not in value]
         if missing:
             placeholders = ", ".join("{" + p + "}" for p in missing)
-            print(f"otaku: {path}: {key} is missing {placeholders} — ignored", file=sys.stderr)
+            warnings.append(f"{path.name}: {key} is missing {placeholders} — ignored.")
             continue
         overrides[key] = value
-    return Prompts(**overrides)
+    return Prompts(**overrides), warnings
 
 
-def render(template: str, **substitutions: str) -> str:
-    """Fill a template's `{placeholder}`s in ONE pass. Only the given
-    names substitute; every other brace stays literal, so a template can
-    hold a JSON example without doubling anything, and the substituted
-    text is never rescanned, so story content can never inject a
-    placeholder. Rendering cannot fail: an unknown `{word}` is just text."""
-    if not substitutions:
-        return template
-    pattern = "|".join(r"\{" + re.escape(name) + r"\}" for name in substitutions)
-    return re.sub(pattern, lambda m: substitutions[m.group(0)[1:-1]], template)
-
-
-def write_stub(paths: Paths) -> bool:
-    """Write the first-run file — every template active, round-trip exact.
-    Returns True when it wrote; an existing file is never overwritten."""
-    path = paths.prompts_file
+def write_stub(path: Path) -> bool:
+    """Write the first-run file — every template active, round-trip
+    exact. True when it wrote; an existing file is never overwritten."""
     if path.exists():
         return False
     lines = [*_HEADER, ""]
@@ -243,13 +250,3 @@ def write_stub(paths: Paths) -> bool:
         lines.append("")
     write_atomic(path, "\n".join(lines))
     return True
-
-
-def toml_string(value: str) -> str:
-    """A TOML string literal that parses back byte-for-byte. A clean single
-    line is a single-quoted literal; anything with a newline or an
-    apostrophe uses a triple-single literal, whose newline right after the
-    opening TOML trims."""
-    if "\n" not in value and "'" not in value:
-        return f"'{value}'"
-    return f"'''\n{value}'''"

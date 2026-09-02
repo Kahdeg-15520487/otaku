@@ -12,6 +12,7 @@ from prompt_toolkit.output import DummyOutput
 ENTER = "\r"
 ESC = "\x1b"
 TAB = "\t"
+SHIFT_TAB = "\x1b[Z"
 BACKSPACE = "\x7f"  # what the key macOS captions "delete" sends
 UP = "\x1b[A"
 DOWN = "\x1b[B"

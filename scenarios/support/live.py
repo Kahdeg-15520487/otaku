@@ -9,15 +9,17 @@ from pathlib import Path
 import httpx
 import pytest
 
-from otaku.paths import Paths
+from otaku.backend.paths import Paths
 from otaku.settings import config as config_mod
-from otaku.settings.files import write_atomic
+from otaku.settings import providers as providers_mod
+from otaku.settings import write_atomic
+from otaku.settings.providers import ProviderConfig
 from scenarios.support.harness import App, launch
 from scenarios.support.server import ModelServer
 
 
 def live_app(
-    tmp_path: Path, server: ModelServer, provider_config: config_mod.ProviderConfig, model: str
+    tmp_path: Path, server: ModelServer, provider_config: ProviderConfig, model: str
 ) -> App:
     """The real app over `provider_config`, set to play `model`. The scripted
     `server` carries only the harness plumbing (its "test" provider);
@@ -26,8 +28,8 @@ def live_app(
     paths = Paths.resolve(root)
     paths.ensure_tree()
     providers = {provider_config.name: provider_config}
-    write_atomic(paths.config_file, config_mod.Config(providers=providers).to_toml())
-    write_atomic(paths.providers_file, config_mod.providers_toml(providers))
+    write_atomic(paths.config_file, config_mod.Config().to_toml())
+    write_atomic(paths.providers_file, providers_mod.render(providers))
     return launch(root, server, spec=f"{provider_config.name}/{model}")
 
 

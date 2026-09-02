@@ -1,0 +1,54 @@
+{
+ "think": "none",
+ "think_levels": [
+  "default",
+  "none",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max"
+ ],
+ "verbose": false,
+ "autocorrect": true,
+ "notification": false,
+ "max_context": 0,
+ "model": "",
+ "parameters": [
+  {
+   "name": "temperature",
+   "value": "",
+   "type": "float"
+  },
+  {
+   "name": "top_p",
+   "value": "",
+   "type": "float"
+  },
+  {
+   "name": "max_tokens",
+   "value": "",
+   "type": "int"
+  },
+  {
+   "name": "presence_penalty",
+   "value": "",
+   "type": "float"
+  },
+  {
+   "name": "frequency_penalty",
+   "value": "",
+   "type": "float"
+  },
+  {
+   "name": "seed",
+   "value": "",
+   "type": "int"
+  },
+  {
+   "name": "stop",
+   "value": "",
+   "type": "str"
+  }
+ ]
+}

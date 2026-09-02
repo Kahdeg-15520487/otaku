@@ -1,25 +1,25 @@
 """omlx: an MLX model server speaking the OpenAI protocol for chat, with
 its own model registry and load/unload surface under /v1/models."""
 
-import json
-from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 import httpx
 
 from otaku.providers.base import ManagedClient, ModelInfo
-from otaku.settings.config import ProviderConfig
+from otaku.providers.clients import read_home_json
+from otaku.settings.providers import ProviderConfig
 
 
 class OmlxClient(ManagedClient):
     kind = "omlx"
+    label = "oMLX"
 
     @classmethod
     def autoconfigure(cls) -> ProviderConfig:
         """The first-run section, its port and api key detected from omlx's
         own settings file."""
-        settings = _read_home_json(".omlx/settings.json")
+        settings = read_home_json(".omlx/settings.json")
         server = settings.get("server")
         port = server.get("port") if isinstance(server, dict) else None
         auth = settings.get("auth")
@@ -29,16 +29,16 @@ class OmlxClient(ManagedClient):
 
     def load_model(self, model: str) -> None:
         response = httpx.post(
-            f"{self.provider_config.base_url}/v1/models/{quote(model, safe='')}/load",
-            headers=self.provider_config.headers,
+            f"{self.config.base_url}/v1/models/{quote(model, safe='')}/load",
+            headers=self._headers,
             timeout=None,
         )
         response.raise_for_status()
 
     def unload_model(self, model: str) -> None:
         response = httpx.post(
-            f"{self.provider_config.base_url}/v1/models/{quote(model, safe='')}/unload",
-            headers=self.provider_config.headers,
+            f"{self.config.base_url}/v1/models/{quote(model, safe='')}/unload",
+            headers=self._headers,
             timeout=None,
         )
         response.raise_for_status()
@@ -89,12 +89,3 @@ class OmlxClient(ManagedClient):
             if isinstance(models, list):
                 return models
         return []
-
-
-def _read_home_json(relative: str) -> dict[str, Any]:
-    """A JSON object at `~/<relative>`, or {} on any failure."""
-    try:
-        parsed = json.loads((Path.home() / relative).read_text())
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return parsed if isinstance(parsed, dict) else {}

@@ -26,12 +26,12 @@ class TestErrors:
     def test_a_contained_crash_prints_and_a_day_without_refuses(
         self, app: App, capsys, monkeypatch
     ) -> None:
-        def boom(session: object, store: object, args: object) -> None:
+        def boom(chat: object, raw: object) -> None:
             raise RuntimeError("boom")
 
-        from otaku.chat import commands
+        from otaku.terminal.chat import bindings
 
-        monkeypatch.setitem(commands.COMMANDS, "/help", (boom, None))
+        monkeypatch.setitem(bindings._INTERACTIVE, "/help", boom)
         app.play("/help")
         result = run_otaku(app.paths.root, "logs", "error")
         assert result.returncode == 0

@@ -13,7 +13,9 @@ result no longer parses as TOML.
 from otaku.settings.migrations.surgery import (
     apply_migrations,
     drop_key_everywhere,
+    ensure_key,
     ensure_section,
+    rename_section,
     set_key,
 )
 
@@ -56,6 +58,87 @@ class TestEnsureSection:
     def test_a_missing_anchor_falls_back_to_the_end(self) -> None:
         migrated = ensure_section("display", "[display]", after="vanished")(BASE)
         assert migrated == BASE + "\n[display]\n"
+
+
+class TestEnsureKey:
+    """A setting that arrived after the file was written: added so the
+    surface stays discoverable, never imposed over what is there, and
+    placed where the rendered file would have put it — `after` names the
+    key it belongs behind, so a migrated file reads the same way down as
+    a fresh one."""
+
+    def test_no_neighbour_named_puts_it_under_the_header(self) -> None:
+        text = '[terminal]\ndialogue_color = "auto"\ndialogue_bold = false\n'
+        migrated = ensure_key("terminal", "theme", 'theme = "auto"')(text)
+        assert migrated == (
+            '[terminal]\ntheme = "auto"\ndialogue_color = "auto"\ndialogue_bold = false\n'
+        )
+
+    def test_a_named_neighbour_puts_it_directly_after(self) -> None:
+        text = "[settings]\nshow_banner = true\nsmooth_streaming = true\n\n[context]\nhead = 20\n"
+        migrated = ensure_key("settings", "sound", 'sound = "default"', after="show_banner")(text)
+        assert migrated == (
+            "[settings]\nshow_banner = true\n"
+            'sound = "default"\nsmooth_streaming = true\n\n[context]\nhead = 20\n'
+        )
+
+    def test_a_neighbour_the_file_lacks_puts_it_at_the_sections_end(self) -> None:
+        # Which is where a key rendered after an optional one belongs:
+        # prompt_cache follows keep_alive, and a section without a
+        # keep_alive still wants it last.
+        text = "[settings]\nshow_banner = true\n\n[context]\nhead_messages = 20\n"
+        migrated = ensure_key("settings", "sound", 'sound = "default"', after="gone")(text)
+        assert migrated == (
+            '[settings]\nshow_banner = true\nsound = "default"\n\n[context]\nhead_messages = 20\n'
+        )
+
+    def test_the_users_own_value_is_left_alone(self) -> None:
+        # The difference from set_key: a value already chosen is the
+        # user's, and every launch reruns this.
+        text = '[settings]\nsound = "/my/bell.aiff"\n'
+        assert ensure_key("settings", "sound", 'sound = "default"')(text) is text
+
+    def test_a_commented_out_key_counts_as_absent(self) -> None:
+        text = '[settings]\n# sound = "off"\nshow_banner = true\n'
+        migrated = ensure_key("settings", "sound", 'sound = "default"', after="show_banner")(text)
+        assert migrated.endswith('show_banner = true\nsound = "default"\n')
+
+    def test_no_such_section_is_untouched(self) -> None:
+        assert ensure_key("nowhere", "sound", 'sound = "default"')(BASE) is BASE
+
+
+class TestRenameSection:
+    """A section that has been called something else, whose contents
+    never changed: only the header line is rewritten."""
+
+    def test_renames_the_header_and_keeps_everything_under_it(self) -> None:
+        text = (
+            "[settings]\nshow_banner = true\n"
+            '\n[ui]\n# mine\ndialogue_color = "cyan"   # the one I like\n'
+        )
+        migrated = rename_section("ui", "terminal")(text)
+        assert migrated == (
+            "[settings]\nshow_banner = true\n"
+            '\n[terminal]\n# mine\ndialogue_color = "cyan"   # the one I like\n'
+        )
+
+    def test_a_file_already_renamed_is_untouched(self) -> None:
+        # Every launch reruns this; the second one must be a no-op.
+        text = '[terminal]\ndialogue_color = "auto"\n'
+        assert rename_section("ui", "terminal")(text) is text
+
+    def test_a_file_holding_both_is_untouched(self) -> None:
+        # Nothing here can merge two sections, and guessing which one
+        # the reader meant would lose the other.
+        text = '[ui]\ndialogue_color = "cyan"\n\n[terminal]\ndialogue_bold = true\n'
+        assert rename_section("ui", "terminal")(text) is text
+
+    def test_no_such_section_is_untouched(self) -> None:
+        assert rename_section("ui", "terminal")(BASE) is BASE
+
+    def test_a_mention_in_a_comment_is_not_the_section(self) -> None:
+        text = BASE + "# [ui] used to live here\n"
+        assert rename_section("ui", "terminal")(text) is text
 
 
 class TestSetKey:

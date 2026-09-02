@@ -8,8 +8,7 @@ exact rows a change requires, never a re-render: every other byte,
 comment, and blank of the file survives. A chained result must parse
 back or it is discarded wholesale — a migration bug leaves the file
 old, never broken — and the write is atomic, the pre-edit text kept as
-a dated backup in configs/backups/ (`-N` appended when the day already
-has one).
+a dated backup (`-N` appended when the day already has one).
 
 The textual scan is line-based, which is sound for these files because
 they hold no multiline strings by construction; prompts.toml (multiline
@@ -23,8 +22,8 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
-from otaku.paths import Paths
-from otaku.settings.files import write_atomic
+from otaku.formatting import decode_text
+from otaku.settings import write_atomic
 
 # One shape change: config text in, config text out (unchanged when the
 # change does not apply).
@@ -56,6 +55,44 @@ def ensure_section(name: str, block: str, after: str = "") -> Migration:
     return apply
 
 
+def ensure_key(section: str, key: str, line: str, *, after: str | None = None) -> Migration:
+    """A migration adding `line` — a freshly rendered `key = value` row —
+    to `[section]`, for a file that has the section but not the key: a
+    setting that arrived after this config was written, so the whole
+    surface stays discoverable in the file.
+
+    `after` names the key it belongs behind, which is how a migrated file
+    comes to read the same way down as a freshly rendered one — so it is
+    the neighbour `to_toml` puts above it, and a step that skips it is a
+    step that shuffles somebody's config. None means the section's head.
+    A named key the file does not have puts the row at the section's end,
+    which is where a key rendered after an optional one belongs anyway.
+
+    `ensure_section`'s posture one level down — what EXISTS is never
+    touched, whatever its value, which is what separates a new default
+    from `set_key`'s imposed one. Its `after` names a section and falls
+    back to the file's end; this one names a key and falls back to the
+    section's head, because a section is appended to a file while a key
+    has a place in an order."""
+
+    def apply(text: str) -> str:
+        parsed = parse(text)
+        if parsed is None or not isinstance(_table(parsed, section), dict):
+            return text
+        lines = text.splitlines()
+        span = _section_span(lines, section)
+        if span is None or _key_index(lines, span, key) is not None:
+            return text
+        if after is None:
+            return joined(_inserted_at_span_start(lines, span, [line]))
+        neighbour = _key_index(lines, span, after)
+        if neighbour is None:
+            return joined(_inserted_at_span_end(lines, span, [line]))
+        return joined([*lines[: neighbour + 1], line, *lines[neighbour + 1 :]])
+
+    return apply
+
+
 def set_key(section: str, key: str, line: str) -> Migration:
     """A migration replacing the `key = …` line of `[section]` (a literal
     top-level name wins — providers.toml sections carry user-chosen
@@ -82,6 +119,57 @@ def set_key(section: str, key: str, line: str) -> Migration:
         if lines[at] == line:
             return text
         return joined([*lines[:at], line, *lines[at + 1 :]])
+
+    return apply
+
+
+def rename_section(old: str, new: str) -> Migration:
+    """A migration renaming the `[old]` header to `[new]` and touching
+    nothing under it: a section that has been called something else,
+    whose contents never changed. `rename_key`'s posture one level up —
+    every value, comment and blank the reader has in there survives,
+    because only the header line is rewritten.
+
+    A file already holding `[new]`, or without `[old]`, is left alone;
+    so is a header spelled in a way this cannot rewrite literally (a
+    quoted or spaced-out name), which is a file no otaku ever wrote."""
+
+    def apply(text: str) -> str:
+        parsed = parse(text)
+        if parsed is None or new in parsed or old not in parsed:
+            return text
+        lines = text.splitlines()
+        span = _section_span(lines, old)
+        if span is None or f"[{old}]" not in lines[span[0]]:
+            return text
+        lines[span[0]] = lines[span[0]].replace(f"[{old}]", f"[{new}]", 1)
+        return joined(lines)
+
+    return apply
+
+
+def rename_key(section: str, old: str, new: str, render: Callable[[object], str]) -> Migration:
+    """A migration renaming `[section]`'s `old = value` key to `new`, the
+    value carried over: the old line is replaced in place by
+    `render(value)` — the freshly rendered `new = value` row, comment
+    included — so a hand-set value survives its setting's rename. A file
+    already holding `new`, or without `old`, is untouched; a render that
+    produces invalid TOML is discarded by `apply_migrations`' parse
+    check, never written."""
+
+    def apply(text: str) -> str:
+        parsed = parse(text)
+        table = _table(parsed, section) if parsed is not None else None
+        if not isinstance(table, dict) or old not in table or new in table:
+            return text
+        lines = text.splitlines()
+        span = _section_span(lines, section)
+        if span is None:
+            return text
+        at = _key_index(lines, span, old)
+        if at is None:
+            return text
+        return joined([*lines[:at], render(table[old]), *lines[at + 1 :]])
 
     return apply
 
@@ -117,47 +205,52 @@ def apply_migrations(text: str, migrations: list[Migration]) -> str:
     return migrated
 
 
-def update_config(paths: Paths, changes: list[Migration]) -> bool:
-    """One edit of config.toml, committed — the launch table rides this.
+def update_config(config_path: Path, backups_dir: Path, changes: list[Migration]) -> bool:
+    """One committed edit of config.toml — the launch table rides this.
     A missing file is bootstrap's business, and OSError is swallowed: an
     edit is never worth a crash. Returns whether the file changed."""
-    try:
-        text = paths.config_file.read_text()
-    except OSError:
-        return False
-    migrated = apply_migrations(text, changes)
-    if migrated == text:
-        return False
-    return commit(paths.config_file, backup_path(paths, "config"), text, migrated)
+    return update_settings_file(config_path, backups_dir, "config", changes)
 
 
-def update_providers(paths: Paths, changes: list[Migration]) -> bool:
-    """One edit of providers.toml, committed — the provider moves and the
-    model picker's field saves ride this. Same machinery, same guarantees
-    as `update_config`. Returns whether the file changed."""
+def update_providers(providers_path: Path, backups_dir: Path, changes: list[Migration]) -> bool:
+    """Same machinery over providers.toml — the provider moves and the
+    model picker's field saves ride this. Returns whether the file
+    changed; False also covers an edit that could not land."""
+    return update_settings_file(providers_path, backups_dir, "providers", changes)
+
+
+def update_settings_file(
+    path: Path, backups_dir: Path, stem: str, changes: list[Migration]
+) -> bool:
     try:
-        text = paths.providers_file.read_text()
+        raw = path.read_bytes()
     except OSError:
         return False
+    # A file 0.3.0 wrote on native Windows carries the locale codepage
+    # (`formatting.decode_text`); it counts as changed even when no
+    # shape move applies, so this commit re-encodes it as UTF-8 for
+    # good — backup first, like any other edit. Legacy shows in the
+    # round-trip: valid UTF-8 re-encodes byte-exact, a fallback never.
+    text = decode_text(raw)
     migrated = apply_migrations(text, changes)
-    if migrated == text:
+    if migrated == text and text.encode("utf-8") == raw:
         return False
-    return commit(paths.providers_file, backup_path(paths, "providers"), text, migrated)
+    return commit(path, backup_path(backups_dir, stem), text, migrated)
 
 
 # ---------- the write machinery ----------
 
 
-def backup_path(paths: Paths, stem: str) -> Path:
+def backup_path(backups_dir: Path, stem: str) -> Path:
     """The next free dated backup name: `stem-YYYYMMDD.toml` for the
     day's first edit, `-N` appended for every further one — no edit ever
     overwrites an earlier state."""
     stamp = datetime.now().astimezone().strftime("%Y%m%d")
-    path = paths.config_backups_dir / f"{stem}-{stamp}.toml"
+    path = backups_dir / f"{stem}-{stamp}.toml"
     n = 0
     while path.exists():
         n += 1
-        path = paths.config_backups_dir / f"{stem}-{stamp}-{n}.toml"
+        path = backups_dir / f"{stem}-{stamp}-{n}.toml"
     return path
 
 
@@ -172,7 +265,7 @@ def commit(file: Path, backup: Path, text: str, migrated: str) -> bool:
         os.chmod(backup.parent, 0o700)
         # Born 0600: never a moment (or a crash residue) at umask perms.
         fd = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
             f.write(text)
         write_atomic(file, migrated)
     except OSError:
@@ -261,6 +354,12 @@ def _key_index(lines: list[str], span: tuple[int, int], key: str) -> int | None:
         if pattern.match(lines[i]):
             return i
     return None
+
+
+def _inserted_at_span_start(lines: list[str], span: tuple[int, int], new: list[str]) -> list[str]:
+    """`new` placed directly under the section's header."""
+    header, _ = span
+    return lines[: header + 1] + new + lines[header + 1 :]
 
 
 def _inserted_at_span_end(lines: list[str], span: tuple[int, int], new: list[str]) -> list[str]:

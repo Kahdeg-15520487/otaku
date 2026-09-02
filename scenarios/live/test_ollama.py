@@ -14,7 +14,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from otaku.settings.config import ProviderConfig
+from otaku.settings.providers import ProviderConfig
 from scenarios.support.live import live_app as build_app
 
 SPEC = os.environ.get("OTAKU_TEST_MODEL", "ollama/gemma3")

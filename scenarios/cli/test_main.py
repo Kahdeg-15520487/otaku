@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from otaku.paths import Paths
+from otaku.backend.paths import Paths
 from otaku.settings import state as state_mod
-from otaku.terminal import PROMPT_CONTINUATION
+from otaku.terminal.tty import PROMPT_CONTINUATION
 from scenarios.support import server as scripted
 from scenarios.support.harness import SPEC, run_otaku, set_config, set_config_provider
 from scenarios.support.server import ModelServer
@@ -43,9 +43,10 @@ class TestFirstRun:
         terminal.expect("Created", "config.toml")
         terminal.expect("Models (0)")  # the empty picker: the panel is the door
         terminal.send(ESC, 1.0)
-        terminal.expect("Imported 14 message(s)")
-        terminal.expect("You're late, mapmaker.")  # resumed mid-scene
-        terminal.expect("A sample story was imported")
+        # The seeding is silent (its counts are not launch chrome); the
+        # story itself is the proof, resumed mid-scene.
+        terminal.expect("You're late, mapmaker.")
+        terminal.expect("Sample stories were imported")
         terminal.send("Hello?")
         terminal.send(ENTER, 1.0)
         terminal.expect("No model selected")
@@ -77,11 +78,17 @@ class TestChat:
         set_config_provider(state, server)
         set_config(state, seed_sample=True)
         terminal = Terminal(str(state))
-        terminal.expect("Models (1)", "test-model")
+        # Seeding both samples (one of them 300+ messages) runs before
+        # the picker can draw, so the first screen earns a longer wait.
+        # The header's count region repaints in place, so the raw
+        # transcript may hold "Models (1)" split by cursor moves — the
+        # word and the row are the anchors that survive redraws.
+        terminal.expect("Models", "test-model", timeout=30.0)
         terminal.send(ENTER, 1.0)
-        terminal.expect("Imported 14 message(s)")
-        terminal.expect("You're late, mapmaker.")  # resumed mid-scene
-        terminal.expect("A sample story was imported")
+        # The seeding is silent (its counts are not launch chrome); the
+        # story itself is the proof, resumed mid-scene.
+        terminal.expect("You're late, mapmaker.")
+        terminal.expect("Sample stories were imported")
         assert terminal.quit() == 0
 
 
@@ -231,7 +238,7 @@ def _listening(port: int) -> bool:
 def remember(root: Path) -> None:
     """state.toml pointing at the scripted model, so launch lands in the
     REPL instead of the picker."""
-    state_mod.save(Paths.resolve(root), state_mod.AppState(model=SPEC))
+    state_mod.save(Paths.resolve(root).state_file, state_mod.State(model=SPEC))
 
 
 def launch_remembered(server: ModelServer, root: Path) -> Terminal:

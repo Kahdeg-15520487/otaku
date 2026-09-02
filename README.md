@@ -1,49 +1,56 @@
-# otaku — a roleplay terminal client
+# otaku — a roleplay client
 
 [![PyPI](https://img.shields.io/pypi/v/otaku.svg)](https://pypi.org/project/otaku/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/enclavum/otaku/blob/main/LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://github.com/enclavum/otaku/blob/main/pyproject.toml)
-[![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](https://github.com/enclavum/otaku#requirements)
+[![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](https://github.com/enclavum/otaku#requirements)
 
-Stories that branch and grow their own lore — on your machine, with optional at-rest encryption.
-
-![otaku demo](https://otaku.sh/demo.gif?v=0.3.0)
-
-## What it is
+![otaku web](https://raw.githubusercontent.com/enclavum/otaku/main/images/capture-web.png?v=0.4.0)
 
 Otaku is an LLM roleplay client (similar to SillyTavern, Janitor AI, etc.).
 
-It's free, works on your machine and has a terminal interface. LLMs can be local (via llama.cpp,
-KoboldCpp, Ollama and others) or accessed via an API service (OpenRouter, NanoGPT). Otaku needs no
-infrastructure — no Docker, no database server — installs in one command and requires minimal
-configuration.
+It's free, works on your machine, and lets you play either in a web UI or in the terminal. LLMs
+can be local (via llama.cpp, KoboldCpp, Ollama, and others) or accessed via an API service
+(OpenRouter, NanoGPT). Otaku needs no infrastructure — no Docker, no database server — installs
+in one command, and requires minimal configuration.
 
-Key features:
+## Demo
+
+Demos are available on the [website](https://otaku.sh/):
+
+- Web UI demo: https://otaku.sh/demo-web/
+- Terminal demo: https://otaku.sh/demo-terminal/
+
+Both demos include two sample stories and a scripted "model", so you can actually send prompts
+and see how the UI works.
+
+## Features
+
+Main features:
 
 - **consistent prose**: the first 20 and the last 150 messages are always sent to the LLM as
   they are, to make it maintain the style;
 - **context control**: as the number of messages grows, intermediate messages are split into
   scenes and are automatically replaced by scene summaries;
 - **character recognition**: characters you introduce in your story are extracted automatically;
-  each character maintains its own journal of what they've seen and experienced;
-- **no fixed persona**: you are free to play any character during the story and hint the LLM who
-  is playing who (the `/me` and `/you` commands);
-- **helper commands** that hint the LLM on what to do next (the `/ooc` and `/cue` commands);
-- **transparent context**: you can see what'll be sent to the LLM with the `/context` command.
+  each character keeps their own journal of what they've seen and experienced;
+- **no fixed persona**: you are free to play any character during the story and hint to the LLM
+  who is playing whom (the `/me` and `/you` commands);
+- **transparent context**: you can see what will be sent to the LLM with the `/context` command.
 
 Import your content:
 
 - **character cards** — into a story you've already started (the `/card` command);
 - **SillyTavern chats** — this creates a new story that you can continue (the `/import` command);
-- **a text file** — will be split into turns and you can play with characters in it (also the
-  `/import` command);
+- **a text file** — will be split into turns, and you can play with the characters in it (also
+  the `/import` command);
 - **lorebooks or world info** have no equivalent in otaku, but they can be imported from a file
   into the system message (the `/system` command).
 
 ## Requirements
 
-1. Platform: macOS, Linux, or Windows through WSL.
-1. Local LLM provider(s) **or** an API key for cloud provider(s).
+- Platform: macOS / Linux / Windows.
+- Local LLM provider(s) **or** an API key for cloud provider(s).
 
 Backends and providers supported: llama.cpp, KoboldCpp, Ollama, oMLX, LM Studio; OpenRouter and
 NanoGPT.
@@ -53,8 +60,16 @@ NanoGPT.
 The script first installs the `uv` package manager — if you don't have it yet — and then
 installs otaku with it.
 
+macOS and Linux:
+
 ```bash
 curl -LsSf https://otaku.sh/install.sh | sh
+```
+
+Windows:
+
+```powershell
+irm https://otaku.sh/install.ps1 | iex
 ```
 
 Other ways to install:
@@ -79,29 +94,35 @@ upgrade.
 
 ## User guide
 
-### Launching for the first time
+Both the web UI and the terminal share the same functions; the difference is that in the
+terminal you execute them with slash commands (the reference is available with `/help`), while
+in the web UI the operations are available from the menu. In the description below, all commands
+are given as they are called from the terminal.
+
+### Launching
 
 ```bash
-otaku
+otaku      # for terminal
+otaku web  # for web UI; default URL is http://localhost:9600
 ```
 
 On first start, you choose a provider and a model: otaku automatically detects local LLM
 backends and lets you pick from their models. Cloud providers (OpenRouter, NanoGPT) are also in
 the picker — enter an API key and their catalogs appear. After you've chosen (or cancelled with
-Esc), you land at the prompt. The models picker is available later with the `/model` (Ctrl+O)
+Esc), you land at the prompt. The model picker is available later with the `/model` (Ctrl+O)
 command.
 
-To give you an idea of the features and what play looks like, on first start a sample story is
-imported, and you land right in the middle of it. You can explore it with the `/lore`, `/cast`,
-and `/context` commands.
+To give you an idea of the features and what play looks like, two sample stories are imported on
+first start. `/stories` lets you choose one or the other, and `/lore`, `/cast`, and `/context`
+show what otaku has built from each.
 
-The commands cheatsheet is available at `/help`.
+The command cheatsheet is available with `/help`.
 
 ### Starting a story
 
 From there, you can start your own story with the `/new` command. You can also import a
-SillyTavern chat with `/import`. Note that importing takes time, because it doesn't only import
-the messages — it also extracts characters and scenes from them (more on that below), though you
+SillyTavern chat with `/import`. Note that importing takes time, because it not only imports
+the messages but also extracts characters and scenes from them (more on that below), though you
 can cancel the extraction. You can also import a plain text file the same way; it will be split
 into messages.
 
@@ -122,9 +143,13 @@ A few example prompts:
 - `/ooc Keep replies under three paragraphs.` — out of character, a standing note
 - `"Who goes there?" I whisper. /ooc the keeper does not know me yet` — play with an aside
 - `"Come away with me," I tell the keeper. /cue she refuses` — play with a one-time steer
-- `/me Keeper: You are late again.` — hint the LLM you are playing as Keeper now
+- `/me Keeper: You are late again.` — hint to the LLM that you are playing Keeper now
 - `/you Keeper` — tell the LLM to play as Keeper
 - `/you Keeper: she is furious` — the same but with a direction
+
+For D&D roleplay, there is the `/roll` command: `/roll 1d20+5 I search the alcove` rolls the
+dice, shows you what fell, and sends the result together with your action; `/regen` re-tells the
+same roll rather than re-rolling it. Dice examples: `2d6+3`, `d20`, `2d20kh1`/`2d20kl1`.
 
 During play, you can `/undo` (Ctrl+U) the last exchange and `/regen` (Ctrl+R) the last reply.
 
@@ -158,23 +183,33 @@ you like.
 ### Understanding the context
 
 The summaries only kick in once you have more than around 200 messages in the chat. The first 20
-and the last 150 messages (both configurable) are always sent as-is, to preserve maximum detail
+and the last 150 messages (both configurable) are always sent as is, to preserve maximum detail
 of recent story development and your prose style; everything in between is replaced with scene
 summaries. Even though summaries may exist up to the latest message, only the older ones are
 actually used. Nothing is included in the context by a condition or a trigger word.
 
+The exact context composition, case by case, is described in
+[context_design.md](https://github.com/enclavum/otaku/blob/main/docs/context_design.md).
 You can use the `/context` command to see what exactly will be sent to the LLM.
+
+### Customizing the web UI
+
+To restyle the web UI, create `~/.otaku/web/custom.css`; it overrides styles in the bundled
+design. The custom properties it can set are listed in
+[docs/web_tokens.md](https://github.com/enclavum/otaku/blob/main/docs/web_tokens.md).
 
 ## Configuration and environments
 
 Everything lives in the state dir, `~/.otaku` by default:
 
-- `configs/config.toml` — context shape, extraction thresholds, encryption, backups.
-- `configs/providers.toml` — one section per provider (url, api key). The model picker edits it
-  for you, and api keys are stored sealed.
+- `configs/config.toml` — context shape, extraction thresholds, encryption, backups, and web
+  settings.
+- `configs/providers.toml` — one section per provider (URL, API key). The model picker edits it
+  for you, and API keys are stored sealed.
 - `configs/prompts.toml` — every template otaku ever sends, editable.
 - `configs/state.toml`, `configs/models.toml` — the app's own memory of your session and
   per-model settings.
+- `web/custom.css` and `web/fonts/` — web UI customization, if needed.
 
 The config files are written on first run and after that edited only surgically — line by line,
 never rewritten as a whole: version migrations at launch and the picker's provider edits, each

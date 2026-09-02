@@ -1,15 +1,43 @@
 """Display formatting: paths, one-line previews, sizes, context windows."""
 
+import tomllib
 from pathlib import Path
 
 from otaku.formatting import (
+    decode_text,
     flatten,
     format_context,
     format_size,
     pretty_path,
     printable,
+    render,
+    toml_key,
+    toml_scalar,
     truncate,
+    truncate_label,
 )
+
+
+class TestDecodeText:
+    def test_utf8_reads_as_itself(self) -> None:
+        assert decode_text("…and on which port".encode()) == "…and on which port"
+
+    def test_a_windows_ansi_file_reads_instead_of_raising(self) -> None:
+        # 0x85 is "…" in cp1252 (and cp1251 alike): what 0.3.0's
+        # unencoded writer left on native Windows.
+        assert "…" in decode_text("…and on which port".encode("cp1252"))
+
+    def test_no_bytes_can_make_it_raise(self) -> None:
+        # 0x81 is undefined even in cp1252 — latin-1 still answers.
+        assert decode_text(b"\xff\x81ok").endswith("ok")
+
+    def test_newlines_normalize_as_read_text_always_did(self) -> None:
+        # A 0.3.0 on Windows wrote CRLF; a stray \r is an invalid
+        # character to a TOML parser, so none may survive the read —
+        # including the \r\r\n a healing write once mangled through
+        # Windows' own newline translation.
+        assert decode_text(b"a\r\nb\rc") == "a\nb\nc"
+        assert decode_text("# …\r\r\n[x]\r\n".encode("cp1252")) == "# …\n\n[x]\n"
 
 
 class TestPrettyPath:
@@ -120,3 +148,90 @@ class TestFormatContext:
     def test_is_empty_when_unknown(self) -> None:
         assert format_context(None) == ""
         assert format_context(0) == ""
+
+
+class TestTomlKey:
+    def test_a_simple_name_stays_bare(self) -> None:
+        assert toml_key("ollama") == "ollama"
+        assert toml_key("my-provider_2") == "my-provider_2"
+
+    def test_a_name_with_dots_or_colons_is_quoted(self) -> None:
+        key = toml_key("llama3:latest")
+        parsed = tomllib.loads(f"[{key}]\n")
+        assert list(parsed) == ["llama3:latest"]
+
+    def test_a_quoted_name_survives_quotes_inside(self) -> None:
+        key = toml_key('we"ird')
+        parsed = tomllib.loads(f"[{key}]\n")
+        assert list(parsed) == ['we"ird']
+
+    def test_control_characters_are_escaped(self) -> None:
+        # Keys are values too — a model name heads its models.toml table,
+        # and one raw control byte would unparse the whole file.
+        tricky = "bad\nname\x01\x7f"
+        key = toml_key(tricky)
+        parsed = tomllib.loads(f"[{key}]\n")
+        assert list(parsed) == [tricky]
+
+
+class TestTomlScalar:
+    def test_booleans(self) -> None:
+        assert toml_scalar(True) == "true"
+        assert toml_scalar(False) == "false"
+
+    def test_numbers_roundtrip(self) -> None:
+        assert roundtrip(42) == 42
+        assert roundtrip(1.5) == 1.5
+
+    def test_a_plain_string_roundtrips(self) -> None:
+        assert roundtrip("hello world") == "hello world"
+
+    def test_quotes_backslashes_and_newlines_roundtrip(self) -> None:
+        tricky = 'a "quoted" \\ path\nsecond line'
+        assert roundtrip(tricky) == tricky
+
+    def test_control_characters_roundtrip(self) -> None:
+        # A server-reported model name can carry anything; whatever the
+        # string holds, the rendered file must parse back.
+        tricky = "a\rb\tc\x01d\x7fe\x1bf"
+        assert roundtrip(tricky) == tricky
+
+
+class TestRender:
+    def test_fills_the_given_placeholders(self) -> None:
+        assert render("Hi {name}, {word}.", name="Ana", word="welcome") == "Hi Ana, welcome."
+
+    def test_other_braces_stay_literal(self) -> None:
+        template = 'Reply as {"scene": {"title": "..."}} for {name}'
+        assert render(template, name="x") == 'Reply as {"scene": {"title": "..."}} for x'
+
+    def test_an_unknown_placeholder_is_just_text(self) -> None:
+        assert render("{name} and {unknown}", name="x") == "x and {unknown}"
+
+    def test_substituted_text_is_never_rescanned(self) -> None:
+        assert render("{a} {b}", a="{b}", b="two") == "{b} two"
+
+    def test_repeated_placeholders_all_fill(self) -> None:
+        assert render("{n}-{n}", n="x") == "x-x"
+
+    def test_no_substitutions_return_the_template(self) -> None:
+        assert render("{anything} stays") == "{anything} stays"
+
+
+def roundtrip(value: object) -> object:
+    return tomllib.loads(f"x = {toml_scalar(value)}")["x"]
+
+
+class TestTruncateLabel:
+    def test_a_short_label_stays(self) -> None:
+        assert truncate_label("The River", 50) == "The River"
+
+    def test_a_long_label_is_cut_with_an_ellipsis(self) -> None:
+        assert truncate_label("x" * 60, 50) == "x" * 49 + "…"
+
+    def test_the_fork_number_survives_the_cut(self) -> None:
+        label = truncate_label("A" * 60 + " - 3", 50)
+        assert label.endswith("… - 3") and len(label) == 50
+
+    def test_newlines_flatten_before_the_cut(self) -> None:
+        assert truncate_label("one\ntwo", 50) == "one two"

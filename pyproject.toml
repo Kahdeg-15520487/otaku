@@ -5,26 +5,28 @@ build-backend = "hatchling.build"
 [project]
 name = "otaku"
 dynamic = ["version"]
-description = "A roleplay terminal client"
+description = "A roleplay client"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-authors = [{ name = "enclavum", email = "293312193+enclavum@users.noreply.github.com" }]
+authors = [{ name = "enclavum", email = "feedback@otaku.sh" }]
 requires-python = ">=3.11"
 # The GitHub repository topics, kept in step with them — one discovery
-# vocabulary, whichever index a reader arrives from. `python` is dropped (every
-# package here is), `omlx`, `story`, and `lore` are otaku's own words for things.
+# vocabulary, whichever index a reader arrives from. `omlx`, `story` and `lore`
+# are the three additions: otaku's own words for things, which no topic carries.
 keywords = [
-    "llm", "local-llm", "cli", "terminal", "tui",
+    "llm", "local-llm", "cli", "terminal", "tui", "web-ui",
     "ollama", "mlx", "omlx", "koboldcpp", "llamacpp", "lmstudio", "openrouter", "nanogpt",
     "roleplay", "ai-roleplay", "storytelling", "story", "lore",
-    "interactive-fiction", "creative-writing", "sillytavern",
+    "interactive-fiction", "creative-writing", "sillytavern", "sillytavern-alternative",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
+    "Environment :: Web Environment",
     "Intended Audience :: End Users/Desktop",
     "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.11",
@@ -46,11 +48,10 @@ dependencies = [
     "cryptography>=48,<49; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "httpx>=0.28,<1.0",
     "prompt_toolkit>=3.0.53,<4.0",
-    "psutil>=7,<8",
 ]
 
 [project.urls]
-Homepage = "https://github.com/enclavum/otaku"
+Homepage = "https://otaku.sh"
 Repository = "https://github.com/enclavum/otaku"
 Issues = "https://github.com/enclavum/otaku/issues"
 
@@ -62,7 +63,6 @@ dev = [
     "mypy>=2.3,<3",
     "pytest>=9.1,<10",
     "ruff>=0.16,<0.17",
-    "types-psutil>=7,<8",
 ]
 
 # The one source of the version is the code: otaku/__init__.py.__version__.
@@ -71,6 +71,10 @@ path = "otaku/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["otaku"]
+
+# The README's pictures are for GitHub, not for the source tarball.
+[tool.hatch.build.targets.sdist]
+exclude = ["images/"]
 
 [tool.ruff]
 line-length = 100
@@ -88,7 +92,7 @@ select = ["B", "E", "F", "I", "N", "RUF", "SIM", "UP", "W"]
 "otaku/store/*" = ["E501"]
 # The command surface: one help row per source line, whatever the width
 # (see the `# fmt: off` block).
-"otaku/chat/help.py" = ["E501"]
+"otaku/backend/commands.py" = ["E501"]
 # The rendered config: one setting per source line, whatever the width
 # (see the `# fmt: off` block in to_toml).
 "otaku/settings/config.py" = ["E501"]

@@ -5,6 +5,211 @@ All notable changes to otaku are documented in this file. The format is based on
 [Semantic Versioning](https://semver.org/) — while pre-1.0, minor releases may include breaking
 changes.
 
+## [0.4.0] - 2026-09-02
+
+**TL;DR**
+
+- Added web UI: `otaku web` opens the same session in a browser — the second frontend, over the
+  same stories, the same lore and the same commands.
+- Added native Windows support (10 and 11, 64-bit only).
+- The context builder is reworked from the ground up, after `docs/context_design.md`; the new
+  `max_context` setting keeps the prompt inside the window models still handle well for roleplay.
+- The lore browser in terminal (`/lore`, `/cast`) is reworked to include the system message and
+  the story messages.
+- Prompt caching for OpenRouter.
+- Sound notifications.
+- A second, longer sample story.
+
+**Full version:**
+
+### Added
+- `otaku web` — a web interface for the otaku on this machine. It serves one open session at the
+  address `configs/config.toml`'s new `[web]` section names (loopback and port 9600 by default, so
+  reaching it from another machine is an edit somebody made on purpose), and everything the
+  terminal does is there: the story plays in a transcript, replies stream, and everything the
+  terminal answers as a command is a button or a screen.
+- `/web` serves the running session to a browser without leaving the terminal: it prints the
+  address and how to stop, and Ctrl+C hands the session straight back to the prompt you left —
+  nothing redrawn, because nothing started over. Nothing is served in parallel and nothing is
+  copied: it is one session, played through whichever frontend you are in front of. It exists
+  because `otaku web` is a thing you have to already know about, where a command is in the menu
+  that opens when you type a slash, and under a heading of its own in `/help`.
+- Windows is a supported platform, with an installer of its own: `install.ps1`, run as
+  `powershell -ExecutionPolicy Bypass -c "irm https://otaku.sh/install.ps1 | iex"`. It is
+  `install.sh` in PowerShell and makes the same promises — it fetches uv, installs otaku with it,
+  never asks for administrator, and reports an otaku that uv, pipx, Scoop or Chocolatey already
+  owns instead of installing a second one alongside. The one thing it edits that is yours is the
+  user PATH, and only when uv's directory is missing from it. 64-bit only: on an ARM64 machine
+  otaku is installed on an emulated x64 CPython, because `cryptography` publishes no ARM64 Windows
+  wheel, and 32-bit Windows is refused with the reason rather than a failing build.
+- New `max_context` setting (`[context]` in config.toml, 0 by default — the model's whole window —
+  or any number of tokens) caps the prompt whatever the model advertises: the effective context for
+  roleplay falls far short of the claimed one. Also settable as `/set max_context`
+  — in the web settings panel too — which edits that one config.toml line surgically, the
+  pre-edit file backed up. When the story outgrows the limit, the oldest scene summaries fold
+  into the story-so-far; when even that is not enough, the verbatim tail steps down (never below
+  50 messages); a story that cannot fit even then is declined with directions instead of silently
+  trimmed. The context preview shows each stage: the story-so-far as its own cell before the
+  scene summaries, and a tail aiming below the configured count says the window forced it.
+- `/set notification on|off` — off by default — plays a sound when a reply lands, for when you look
+  away mid-generation. Which sound is `configs/config.toml`'s `notification_sound`: `"default"` is
+  the platform's own (Glass on macOS, the freedesktop theme's on Linux, Ding on Windows), or name a
+  file of your own — WAV on Windows, which plays it through `winsound` and reads nothing else. A
+  machine with no player, or a path that isn't there, rings the terminal bell instead — and what a
+  bell means is your terminal's business, which is where a notification belongs.
+- Prompt caching on OpenRouter, on by default: requests carry cache breakpoints, so each reply
+  re-reads the story's stable prefix at the provider's cache rate instead of full input price —
+  play against the hosted models for a fraction of the tokens. `prompt_cache` in
+  `configs/providers.toml` decides per provider (`off`, `5m`, or `1h` for slow-paced play, since a
+  cache outlived between turns is written again instead of read) — an existing `[openrouter]`
+  section gains the line on the first launch after upgrading, so the setting is there to see and
+  edit. The verbose stats line shows `cached N tok` per reply, `/usage` grows a CACHED column, and
+  `/info` reports the setting.
+- `[terminal]`'s new `theme` setting decides which shades otaku paints in: `"light"` or `"dark"`
+  settles it, and `"auto"` — the default — asks the terminal as before. What changed underneath is
+  the answer when the terminal will not say: it used to read as light, and now reads as dark, which
+  is the likelier background and the only outcome Windows can reach, since there is nothing to ask
+  there. A config from an earlier version gains the line at the head of that section on the first
+  launch after upgrading, so the setting is there to see and edit.
+- `/roll` plays a dice roll: `/roll 1d20+5 I search the alcove` rolls REAL dice — the OS's
+  entropy, never the model's, because a model asked to roll picks dramatic numbers and bends
+  them mid-narration — shows what fell, and sends the roll and your action as one message,
+  framed so the model narrates exactly that outcome. `NdS` terms and flat modifiers chain with
+  + and - (`2d6+3`), and `kh`/`kl` keep the highest or lowest of the dice — `2d20kh1` is
+  advantage, `kl1` disadvantage. The numbers freeze into the turn as it records: `/regen`
+  re-tells the same roll, never re-rolls it, and editing the played line later does not either.
+  The framing is `roll_framing` in prompts.toml, editable like every prompt otaku sends; on the
+  web the composer's prefix menu offers `/roll` beside `/me` and `/you`.
+- The terminal's `/stories` browser drills into a four-tab dossier — Premise, Messages, Scenes,
+  Cast — for any story, not only the open one, and everything editable there edits: the premise
+  is written in place (a story that is not open included), a message corrects where it is read,
+  and the scenes and cast are the lore browser's two lenses, now two tabs of the same window.
+  ←/→ cycle the tabs from anywhere outside an edit (Tab and Shift+Tab work too), each tab keeping
+  its own cursor and filter; `/lore` and `/cast` open the same dossier directly on the open
+  story — on its scenes and cast tabs — and no longer refuse a story whose memory is still empty,
+  since
+  the premise and the messages are one Tab away. Resuming is untouched: Enter on the last message
+  resumes, an earlier one still asks fork / truncate / cancel. Each scene's detail also gains a
+  read-only history row — the story so far through that scene, which the web page already showed
+  (as "the arc through here") and the terminal never did.
+- A second sample story is seeded on a first launch beside the short one: *The Vermilion Tour*, a
+  318-message ensemble play with its memory fully extracted — 15 scenes, a cast of dozens with
+  journals and histories — so the story browser, the dossier and the context preview have a story
+  long enough to show what they do before you have played one that size yourself. Every sample
+  story ships inside the package and all of them are imported; the session still lands in the
+  short one.
+
+### Changed
+- The codebase is restructured around a frontend-agnostic core. Everything that is not the
+  terminal — the session, the story and lore operations, the import and export formats, the
+  command surface — lives in a backend package that a frontend calls, and the terminal owns only
+  the medium: what a message looks like, what a key does, what the screen holds. The layout is
+  held by a test, so an import that would cross a layer fails the suite rather than the review.
+  Nothing about running otaku changes: the same commands, the same state dir, the same database.
+- `/balance` names each provider the way the model picker does — "OpenRouter", not the `openrouter`
+  section key. A section you named yourself keeps your name, with the engine in brackets, because
+  two sections of one kind are two accounts and a balance report has to tell them apart.
+- config.toml's `[ui]` section is now `[terminal]`, which is what it always held: one frontend's
+  looks, beside the `[web]` section that arrived this version. Your file is renamed in place on
+  the first launch after upgrading — the header line and nothing else, so every value and comment
+  under it stays exactly as you left it.
+- The export document records the story so far through EVERY scene, not only the newest — an
+  imported story's dossier reads whole, scene by scene, instead of one arc and a column of
+  blanks. This is export format 3: every older document still imports exactly as before, its one
+  story-so-far landing on the newest scene, where it always lived — and an older otaku refuses a
+  format-3 file with directions rather than folding the new field into a summary by accident.
+- The lore templates in prompts.toml are retold in three ways, and a file still holding the
+  shipped wording follows on the first launch after upgrading (an edited template stays yours, as
+  always). The two rollup templates say whose history each is: `story_so_far_prompt` is now
+  `scene_history_prompt` and `history_prompt` is `journal_history_prompt` — your values ride the
+  rename untouched. A character's history rollup now keeps the journal's first-person voice
+  instead of retelling their own memory about them in third person. And the language rule in all
+  three stops spelling "do not answer in English": run without thinking, as extraction is, a model
+  could read that negation as the command and answer an English story in Dutch. The extract
+  template also pins the reply's shape — one flat JSON object, never lore nested inside the scene —
+  which a reply once got wrong and cost its scene's memory. The sizes tightened with the words:
+  a scene summary's 250-400 words is now a stated bound, the story-so-far caps at 200 words
+  instead of "4-8 sentences" (a count a model games with hundred-word sentences), and a
+  character's history says at most 300 — these all reach the wire, and an oversized memory
+  crowds out the story it exists to keep.
+- `/info` no longer prints the story's premise. A premise is a document rather than a fact about
+  the session — as long as the reader made it, and a lorebook imported into it filled the report
+  with itself — so it is left to `/system`, which reports it on its own and at whatever length it
+  is. The web's info docket never showed it, for that reason; now neither frontend does.
+- Long story titles are cut at 50 characters instead of 40 — in the banner and in the line that
+  names the story when it lands — with a fork's number kept whole, as before.
+- Launching with a remembered model whose provider is no longer configured says so before the
+  picker opens, instead of opening it without a word.
+- The api key's sealing key tightens `configs/` to owner-only when it is created, as the database's
+  key already did.
+- One dependency fewer to install: the model picker's RAM gauge reads the machine's own numbers —
+  sysconf, `/proc/meminfo` on Linux, `vm_stat` on macOS — where it used to read psutil. On macOS it
+  now agrees with Activity Monitor instead of reading gigabytes rosier: app memory that has gone
+  cold still counts as used, because reclaiming it means compressing or swapping it first. The
+  Linux figure is unchanged — the kernel's `MemAvailable` already drew the line there.
+- Requests to OpenRouter now name otaku as the app that sent them.
+- The request log records each request's answer too, as its own paired line: the outcome (finished,
+  cancelled, or how it failed), total and first-token seconds, token counts cached included, and
+  the text that arrived — sealed exactly like the request bodies. `otaku logs requests` prints the
+  answers in place and closes the day with a per-purpose summary of counts, seconds and tokens: the
+  profile of where a day's model time went, read straight off the log.
+- `/new` takes an optional TITLE — `/new The Long Road` names the story as it starts — and creates
+  the story at once, so it is in `/stories` with its name before its first turn, where before it
+  appeared only once you had played one.
+- `/help` fits the screen: two columns on a wide terminal, one on a narrow one, and a description
+  that wraps in its own column instead of running off the edge. The command column is spelled
+  shorter here than the reference is — `/set verbose` rather than `/set verbose on|off`, `/model
+  [SPEC]` with PROVIDER/MODEL moved into the description — and what a command takes is still shown
+  in full by the menu as you type it.
+- `/export NAME` adds `.md` when the name carries no extension of its own, since the document is
+  Markdown — `/export glade` writes `glade.md`. A name with an extension keeps it.
+- Enter on a menu row that takes a parameter completes the command and waits, whether the
+  parameter is required or optional — before, a command whose parameter was optional ran on the
+  spot, and there was no way to pick `/fork` from the menu and then name the fork. Enter sends it
+  bare from there, so a command that takes nothing still runs in one press.
+- The banner reads in the order a session is thought about: the story first, then the model, then
+  the engine and its context window. The mark, the version and the description are unchanged, and
+  `otaku web` opens with the same banner — its three lines being the address, how to open it, and
+  how to stop serving.
+- The mascot beside the banner is redrawn. Without colour it is now the same picture rather than a
+  different one: the sprite is cut into ink and paper instead of falling back to an ASCII face, so
+  a piped or `NO_COLOR` session gets the mark at the same size, in the same place.
+- Spoken lines and slash commands are painted in otaku's own colours rather than the terminal's
+  palette slots: they used to be "blue" and "magenta", which every terminal shades to taste, and
+  they are now exact shades that come out the same everywhere. `dialogue_color` still takes a
+  palette name if you would rather your own scheme decided.
+- The break rule between exchanges is dimmed. At full intensity it read as a hairline on a light
+  terminal and bloomed on a dark one, light-on-dark strokes carrying more weight than the same
+  line does the other way round. Reduced intensity settles both, where a grey would be a guess
+  against a background otaku cannot see.
+- `[context] tail_messages` is now `min_tail_messages`, saying what it always meant: the tail
+  never holds fewer than it — a scene ending exactly at the tail's first message stays verbatim,
+  its whole span riding with the tail. Config.toml renames the key itself, the set value kept.
+- The story-so-far arc now exists on every scene, and stays there. Each scene already got its arc
+  as it closed; what changed is the healing: editing a summary nulls every arc composed from the
+  old text — that scene's and all later ones' — and the next pass used to rebuild only the newest,
+  leaving the middle scenes blank forever. It now rebuilds them all, each composed from the
+  summaries up to its own scene (one rollup request per healed scene; a single-summary arc is that
+  summary verbatim, no request).
+- A journal's state is read-only everywhere now, like both histories: it is the extractor's own —
+  superseded by the next scene's row, re-derived on every pass — so the entry is the field a hand
+  corrects. The lore browser used to let the newest state be edited and refuse the older ones; the
+  rule is now one sentence instead of a special case.
+
+### Fixed
+- The settings files are read and written as UTF-8, whatever the machine's locale says. They
+  always held characters beyond ASCII — the comments otaku renders into config.toml alone have two
+  dozen — and Python had been leaving the encoding to the platform, which is UTF-8 on macOS and
+  Linux and a legacy codepage on Windows. A file otaku wrote there was not the UTF-8 that TOML
+  requires, and one saved back by an editor that does write UTF-8 could no longer be read. A file
+  that is not UTF-8 now says so in a sentence naming the file, rather than ending the launch with
+  a traceback.
+- A sealing key that cannot be read no longer ends the launch with a traceback: the provider it
+  belongs to runs without its key and the launch says which one.
+- The prompt warm-up after a scene closes now runs for local engines only. It exists to prefill a
+  local server's cache so the next reply starts fast; on a cloud provider the same request has no
+  cache to warm and was billed as a full context window for one token.
+
 ## [0.3.0] - 2026-08-17
 
 **TL;DR**

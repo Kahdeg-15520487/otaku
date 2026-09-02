@@ -2,44 +2,57 @@
 
 This module holds the shape-change tables themselves and `migrate`, the
 whole launch step; `surgery` is the toolkit every edit is built from,
-`providers` the moves over providers.toml, and `prompts` the refreshed
-templates for prompts.toml. Each file has its own ordered table —
-`_CONFIG_MIGRATIONS`, `_provider_migrations`, and `_PROMPT_MIGRATIONS` — one
-entry per shape change across app versions. Everything here is
-idempotent and convergent: it all simply reruns at every launch — no
-version stamp to trust, no one-shot step whose half-state could stick —
-so a crash between writes, a hand edit, or a launch that could not
-finish (a key that would not seal, say) heals on the next one. A file
-is written only when something actually changed.
+`providers_file` the moves over providers.toml, and `prompt_texts` the
+refreshed templates for prompts.toml. Everything here is idempotent and
+convergent: it all simply reruns at every launch — no version stamp to
+trust, no one-shot step whose half-state could stick — so a crash
+between writes, a hand edit, or a launch that could not finish heals on
+the next one. A file is written only when something actually changed.
 """
 
 import contextlib
 from collections.abc import Callable
+from pathlib import Path
 
-from otaku.paths import Paths
-from otaku.settings.config import ProviderConfig
-from otaku.settings.files import row, write_atomic
-from otaku.settings.migrations.prompts import EXTRACT_0_2_2, refresh_template, update_prompts
-from otaku.settings.migrations.providers import (
+from otaku.settings import row, write_atomic
+from otaku.settings.migrations.prompt_texts import (
+    EXTRACT_0_2_2,
+    EXTRACT_0_3_0,
+    HISTORY_0_3_0,
+    STORY_SO_FAR_0_3_0,
+    refresh_template,
+    rename_template,
+    update_prompts,
+)
+from otaku.settings.migrations.providers_file import (
     ensure_providers,
     move_providers,
     seal_api_keys,
-    sealer,
 )
 from otaku.settings.migrations.surgery import (
     Migration,
     apply_migrations,
     drop_key_everywhere,
+    ensure_key,
     ensure_section,
+    rename_key,
+    rename_section,
     set_key,
     update_config,
     update_providers,
 )
-from otaku.settings.prompts import EXTRACT_DEFAULT
+from otaku.settings.prompts import (
+    EXTRACT_DEFAULT,
+    JOURNAL_HISTORY_DEFAULT,
+    SCENE_HISTORY_DEFAULT,
+)
+from otaku.settings.providers import ProviderConfig
 
 __all__ = [
+    "PROMPT_CACHE_ROW",
     "Migration",
     "apply_migrations",
+    "ensure_key",
     "ensure_section",
     "migrate",
     "set_key",
@@ -51,10 +64,17 @@ __all__ = [
 # change across app versions, each safe to re-run on any config the app
 # ever wrote.
 _CONFIG_MIGRATIONS: list[Migration] = [
-    # 0.2.2 — dialogue coloring arrives with the [ui] section.
+    # 0.4.0 — [ui] becomes [terminal], which is what it always held: one
+    # frontend's looks. It ran FIRST so every step below names the new
+    # section and finds it — including the one that would otherwise add
+    # a second copy beside the old one.
+    rename_section("ui", "terminal"),
+    # 0.2.2 — dialogue coloring arrives with the section, under the name
+    # it has now: a config old enough to lack it never had the old one
+    # either, so there is nothing for the rename above to have caught.
     ensure_section(
-        "ui",
-        "[ui]\n"
+        "terminal",
+        "[terminal]\n"
         + row(
             'dialogue_color = "auto"',
             'spoken lines: "auto" fits the background; a color name ("cyan") or #rrggbb',
@@ -62,6 +82,63 @@ _CONFIG_MIGRATIONS: list[Migration] = [
         + "\n"
         + row("dialogue_bold = false", "also bold the spoken lines"),
         after="settings",
+    ),
+    # 0.4.0 — the web frontend arrives with the address it listens on.
+    ensure_section(
+        "web",
+        "[web]\n"
+        + row(
+            'host = "127.0.0.1"',
+            "where `otaku web` listens; anything but 127.0.0.1 opens it to the network",
+        )
+        + "\n"
+        + row("port = 9600", "…and on which port"),
+        after="terminal",
+    ),
+    # 0.4.0 — the background stops being guessed in silence. The ask
+    # cannot work everywhere (Windows has no terminal to interrogate),
+    # so the reader gets the say, at the head of [terminal] where the rendered
+    # file puts it.
+    ensure_key(
+        "terminal",
+        "theme",
+        row(
+            'theme = "auto"',
+            '"auto" asks the terminal and takes dark when it will not say; or "light"/"dark"',
+        ),
+        # No `after`: it heads [terminal] in the rendered file.
+    ),
+    # 0.4.0 — /set notification arrives, and names the sound it plays.
+    ensure_key(
+        "settings",
+        "notification_sound",
+        row(
+            'notification_sound = "default"',
+            'what /set notification plays: "default" is the platform\'s own, else a path',
+        ),
+        after="smooth_streaming",
+    ),
+    # 0.4.0 — the context budget arrives. Founded at 0: the window a
+    # model advertises is the one it can use, and a reader who wants the
+    # prompt kept smaller than that says so.
+    ensure_key(
+        "context",
+        "max_context",
+        row(
+            "max_context = 0",
+            "the prompt may use at most this many tokens; 0 = the model's whole window",
+        ),
+        after="min_tail_messages",
+    ),
+    # 0.4.0 — tail_messages says what it always meant: a MINIMUM. The
+    # value the user set carries over under the new name.
+    rename_key(
+        "context",
+        "tail_messages",
+        "min_tail_messages",
+        lambda value: row(
+            f"min_tail_messages = {value}", "at least this many recent messages kept verbatim"
+        ),
     ),
 ]
 
@@ -74,37 +151,86 @@ _PROMPT_MIGRATIONS: list[Migration] = [
     # 0.3.0 — journals become the record of presence: one per character
     # present, silent bystanders included, arrivals and departures named.
     refresh_template("extract_prompt", EXTRACT_0_2_2, EXTRACT_DEFAULT),
+    # 0.4.0 — the two rollups say WHOSE history each is: the story-so-far
+    # over scene summaries, and a character's own over their journal.
+    # Values ride along untouched, edited or shipped.
+    rename_template("story_so_far_prompt", "scene_history_prompt"),
+    rename_template("history_prompt", "journal_history_prompt"),
+    # 0.4.0 — the journal rollup keeps the entries' first-person voice; a
+    # file still holding the shipped third-person text follows. AFTER the
+    # rename, so one launch heals a file however far it got.
+    refresh_template("journal_history_prompt", HISTORY_0_3_0, JOURNAL_HISTORY_DEFAULT),
+    # 0.4.0 — the language rule stops spelling "do not answer in English":
+    # run without thinking (as extraction is), a model can read that
+    # negation as the command and answer an English story in another
+    # tongue. Every lore template now states the rule positively. The
+    # journal template's ride arrives with the refresh above; these carry
+    # the other two, whose 0.2.2 and 0.3.0 texts are identical.
+    refresh_template("extract_prompt", EXTRACT_0_3_0, EXTRACT_DEFAULT),
+    refresh_template("scene_history_prompt", STORY_SO_FAR_0_3_0, SCENE_HISTORY_DEFAULT),
 ]
 
 
-def _provider_migrations(seal: Callable[[str], str]) -> list[Migration]:
-    """providers.toml's shape-change table — a function, unlike the config
-    table above, because its entries need the launch's sealer. Its
-    sections carry the user's own names, so an entry here sweeps all of
-    them — and runs after the move from an old config, so it cleans a
+# The prompt_cache row as the file spells it — ONE rendering, shared by
+# the migration below and the picker's section founding
+# (`backend.api.providers.save_field`), so an upgraded file and a
+# freshly founded section carry the same line.
+PROMPT_CACHE_ROW = row(
+    'prompt_cache = "5m"', 'prompt caching: "off" | "5m" | "1h" — 1h suits slow-paced play'
+)
+
+
+def _provider_migrations(
+    seal: Callable[[str], str], is_sealed: Callable[[str], bool]
+) -> list[Migration]:
+    """providers.toml's shape-change table — a function, unlike the
+    config table above, because its entries need the launch's sealer.
+    Its sections carry the user's own names, so an entry here sweeps all
+    of them — and runs after the move from an old config, so it cleans a
     section the same way wherever the section came from."""
     return [
-        # 0.2.2 — thinking support became class knowledge of the backend.
+        # 0.2.2 — thinking support became class knowledge of the engine.
         drop_key_everywhere("supports_thinking"),
         # 0.2.2 — api keys live sealed; a plain one (hand-typed, or left
         # by a launch that could not seal) is sealed as soon as possible.
-        seal_api_keys(seal),
+        seal_api_keys(seal, is_sealed),
+        # 0.4.0 — prompt caching arrives, on where the engine honours
+        # cache breakpoints: the key lands in the file so an upgrader
+        # SEES the setting exists; what a user already set stays. Named
+        # sections only — the section's name is what picks the marking
+        # client, so [openrouter] is exactly the section the key governs.
+        # After keep_alive, which is the last key a provider section
+        # renders before this one — and optional, so a section without it
+        # falls through to the section's end, which is the same place.
+        ensure_key("openrouter", "prompt_cache", PROMPT_CACHE_ROW, after="keep_alive"),
     ]
 
 
-def migrate(paths: Paths, providers: dict[str, ProviderConfig]) -> None:
+def migrate(
+    *,
+    config_path: Path,
+    providers_path: Path,
+    prompts_path: Path,
+    backups_dir: Path,
+    provider_defaults: dict[str, ProviderConfig],
+    seal: Callable[[str], str],
+    is_sealed: Callable[[str], bool],
+) -> None:
     """The whole launch step over the settings files, in order: the
-    config table, the provider move, the providers table, the given
-    backends' sections ensured. providers.toml itself converges too:
+    config table, the provider move, the providers table (plain api
+    keys sealed — `is_sealed` rides with `seal` so the migration skips
+    sealed keys itself; an unsealable line stays for the next launch),
+    the given engines' sections ensured, the
+    prompt-template refreshes. providers.toml itself converges too:
     missing beside an existing config — a crash between the first-run
     writes, a hand deletion — it is founded empty here, for the ensured
     sections to fill. A missing config is bootstrap's business, and
     failures are swallowed — a migration is never worth a launch."""
-    update_config(paths, _CONFIG_MIGRATIONS)
-    move_providers(paths)
-    if paths.config_file.exists() and not paths.providers_file.exists():
+    update_config(config_path, backups_dir, _CONFIG_MIGRATIONS)
+    move_providers(config_path, providers_path, backups_dir)
+    if config_path.exists() and not providers_path.exists():
         with contextlib.suppress(OSError):
-            write_atomic(paths.providers_file, "")
-    update_providers(paths, _provider_migrations(sealer(paths)))
-    ensure_providers(paths, providers)
-    update_prompts(paths, _PROMPT_MIGRATIONS)
+            write_atomic(providers_path, "")
+    update_providers(providers_path, backups_dir, _provider_migrations(seal, is_sealed))
+    ensure_providers(providers_path, backups_dir, provider_defaults)
+    update_prompts(prompts_path, backups_dir, _PROMPT_MIGRATIONS)

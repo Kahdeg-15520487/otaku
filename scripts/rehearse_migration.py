@@ -45,11 +45,14 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
+from otaku.store.schema import SCHEMA_VERSION as CURRENT_SCHEMA  # noqa: E402
 from scenarios.support.server import ModelServer  # noqa: E402
 
 # Every published release this build claims to migrate. 0.2.0 and earlier
-# require Python >= 3.14 and are out of scope.
-VERSIONS = ("0.2.1", "0.2.2")
+# require Python >= 3.14 and are out of scope. A release already on the
+# current schema is still rehearsed — the settings, the export and the
+# read-back all matter — it simply has no ladder to run.
+VERSIONS = ("0.2.1", "0.2.2", "0.3.0")
 PROVIDER, MODEL = "test", "test-model"
 WORK = Path(os.environ.get("REHEARSAL_DIR", "/tmp/otaku-rehearsal"))
 
@@ -163,11 +166,22 @@ def run_in_venv(python: str, code: str, *, check: bool = False) -> subprocess.Co
     )
 
 
+def _fresh_venv(venv: Path) -> None:
+    """(Re)create `venv` unless it is a REAL venv. macOS prunes /tmp by
+    file age, which can gut a reused venv into a husk — a bin/python
+    symlink with no pyvenv.cfg. Installing --python against that symlink
+    resolves into the BASE interpreter's environment (the developer's
+    conda env), overwriting its entry scripts with husk shebangs."""
+    if not (venv / "pyvenv.cfg").exists():
+        shutil.rmtree(venv, ignore_errors=True)
+        subprocess.run(["uv", "venv", "--python", "3.11", "-q", str(venv)], check=True)
+
+
 def install(version: str) -> tuple[str, str]:
     """The published release in its own venv; returns (binary, python)."""
     venv = WORK / f"v{version.replace('.', '')}"
-    if not (venv / "bin/otaku").exists():
-        subprocess.run(["uv", "venv", "--python", "3.11", "-q", str(venv)], check=True)
+    if not (venv / "bin/otaku").exists() or not (venv / "pyvenv.cfg").exists():
+        _fresh_venv(venv)
         subprocess.run(
             [
                 "uv",
@@ -189,8 +203,7 @@ def install_current() -> str:
     subprocess.run(["uv", "build", "--quiet"], cwd=REPO, check=True)
     version = (REPO / "otaku/__init__.py").read_text().split('__version__ = "')[1].split('"')[0]
     wheel = REPO / f"dist/otaku-{version}-py3-none-any.whl"
-    if not venv.exists():
-        subprocess.run(["uv", "venv", "--python", "3.11", "-q", str(venv)], check=True)
+    _fresh_venv(venv)
     subprocess.run(
         [
             "uv",
@@ -209,7 +222,8 @@ def install_current() -> str:
 
 def seed_config(python: str, root: Path, server_url: str, *, encrypted: bool) -> None:
     """The old release writes its OWN default config (its shape, no network),
-    then every provider url is dead-ended and the scripted one added."""
+    then every provider url is dead-ended and the scripted one added. The
+    snippet is the OLD release's api — never this build's."""
     code = (
         "from otaku.paths import Paths;"
         "from otaku.app import load_config;"
@@ -269,12 +283,15 @@ def read_through_app(current: str, root: Path) -> dict:
     python = str(Path(current).parent / "python")
     code = (
         "import json;"
-        "from otaku.paths import Paths;"
-        "from otaku.app import load_config, unlock_cipher;"
+        "from otaku.backend.paths import Paths;"
+        "from otaku.encryption import unlock;"
+        "from otaku.settings import config as config_file;"
         "from otaku.store import Store;"
         f"p = Paths.resolve({str(root)!r});"
-        "cfg = load_config(p);"
-        "s = Store.open(p, unlock_cipher(cfg, p), backups=0);"
+        "cfg = config_file.load(p.config_file);"
+        "c = unlock(cfg.encryption.provider, keys_file=p.keys_file, kek_file=p.kek_file,"
+        " service=p.keychain_service, retrieve_command=cfg.encryption.retrieve_command);"
+        "s = Store.open(p.database_file, c, backups_dir=p.backups_dir, keep=0);"
         "st = s.stories.get(1);"
         "ms = s.stories.get_messages(1);"
         "ids = s.stories.get_messages_ids(1);"
@@ -295,7 +312,9 @@ def verify(current: str, root: Path, report: Report, *, stamped: str, encrypted:
     conn = sqlite3.connect(root / "database/history.db")
     try:
         version = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0]
-        report.check("the schema is at the current version", version == "3", f"v{version}")
+        report.check(
+            "the schema is at the current version", version == CURRENT_SCHEMA, f"v{version}"
+        )
         scenes_ddl = conn.execute("SELECT sql FROM sqlite_master WHERE name='scenes'").fetchone()[0]
         chars_ddl = conn.execute(
             "SELECT sql FROM sqlite_master WHERE name='characters'"
@@ -326,12 +345,13 @@ def verify(current: str, root: Path, report: Report, *, stamped: str, encrypted:
     report.check("the scene summaries survived", bool(read["scenes"]), str(read["scenes"]))
     report.check("the journals survived", read["journals"] >= 1, str(read["journals"]))
 
-    backups = sorted((root / "database/backups").glob("*schema*"))
-    report.check(
-        f"a pre-migration backup of v{stamped} exists",
-        bool(backups),
-        str([b.name for b in backups]),
-    )
+    if stamped != CURRENT_SCHEMA:
+        backups = sorted((root / "database/backups").glob("*schema*"))
+        report.check(
+            f"a pre-migration backup of v{stamped} exists",
+            bool(backups),
+            str([b.name for b in backups]),
+        )
 
     if encrypted:
         print("\n--- encryption at rest ---")
@@ -433,10 +453,13 @@ def rehearse(version: str, current: str, *, encrypted: bool) -> Report:
         t.settle(1.5)
         transcript = t.transcript
         report.check("the app launches on the migrated state", "otaku" in transcript)
-        report.check(
-            f"the ladder reports v{stamped} → v3",
-            f"Database migrated (v{stamped} → v3)" in transcript,
-        )
+        if stamped != CURRENT_SCHEMA:
+            report.check(
+                f"the ladder reports v{stamped} → v{CURRENT_SCHEMA}",
+                f"Database migrated (v{stamped} → v{CURRENT_SCHEMA})" in transcript,
+            )
+        else:
+            print(f"    (schema v{stamped} is already current — no ladder to run)")
         t.line("The story continues after the upgrade.")
         t.expect("light went out")
         code = t.quit()

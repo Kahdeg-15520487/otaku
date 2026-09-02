@@ -9,7 +9,8 @@ reasoning delta before the content. `default_script` recognizes the lore
 prompts by their fixed openings and answers with canned extraction JSON
 and rollups, so even the whole extraction pipeline plays end to end
 offline. Every request body is kept in `requests` for assertions — the
-wire promise is checked against it.
+wire promise is checked against it — and its headers in
+`request_headers`, row for row.
 """
 
 import contextlib
@@ -53,9 +54,15 @@ class ModelServer:
         self.balances: dict[str, Any] = {"usd_balance": "10"}  # nanogpt check-balance; empty → 404
         self.api_key: str | None = None  # set → balance endpoints demand this Bearer key
         self.chunk_delay = 0.0
+        self.cached_tokens: int | None = None  # set → usage reports this many cached
         self.chunk_size: int | None = None  # stream in pieces this long; None → thirds
         self.fail_after: int | None = None  # abort the stream after N content chunks
+        # Answer a chat POST with this status instead of serving it;
+        # None serves. Per request, so a test can refuse the knobbed
+        # request and serve its bare retry.
+        self.refuse: Callable[[dict[str, Any]], int | None] = lambda body: None
         self.requests: list[dict[str, Any]] = []
+        self.request_headers: list[dict[str, str]] = []  # one row per POST, same order
         self.script: Callable[[dict[str, Any]], str | tuple[str, str]] = default_script
         outer = self
 
@@ -144,6 +151,7 @@ class ModelServer:
                 length = int(self.headers.get("Content-Length", "0"))
                 body = json.loads(self.rfile.read(length) or b"{}")
                 outer.requests.append(body)
+                outer.request_headers.append(dict(self.headers))
                 if outer.balances and self.path.rstrip("/").endswith("/check-balance"):
                     if not self._authorized():
                         return
@@ -161,6 +169,13 @@ class ModelServer:
                     else:
                         outer.loaded.add(str(body.get("model")))
                     self._json({})
+                    return
+                status = outer.refuse(body)
+                if status is not None:
+                    self.send_response(status)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(b'{"error": {"message": "refused by the script"}}')
                     return
                 result = outer.script(body)
                 thinking, text = result if isinstance(result, tuple) else ("", result)
@@ -188,12 +203,10 @@ class ModelServer:
                             time.sleep(outer.chunk_delay)
                         event = {"choices": [{"delta": {"content": text[i : i + third]}}]}
                         self._event(event)
-                    self._event(
-                        {
-                            "choices": [{"delta": {}}],
-                            "usage": {"prompt_tokens": 7, "completion_tokens": 5},
-                        }
-                    )
+                    usage: dict[str, Any] = {"prompt_tokens": 7, "completion_tokens": 5}
+                    if outer.cached_tokens is not None:
+                        usage["prompt_tokens_details"] = {"cached_tokens": outer.cached_tokens}
+                    self._event({"choices": [{"delta": {}}], "usage": usage})
                     self.wfile.write(b"data: [DONE]\n\n")
 
             def _event(self, payload: dict[str, Any]) -> None:
@@ -210,10 +223,21 @@ class ModelServer:
 
     def reset(self) -> None:
         self.script = default_script
+        self.refuse = lambda body: None
         self.requests.clear()
+        self.request_headers.clear()
 
     def close(self) -> None:
         self._httpd.shutdown()
+
+
+def content_text(message: dict[str, Any]) -> str:
+    """A recorded message's text, whichever shape it was sent in: a plain
+    string, or the parts form the prompt-cache markers use."""
+    content = message.get("content", "")
+    if isinstance(content, list):
+        return " ".join(str(part.get("text", "")) for part in content if isinstance(part, dict))
+    return str(content)
 
 
 def chat_request(server: ModelServer, last_line: str) -> dict[str, Any]:
@@ -222,7 +246,7 @@ def chat_request(server: ModelServer, last_line: str) -> dict[str, Any]:
     warm-up races the next turn onto the server, making the newest
     recorded request ambiguous."""
     for body in reversed(server.requests):
-        if str(body["messages"][-1]["content"]).endswith(last_line):
+        if content_text(body["messages"][-1]).endswith(last_line):
             return body
     raise AssertionError(f"no recorded request ends with {last_line!r}")
 
@@ -231,7 +255,7 @@ def default_script(body: dict[str, Any]) -> str:
     """Answers by prompt kind: the extraction prompt gets valid JSON, the
     rollup prompts get one-line rollups, anything else gets the chat
     reply. Recognition is by each lore prompt's fixed opening words."""
-    prompt = str(body.get("messages", [{}])[-1].get("content", ""))
+    prompt = content_text(body.get("messages", [{}])[-1])
     if "You are a story analyst" in prompt:
         return json.dumps(EXTRACTION, ensure_ascii=False)
     if prompt.startswith("Combine the scene summaries"):
@@ -249,7 +273,7 @@ def numbered_script(summary_chars: int = 0) -> Callable[[dict[str, Any]], str]:
     state = {"scene": 0}
 
     def script(body: dict[str, Any]) -> str:
-        prompt = str(body.get("messages", [{}])[-1].get("content", ""))
+        prompt = content_text(body.get("messages", [{}])[-1])
         if "You are a story analyst" not in prompt:
             return default_script(body)
         state["scene"] += 1

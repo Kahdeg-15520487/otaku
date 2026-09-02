@@ -48,6 +48,8 @@ maintain the prose style. Messages in the middle are replaced with scene summari
 card prompts (see below) — which keeps the context size low without sacrificing details. You can
 see the exact context that will be sent to the LLM with the /context command.
 
+The exact context composition, case by case, is described in [context_design.md](context_design.md).
+
 ## Character card import
 
 Cards are imported into each story individually, and there is no central store for them. A story

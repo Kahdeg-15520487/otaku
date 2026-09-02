@@ -1,99 +1,18 @@
-"""The terminal vocabulary shared by every surface.
+"""THE TERMINAL FRONTEND. All state work goes through `otaku.backend`;
+this package owns only the medium. Four rooms:
 
-Escape sequences otaku prints — each spelled once: plain constants for the
-fixed ones, `str.format` templates for those parameterized by a row
-number, and `fg`/`bg` for 256-color codes. Plus the input side: single-key
-commands ("y", "e", "l") are compared through `latin_key`, which folds a
-Cyrillic letter to the Latin one on the same physical key, so the ЙЦУКЕН
-layout just works without ever being announced — help text still says
-"y". Control combos (Ctrl+S) need no folding: the terminal derives the
-control byte from the physical key, the same in any layout.
+    chat/     the conversation surface: the loop (`chat.run`), the
+              command bindings, the play-stream renderer, the screen
+              ledger, the /help page, and `Chat` — the terminal-side
+              state
+    prompt/   one submission in: the prompt session, the slash menus,
+              multiline assembly, path completion
+    screens/  the full-screen surfaces: the model picker, the story
+              browser, the lore browser
+    tty/      the medium itself, no chat knowledge: the escape
+              vocabulary, theme, typesetter, turn rendering, row math,
+              terminal queries, the pinned row, spinner, clipboard
+
+Inside: tty ← {prompt, screens} ← chat — the arrows never point the
+other way.
 """
-
-from otaku.terminal.theme import color, theme
-
-# SGR text attributes
-BOLD = "\x1b[1m"
-DIM = "\x1b[2m"
-ITALIC = "\x1b[3m"
-RESET = "\x1b[0m"
-DEFAULT_BG = "\x1b[49m"  # back to the terminal's own background
-
-# Erasing and cursor motion
-CLEAR_SCREEN = "\x1b[H\x1b[2J"  # wipe the visible screen, cursor home; scrollback stays
-ERASE_LINE = "\x1b[2K"  # clear the row the cursor is on
-UP_ONE = "\x1b[1A"
-GOTO_ROW = "\x1b[{};1H"  # CUP to column 1 of the given row
-SAVE_CURSOR = "\x1b7"  # DECSC
-RESTORE_CURSOR = "\x1b8"  # DECRC
-
-# Modes and regions
-SCROLL_ABOVE = "\x1b[1;{}r"  # DECSTBM: scrolling confined to rows 1..N
-SCROLL_ALL = "\x1b[r"  # DECSTBM reset: the whole screen scrolls again
-CURSOR_BLINK_ON = "\x1b[?12h"  # DECSET 12: ask the terminal to blink the cursor
-
-# Confirm-prompt answers, matched after `latin_key` folds the typed layout.
-# A site with a yes-default accepts the empty answer explicitly.
-YES_ANSWERS = {"y", "yes"}
-NO_ANSWERS = {"n", "no"}
-
-# ЙЦУКЕН → QWERTY, row by row, by physical position.
-_RUSSIAN_TO_LATIN = str.maketrans(
-    "йцукенгшщзхъфывапролджэячсмитьбюё",
-    "qwertyuiop[]asdfghjkl;'zxcvbnm,.`",
-)
-
-# The prompt markers: `PROMPT_PREFIX` opens every input line (and each
-# line `user_block` echoes); `PROMPT_CONTINUATION` marks the lines of an
-# open `"""` block.
-PROMPT_PREFIX = "> "
-PROMPT_CONTINUATION = "... "
-# What the marker becomes on a hosted catalog: the story is billed by the
-# token from here. Same width as `PROMPT_PREFIX`, so nothing else moves —
-# the echoed block keeps its `> ` and the row arithmetic is untouched.
-CLOUD_PROMPT_PREFIX = "$ "
-
-
-def user_block(text: str) -> str:
-    """`text` as the submitted-turn block: every line on the theme's band
-    behind a `> ` marker echoing the prompt. The band runs the full terminal
-    width — erase-to-end-of-line with the background active paints the
-    rest of the row, so no width math is needed. Printed between blank
-    lines by the callers."""
-    colors = theme()
-    # A span inside `text` that ended by returning to the DEFAULT foreground
-    # is returning to the TERMINAL's, not the band's — put the band's back,
-    # or a highlighted command leaves the rest of its line unreadable.
-    painted = text.replace(color("default").fg, colors.ink.fg)
-    band = colors.band.bg + colors.ink.fg
-    lines = painted.splitlines() or [""]
-    return "\n".join(f"{band}{PROMPT_PREFIX}{line}\x1b[K{RESET}" for line in lines)
-
-
-# The rule the chat screen draws where the played sequence stops
-# continuing. A fine dotted line in the terminal's own text color: the
-# character carries the lightness, so the line reads at normal weight and
-# stays legible on any theme without a color to shade.
-_RULE_CHAR = "┈"
-
-
-def break_rule(width: int) -> str:
-    """The break rule, `width` columns wide — one row, printed by the
-    caller (chat/screen.py, which decides where a break falls)."""
-    return _RULE_CHAR * width
-
-
-def error_line(text: str) -> str:
-    """A failure, in the theme's error color. Only what actually BROKE —
-    a provider that refused, a file that would not open, a command that
-    raised. A refusal the app expected ("Unknown command", "Nothing to
-    regenerate") is not one of these: it is the app answering, and colouring
-    it would make an ordinary typo look like a fault."""
-    return f"{theme().error.fg}{text}{RESET}"
-
-
-def latin_key(key: str) -> str:
-    """The Latin character(s) on `key`'s physical keys: Cyrillic letters map
-    to their QWERTY twins, everything else comes back lowercased as is —
-    works on a single keystroke and on a whole typed answer alike."""
-    return key.lower().translate(_RUSSIAN_TO_LATIN)

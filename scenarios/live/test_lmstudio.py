@@ -12,7 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from otaku.settings.config import ProviderConfig
+from otaku.backend.api import providers as api_providers
+from otaku.settings.providers import ProviderConfig
 from scenarios.support.live import first_model
 from scenarios.support.live import live_app as build_app
 
@@ -31,10 +32,10 @@ class TestLmStudio:
         assert chain[1].body.strip()
 
     def test_the_registry_lists_rich_rows(self, live_app) -> None:  # type: ignore[no-untyped-def]
-        client = live_app.session.providers.get_client("lmstudio")
-        rows = client.models()
-        assert rows
-        assert all(row.name for row in rows)
+        providers, _ = api_providers.get_providers(live_app.session)
+        engine = next(r for r in providers if r.config.name == "lmstudio")
+        assert engine.models
+        assert all(row.name for row in engine.models)
 
 
 @pytest.fixture

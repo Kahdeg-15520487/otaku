@@ -1,47 +1,16 @@
 """The data model: the DDL, its semantics, and the row types.
 
-Sections: stories/messages are *source* (what was said),
-scenes/characters/journals are *derivatives* (memory distilled from the
-source, rebuildable from it); the rest is bookkeeping.
-
-Semantics:
-
-- Story = chat = playthrough. Forking a story deep-copies everything —
-  messages, scenes, journals, characters (ids remapped) — so every story is
-  fully self-contained and deletion is one cascade. `forked_from_id` is
-  audit-only lineage (deliberately not a FK). The cast is per-story.
-- Messages form a sibling tree via `parent_id`: undo moves `head_id` back,
-  regenerate diverges into a sibling; undone and regenerated messages are
-  never deleted. Message rows are never rewritten by the app — the author's
-  own edit through the UI is the one deliberate exception.
-- Scenes only exist closed: one INSERT writes start, end, title, summary.
-  On fork, a scene cut mid-span is not copied — its messages count as
-  unextracted tail in the new story. A rewind leaves the abandoned scene
-  standing, and the new branch may close a scene starting at the same
-  message — scene starts are deliberately NOT unique.
-- Two-level rollup pattern, identical in scenes and journals:
-  `scenes.summary` / `journals.entry` hold this scene only and are
-  append-only; `scenes.history` (the story so far THROUGH this scene) and
-  `journals.history` (the character's cumulative memory) are rollups —
-  always composed from the per-scene records, never from a previous rollup,
-  riding on the row they were generated at. The latest non-NULL history
-  plus the records after it cover the whole story with no gap and no
-  overlap; editing a per-scene record nulls the rollups composed from it.
-- Encryption is off by default, and BLOB columns then hold readable plain
-  text. With it on, every BLOB column holds ONE value sealed by the cipher.
-  Ids, topology, enums, provider/model names, and timestamps are plaintext
-  either way — the store queries on them. `meta.check` holds a known
-  plaintext sealed by the database's cipher; it must unseal correctly at
-  open, which catches a mode mismatch with [encryption] and a wrong or
-  replaced key alike.
-- Timestamps are app-written local time with offset (ISO-8601) and are
-  audit-only: no business logic relies on them; UI display use (the story
-  list's recency ordering) is allowed.
+Always the CURRENT shape: a fresh database is created from it directly,
+and `store.migrations` brings old databases to it. The semantics ride in
+from the old module unchanged with the DDL text: stories/messages are
+source, scenes/characters/journals derivatives, sibling trees via
+parent_id, the two-level rollup pattern, per-field sealing, audit-only
+timestamps.
 """
 
 from dataclasses import dataclass
 
-SCHEMA_VERSION = "3"
+SCHEMA_VERSION = "4"
 
 SCHEMA_DDL = """
 -- ---------- source: what was actually said ----------
@@ -134,7 +103,8 @@ CREATE TABLE token_usage (
     prompt_tokens     INTEGER,
     completion_tokens INTEGER,
     duration_seconds  REAL,
-    created_at        TEXT NOT NULL
+    created_at        TEXT NOT NULL,
+    cached_tokens     INTEGER             -- of prompt_tokens, served from the provider's cache
 );
 
 CREATE TABLE history (                   -- the REPL's Up/Down input history, capped
@@ -168,15 +138,17 @@ class Story:
 @dataclass(frozen=True)
 class Message:
     """One turn of a story. `id` is 0 on a turn not yet stored; `append`
-    assigns the real one."""
+    assigns the real one. `kind` is 'dialogue' | 'narration' | 'ooc' |
+    'card' — every kind is a STORED kind; what only exists on the wire
+    is `context.assembler.WireTurn`, a different type."""
 
     role: str  # 'user' | 'assistant'
     body: str
-    kind: str = "dialogue"  # 'dialogue' | 'narration' | 'ooc' | 'card' — plus wire-only 'recap', synthesized by the assembler and never stored (the CHECK refuses it)
+    kind: str = "dialogue"
     template: str | None = None  # filled at wire time, never mixed into the body
     speaker: str | None = None
     speaker_id: int | None = None
-    provider: str | None = None  # set on assistant turns ('card' + file name on a card greeting)
+    provider: str | None = None  # set on assistant turns ('card' on a card greeting)
     model: str | None = None
     id: int = 0
 
@@ -189,6 +161,7 @@ class Scene:
     title: str = ""
     summary: str = ""
     history: str = ""  # story-so-far through this scene; "" when not generated here
+    updated_at: str = ""  # audit column, surfaced for display alone ("extracted 4m ago")
 
 
 @dataclass(frozen=True)
@@ -198,6 +171,7 @@ class Character:
     aliases: tuple[str, ...] = ()
     description: str = ""
     card: str | None = None  # the import archive; None for extracted characters
+    updated_at: str = ""  # audit column, surfaced for display alone
 
 
 @dataclass(frozen=True)
@@ -210,3 +184,4 @@ class Journal:
     entry: str
     state: str
     history: str = ""
+    updated_at: str = ""  # audit column, surfaced for display alone

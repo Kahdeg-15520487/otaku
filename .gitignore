@@ -4,7 +4,6 @@
 .venv/
 __pycache__/
 build/
-demo/
 dist/
 migration/
 notes/
@@ -12,3 +11,11 @@ notes/
 
 .DS_Store
 *.py[cod]
+
+# the playwright MCP writes its page snapshots here
+.playwright-mcp/
+
+# the terminal demo's smoke-test node deps
+demo/terminal/node_modules/
+demo/terminal/package.json
+demo/terminal/package-lock.json

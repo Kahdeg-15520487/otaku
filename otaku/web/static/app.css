@@ -1,0 +1,1006 @@
+/* =============================================================================
+   otaku — app.css
+   Every colour and every typeface the interface uses is a token declared in
+   :root below, and so is every size on the documented scale — a theme is a
+   list of custom-property overrides and nothing else. What the contract does
+   NOT list — title cuts, the tabs, tracking, one-off lengths — is the
+   design's own, literal on purpose, and no theme's business.
+   Load order:  app.css  →  custom.css   (custom.css is the reader's, and wins)
+   The token contract is docs/web_tokens.md.
+   ========================================================================== */
+
+/* --- the three faces, bundled ---------------------------------------------
+   Literata and IBM Plex Sans cover the scripts Newsreader and Archivo do not:
+   only their extended subsets are declared, so Latin never leaves the primary
+   face. Literata's size-adjust matches it to Newsreader, by eye. */
+@font-face { font-family: 'Archivo'; font-style: normal; font-weight: 400 800; font-display: swap; src: url('fonts/Archivo-v25-latin.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Archivo'; font-style: normal; font-weight: 400 800; font-display: swap; src: url('fonts/Archivo-v25-latin-ext.woff2') format('woff2'); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Newsreader'; font-style: normal; font-weight: 400 600; font-display: swap; src: url('fonts/Newsreader-v26-latin.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Newsreader'; font-style: normal; font-weight: 400 600; font-display: swap; src: url('fonts/Newsreader-v26-latin-ext.woff2') format('woff2'); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Newsreader'; font-style: italic; font-weight: 400 600; font-display: swap; src: url('fonts/Newsreader-v26-italic-latin.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Newsreader'; font-style: italic; font-weight: 400 600; font-display: swap; src: url('fonts/Newsreader-v26-italic-latin-ext.woff2') format('woff2'); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Literata'; font-style: normal; font-weight: 400 600; font-display: swap; size-adjust: 92%; src: url('fonts/Literata-v40-cyrillic.woff2') format('woff2'); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: 'Literata'; font-style: normal; font-weight: 400 600; font-display: swap; size-adjust: 92%; src: url('fonts/Literata-v40-cyrillic-ext.woff2') format('woff2'); unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F; }
+@font-face { font-family: 'Literata'; font-style: italic; font-weight: 400 600; font-display: swap; size-adjust: 92%; src: url('fonts/Literata-v40-italic-cyrillic.woff2') format('woff2'); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: 'Literata'; font-style: italic; font-weight: 400 600; font-display: swap; size-adjust: 92%; src: url('fonts/Literata-v40-italic-cyrillic-ext.woff2') format('woff2'); unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F; }
+@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 400; font-display: swap; src: url('fonts/IBMPlexSans-v3.201-400.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 500; font-display: swap; src: url('fonts/IBMPlexSans-v3.201-500.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 600; font-display: swap; src: url('fonts/IBMPlexSans-v3.201-600.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url('fonts/IBMPlexMono-v2.3-400.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 500; font-display: swap; src: url('fonts/IBMPlexMono-v2.3-500.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 600; font-display: swap; src: url('fonts/IBMPlexMono-v2.3-600.woff2') format('woff2'); }
+
+/* =============================================================================
+   TOKENS — the public contract. Override any of these in custom.css.
+   ========================================================================== */
+:root {
+  color-scheme: light;
+
+  /* -- ground ------------------------------------------------------------- */
+  --otk-desk:        oklch(0.928 0.005 175);  /* the surface the page lies on */
+  --otk-spine-bg:    oklch(0.912 0.005 175);  /* the app's left rail         */
+  --otk-paper:       oklch(0.984 0.005 95);   /* the page, panels, dialogs   */
+  --otk-well:        oklch(0.955 0.008 95);   /* inside an editable field    */
+  --otk-edit-bg:     oklch(0.996 0.003 95);   /* an open field, being typed  */
+  --otk-band:        oklch(0.968 0.007 95);   /* footers, rails, index       */
+
+  /* -- ink ---------------------------------------------------------------- */
+  --otk-ink:         oklch(0.215 0.008 120);  /* titles, primary button      */
+  --otk-body:        oklch(0.27 0.012 90);    /* running prose               */
+  --otk-muted:       oklch(0.45 0.01 150);    /* labels, secondary text      */
+  --otk-faint:       oklch(0.68 0.008 150);   /* read-only, hints, absent    */
+
+  /* -- rules -------------------------------------------------------------- */
+  --otk-line:        oklch(0.865 0.006 165);  /* panel edges, hard rules     */
+  --otk-line-soft:   oklch(0.90 0.012 95);    /* rules inside paper          */
+
+  /* -- accent and status -------------------------------------------------- */
+  --otk-accent:      oklch(0.55 0.13 55);     /* rules, marks, selection     */
+  --otk-accent-ink:  oklch(0.51 0.125 50);    /* accent used as text         */
+  --otk-accent-tint: oklch(0.55 0.13 55 / 0.08);
+  --otk-dialogue:    oklch(0.47 0.13 244);    /* spoken lines                */
+  --otk-dialogue-weight: inherit;             /* their weight, if not the prose's */
+  --otk-em:          inherit;                 /* the model's *emphasis*: italic, no colour of its own */
+  --otk-strong:      inherit;                 /* its **weight** mark, likewise */
+  --otk-strong-weight: 600;                   /* a real cut, not a synthesised 700 */
+  --otk-ok:          oklch(0.58 0.11 150);    /* answering, resident         */
+  --otk-danger:      oklch(0.5 0.14 30);      /* delete, stop, and failures  */
+
+  /* -- three voices, one job each ----------------------------------------- */
+  --otk-font-prose:   'Newsreader', 'Literata', Georgia, serif;
+  --otk-font-display: 'Archivo', 'IBM Plex Sans', system-ui, sans-serif;
+  --otk-font-mono:    'IBM Plex Mono', ui-monospace, monospace;
+
+  /* -- type scale --------------------------------------------------------- */
+  --otk-size-display: 31px;  /* a reading column's own title                */
+  --otk-size-title:   26px;  /* panel subject, display face, 800            */
+  --otk-size-head:    19px;  /* group head, display face, 800               */
+  --otk-size-page:    19px;  /* the story, prose face                       */
+  --otk-size-lead:    18px;  /* panel ledes, margin prose, the composer     */
+  --otk-size-read:    17px;  /* long prose in a panel                       */
+  --otk-size-row:     17px;  /* a list row, prose face                      */
+  --otk-size-note:    16px;  /* notes and captions, prose face              */
+  --otk-size-ui:      14px;  /* every button, display face                  */
+  --otk-size-mono:    14px;  /* fields, filters, model names                */
+  --otk-size-mono-sm: 13px;  /* facts, urls                                 */
+  --otk-size-small:   12px;  /* counts                                      */
+  --otk-size-label:   11px;  /* section eyebrow                             */
+  --otk-size-foot:    10px;  /* panel footer                                */
+  --otk-size-tag:      9px;  /* kind tags, turn rubric                      */
+
+  --otk-leading-page:  1.68;
+  --otk-leading-read:  1.72;
+  --otk-leading-row:   1.35;
+  --otk-row-h:         29px;    /* one list row, whatever face fills it     */
+
+  --otk-track-eyebrow: 0.18em;  /* panel title                              */
+  --otk-track-label:   0.22em;  /* section head                             */
+  --otk-track-foot:    0.12em;  /* footers                                  */
+  --otk-track-tag:     0.20em;
+
+  /* -- metrics ------------------------------------------------------------ */
+  --otk-radius:      0px;      /* print discipline: nothing is rounded      */
+  --otk-hair:        1px;
+  --otk-mark:        2px;      /* the selection rule on a row               */
+  --otk-rule-w:      26px;     /* the accent rule of a panel title          */
+
+  --otk-btn-pad:     8px 16px; /* ONE box for every button                  */
+  --otk-field-pad:   7px 11px;
+  --otk-panel-pad:   26px;
+  --otk-page-pad:    72px;
+  --otk-dialog-pad:  26px 28px;
+
+  /* -- shell -------------------------------------------------------------- */
+  --otk-spine-w:     64px;
+  --otk-rail-w:      250px;
+  --otk-page-max:    820px;
+
+  /* -- scrollbars --------------------------------------------------------- */
+  --otk-scrollbar-w:  10px;    /* the app styles its own scrollbars        */
+  --otk-scrollbar-thumb: oklch(0.60 0.011 165);  /* ink-family: it reads as drawn */
+  --otk-scrollbar-track: oklch(0.945 0.006 165); /* the channel it runs in   */
+
+  /* -- panel ladder ------------------------------------------------------- */
+  --otk-col-lamp:     10px;    /* the resident/answering lamp gutter      */
+  --otk-col-size:     66px;    /* a model's size column                   */
+  --otk-col-count:    46px;    /* a count column                          */
+  --otk-col-ago:      30px;    /* a "2h ago" column                       */
+  --otk-reader-w:     400px;   /* the right pane, identical in all lenses  */
+  --otk-measure:      860px;   /* a reading line, wherever prose is set    */
+  --otk-premise-w:    700px;   /* the premise measure                      */
+  --otk-panel-wide:  1600px;   /* models: list plus detail                  */
+  --otk-panel-story: 1620px;   /* stories and a story share one box         */
+  --otk-panel-read:  1100px;   /* context: one reading column               */
+  --otk-dialog-w:    440px;    /* every dialog                             */
+  --otk-docket-w:    488px;    /* a slip: usage, settings                   */
+  --otk-docket-h:    390px;    /* a slip torn to a set length: balance      */
+
+  /* -- depth -------------------------------------------------------------- */
+  --otk-shadow-page:  0 12px 40px oklch(0.25 0.02 170 / 0.10);
+  --otk-shadow-panel: 0 24px 80px oklch(0.22 0.02 70 / 0.35);
+  --otk-shadow-slip:  0 8px 24px oklch(0.22 0.02 70 / 0.16);
+  --otk-scrim:        oklch(0.928 0.005 175 / 0.82);
+  --otk-scrim-blur:   4px;
+}
+
+/* A dark theme is this list and nothing more. The page follows the OS;
+   `data-theme` on <html> pins it either way, and custom.css outranks both. */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --otk-desk:        oklch(0.22 0.006 175);
+  --otk-spine-bg:    oklch(0.19 0.006 175);
+  --otk-paper:       oklch(0.26 0.008 90);
+  --otk-well:        oklch(0.23 0.008 90);
+  --otk-band:        oklch(0.24 0.008 90);
+  --otk-ink:         oklch(0.94 0.006 95);
+  --otk-body:        oklch(0.88 0.008 95);
+  --otk-muted:       oklch(0.70 0.01 150);
+  --otk-faint:       oklch(0.55 0.008 150);
+  --otk-line:        oklch(0.38 0.008 165);
+  --otk-line-soft:   oklch(0.33 0.008 95);
+  --otk-accent:      oklch(0.68 0.13 55);
+  --otk-accent-ink:  oklch(0.74 0.12 55);
+  --otk-accent-tint: oklch(0.68 0.13 55 / 0.14);
+  --otk-dialogue:    oklch(0.76 0.12 244);
+  --otk-scrollbar-thumb: oklch(0.50 0.01 165);
+  --otk-scrollbar-track: oklch(0.30 0.008 90);
+  --otk-shadow-page:  none;
+  --otk-shadow-panel: 0 24px 80px oklch(0 0 0 / 0.5);
+  --otk-shadow-slip:  0 8px 24px oklch(0 0 0 / 0.4);
+  --otk-scrim:        oklch(0.22 0.006 175 / 0.84);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --otk-desk:        oklch(0.22 0.006 175);
+    --otk-spine-bg:    oklch(0.19 0.006 175);
+    --otk-paper:       oklch(0.26 0.008 90);
+    --otk-well:        oklch(0.23 0.008 90);
+    --otk-band:        oklch(0.24 0.008 90);
+    --otk-ink:         oklch(0.94 0.006 95);
+    --otk-body:        oklch(0.88 0.008 95);
+    --otk-muted:       oklch(0.70 0.01 150);
+    --otk-faint:       oklch(0.55 0.008 150);
+    --otk-line:        oklch(0.38 0.008 165);
+    --otk-line-soft:   oklch(0.33 0.008 95);
+    --otk-accent:      oklch(0.68 0.13 55);
+    --otk-accent-ink:  oklch(0.74 0.12 55);
+    --otk-accent-tint: oklch(0.68 0.13 55 / 0.14);
+    --otk-dialogue:    oklch(0.76 0.12 244);
+    --otk-scrollbar-thumb: oklch(0.50 0.01 165);
+    --otk-scrollbar-track: oklch(0.30 0.008 90);
+    --otk-shadow-page:  none;
+    --otk-shadow-panel: 0 24px 80px oklch(0 0 0 / 0.5);
+    --otk-shadow-slip:  0 8px 24px oklch(0 0 0 / 0.4);
+    --otk-scrim:        oklch(0.22 0.006 175 / 0.84);
+  }
+}
+
+/* =============================================================================
+   RESET
+   ========================================================================== */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--otk-desk);
+  color: var(--otk-body);
+  font-family: var(--otk-font-display);
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+button:disabled { cursor: default; }
+a { color: var(--otk-accent-ink); text-decoration: none; }
+a:hover { color: var(--otk-accent); }
+::selection { background: var(--otk-accent-tint); }
+/* No focus ring anywhere, by decision: a dialog opening lands focus on
+   its first button and Safari would draw one there. Fields show focus by
+   their accent border, rows by their selection tint; buttons and links
+   show none. */
+:focus, :focus-visible { outline: none; }
+
+/* The standard properties are unconditional; only an engine without them
+   falls through to the ::-webkit- pseudo-elements. Do not invert the test —
+   querying the webkit SELECTOR instead sends Safari down the legacy branch
+   and leaves it unstyled. */
+* { scrollbar-width: thin; scrollbar-color: var(--otk-scrollbar-thumb) var(--otk-scrollbar-track); }
+@supports not (scrollbar-color: auto) {
+  *::-webkit-scrollbar { width: var(--otk-scrollbar-w); height: var(--otk-scrollbar-w); background: var(--otk-scrollbar-track); }
+  *::-webkit-scrollbar-track { background: var(--otk-scrollbar-track); }
+  *::-webkit-scrollbar-thumb { background: var(--otk-scrollbar-thumb); border: 2px solid var(--otk-scrollbar-track); }
+  *::-webkit-scrollbar-thumb:hover { background: var(--otk-muted); }
+  *::-webkit-scrollbar-thumb:active { background: var(--otk-ink); }
+  *::-webkit-scrollbar-corner { background: var(--otk-scrollbar-track); }
+}
+/* every scrolling column reserves the gutter, so columns stay aligned */
+.otk-col__scroll, .otk-detail__scroll, .otk-index__list, .otk-reading, .otk-margin,
+.otk-transcript, .otk-docket__body, .otk-premise__body, .otk-context { scrollbar-gutter: stable; }
+[hidden] { display: none !important; }
+
+/* =============================================================================
+   ATOMS
+   ========================================================================== */
+
+/* the title of a panel: mono caps behind an accent rule */
+.otk-eyebrow {
+  display: inline-flex; align-items: center; gap: 10px;
+  font-family: var(--otk-font-mono); font-size: var(--otk-size-mono);
+  letter-spacing: var(--otk-track-eyebrow); text-transform: uppercase;
+  color: var(--otk-accent-ink);
+}
+.otk-eyebrow::before {
+  content: ""; width: var(--otk-rule-w); height: var(--otk-hair);
+  background: var(--otk-accent); flex: none;
+}
+
+/* a section inside a panel: same voice, smaller, no rule */
+.otk-label {
+  font-family: var(--otk-font-mono); font-size: var(--otk-size-label);
+  letter-spacing: var(--otk-track-label); text-transform: uppercase;
+  color: var(--otk-muted);
+}
+.otk-label--ink { color: var(--otk-ink); font-weight: 500; }
+
+/* a section inside a docket: it outranks the names beneath it, so it is the
+   display face at reading size over a rule — not a smaller mono caption */
+.otk-section {
+  display: flex; align-items: baseline; gap: 10px;
+  margin-top: 4px; padding-bottom: 7px;
+  border-bottom: var(--otk-hair) solid var(--otk-ink);
+  font-family: var(--otk-font-display); font-size: 17px; font-weight: 700;
+  letter-spacing: -0.01em; color: var(--otk-ink);
+}
+.otk-section__count { margin-left: auto; font-family: var(--otk-font-mono); font-size: var(--otk-size-small); font-weight: 400; letter-spacing: 0.04em; color: var(--otk-faint); }
+
+/* Editing happens in place: the field IS the text, inheriting whatever face
+   the element it carries sets, so nothing reflows when it opens. Declared
+   above every component, so a component's own type outranks this reset. */
+.otk-editable {
+  display: block; margin: 0; padding: 0;
+  font: inherit; color: inherit; line-height: inherit; letter-spacing: inherit;
+  background: none; border: 0;
+  border-radius: 0; resize: none; field-sizing: content; overflow: hidden;
+  /* a form control has no content-based minimum, so a flex column would
+     squeeze it to a pixel */
+  flex: none;
+}
+/* Element-qualified, so the BOX outranks the component's where the type above
+   must not: a field wearing `.otk-reading__lede` is the text, not a boxed
+   copy of it, and must not bring that class's rule and padding. */
+textarea.otk-editable { margin: 0; padding: 0; border: 0; }
+/* What stands in for the field while it is closed: same box, same newlines,
+   so opening moves nothing. `.otk-reader` holds both, one visible at a time. */
+.otk-typeset { white-space: pre-wrap; }
+.otk-reader { display: flex; flex-direction: column; }
+/* Open for typing: a white ground, and not one word moves. The ground is a
+   spread shadow rather than padding — padding would eat the measure and
+   rewrap the prose under the caret, where a shadow costs no layout at all.
+   4px is what a passage leaves between its rubric and its text; further would
+   print over the label above. */
+.otk-editable:focus {
+  outline: none;
+  background: var(--otk-edit-bg);
+  box-shadow: 0 0 0 4px var(--otk-edit-bg);
+}
+/* the value sizes to its own text, so an empty one would be a field nobody
+   can see: it keeps a floor */
+.otk-leader .otk-editable { min-width: 9ch; text-align: right; }
+/* An empty field stands at its default, and a default is an absent value —
+   said in words, in the face `.otk-absent` says every other one in. */
+.otk-leader .otk-editable::placeholder { font-family: var(--otk-font-prose); font-style: italic; color: var(--otk-faint); opacity: 1; }
+
+/* The label line under an editable value: one row at a fixed height in every
+   state, so opening a field moves nothing above or below it. */
+.otk-edit { display: flex; flex-direction: column; gap: 6px; max-width: var(--otk-measure); }
+.otk-edit__hint {
+  display: flex; align-items: baseline; gap: 16px; height: 20px;
+  font-family: var(--otk-font-mono); font-size: var(--otk-size-label);
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--otk-faint);
+}
+/* anchored right, so swapping one verb for two moves neither */
+.otk-edit__verbs { margin-left: auto; display: flex; align-items: baseline; gap: 16px; }
+/* A verb is a button, and the UA stylesheet resets casing and tracking on
+   form controls — taken back from the line, so label and verbs stay one row. */
+.otk-edit__verb {
+  color: var(--otk-faint); cursor: pointer;
+  text-transform: inherit; letter-spacing: inherit;
+}
+.otk-edit__verb:hover { color: var(--otk-ink); }
+/* save is the one that commits, so it is the one that is emphasised */
+.otk-edit__verb--save { color: var(--otk-accent-ink); }
+/* At rest only the way in exists, and it comes out under the pointer. Faded
+   rather than hidden: a hidden verb is not tabbable, and while the field is
+   closed it is out of the tab order, so this is the keyboard's only way in. */
+.otk-edit__verb--edit { opacity: 0; }
+.otk-edit:hover .otk-edit__verb--edit,
+.otk-edit__verb--edit:focus-visible { opacity: 1; }
+.otk-edit__verb--save, .otk-edit__verb--cancel { display: none; }
+.otk-edit[data-editing] .otk-edit__verb--edit { display: none; }
+.otk-edit[data-editing] .otk-edit__verb--save,
+.otk-edit[data-editing] .otk-edit__verb--cancel { display: inline; }
+/* two modes, two elements in one box: a paragraph to read, a field to type in */
+.otk-edit:not([data-editing]) .otk-reader > textarea { display: none; }
+.otk-edit[data-editing] .otk-reader > .otk-typeset { display: none; }
+/* The paragraph wears the field's own class, so it must be flattened the same
+   way — or a component with padding of its own shifts the text on open. */
+.otk-reader > .otk-typeset { margin: 0; padding: 0; border: 0; }
+
+/* The wrapper takes the heading's margins, so the label line sits tight under
+   the title. Sized to CONTENT so the verbs rest at the end of the title
+   rather than out at the measure, with max-content as the floor. */
+.otk-edit--title { margin: 10px 0 6px; width: fit-content; max-width: var(--otk-measure); }
+.otk-edit--title .otk-reading__title { margin: 0; }
+.otk-edit--title .otk-edit__hint { width: 100%; min-width: max-content; }
+
+/* one box for every button */
+.otk-btn {
+  display: inline-flex; align-items: center; gap: 9px;
+  font-family: var(--otk-font-display); font-size: var(--otk-size-ui); font-weight: 500;
+  color: var(--otk-body); background: var(--otk-paper);
+  border: var(--otk-hair) solid var(--otk-line); border-radius: var(--otk-radius);
+  padding: var(--otk-btn-pad);
+}
+.otk-btn:hover:not(:disabled):not([aria-disabled="true"]) { border-color: var(--otk-ink); }
+.otk-btn--primary {                     /* ink, not accent: a stamp */
+  font-weight: 600; color: var(--otk-paper);
+  background: var(--otk-ink); border-color: var(--otk-ink);
+}
+.otk-btn--danger { color: var(--otk-danger); border-color: var(--otk-danger); }
+.otk-btn--quiet {                       /* Regen, Undo: the only smaller chip */
+  font-size: var(--otk-size-small); color: var(--otk-muted);
+  border-color: var(--otk-line-soft); padding: 6px 11px;
+}
+.otk-btn--stop { font-weight: 600; color: var(--otk-paper); background: var(--otk-danger); border-color: var(--otk-danger); }
+.otk-btn__square { width: 9px; height: 9px; background: currentColor; flex: none; }
+.otk-btn[aria-disabled="true"], .otk-btn:disabled { color: var(--otk-faint); border-color: var(--otk-line-soft); background: var(--otk-paper); pointer-events: none; }
+.otk-btn__key {                         /* the typed keyboard hint inside a button */
+  font-family: var(--otk-font-mono); font-size: var(--otk-size-foot);
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--otk-faint);
+}
+
+.otk-field {
+  display: block; width: 100%;
+  font-family: var(--otk-font-prose); font-size: var(--otk-size-note);
+  line-height: 1.5; color: var(--otk-ink);
+  background: var(--otk-well); border: var(--otk-hair) solid var(--otk-line-soft);
+  border-radius: var(--otk-radius); padding: var(--otk-field-pad);
+}
+.otk-field--mono { font-family: var(--otk-font-mono); font-size: var(--otk-size-mono); }
+.otk-field:focus-within, .otk-field:focus,
+.otk-filter:focus-within, .otk-filter:focus { border-color: var(--otk-accent); outline: none; }
+
+/* a derived value: never editable, and says so without relying on colour */
+.otk-derived {
+  margin: 0;
+  border-left: var(--otk-hair) solid var(--otk-line-soft); padding-left: 11px;
+  font-family: var(--otk-font-prose); font-size: var(--otk-size-note);
+  font-style: italic; line-height: 1.55; color: var(--otk-muted);
+}
+.otk-derived__flag {
+  display: block; font-family: var(--otk-font-mono); font-size: var(--otk-size-tag);
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--otk-faint);
+}
+
+.otk-pending {
+  border: var(--otk-hair) dashed var(--otk-line-soft); padding: 6px 9px;
+  font-family: var(--otk-font-prose); font-size: var(--otk-size-note);
+  font-style: italic; color: var(--otk-faint);
+}
+
+/* a character's card archive: hand-kept source, not a derived quotation —
+   plain face, and its newlines are structure */
+.otk-card {
+  margin: 0; font-family: var(--otk-font-prose); font-size: var(--otk-size-note);
+  line-height: 1.5; color: var(--otk-body);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+.otk-note {
+  margin: 0; font-family: var(--otk-font-prose); font-size: var(--otk-size-note);
+  font-style: italic; line-height: 1.55; color: var(--otk-faint);
+}
+
+/* a dotted leader: name left, value right */
+.otk-leader { display: flex; align-items: baseline; gap: 6px; padding: 3px 0; font-family: var(--otk-font-mono); font-size: var(--otk-size-mono); color: var(--otk-muted); }
+.otk-leader::after { content: ""; flex: 1; order: 1; border-bottom: var(--otk-hair) dotted var(--otk-line); translate: 0 -4px; }
+.otk-leader > :last-child { order: 2; color: var(--otk-body); font-variant-numeric: tabular-nums; }
+
+.otk-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--otk-ok); flex: none; }
+.otk-dot--off { background: none; border: var(--otk-hair) solid var(--otk-line); border-radius: 0; }
+.otk-dot--sm { width: 6px; height: 6px; }
+
+.otk-tag {
+  flex: none;
+  font-family: var(--otk-font-mono); font-size: var(--otk-size-tag);
+  letter-spacing: var(--otk-track-foot); text-transform: uppercase;
+  color: var(--otk-faint); border: var(--otk-hair) solid var(--otk-line-soft);
+  padding: 1px 5px;
+}
+
+/* =============================================================================
+   SHELL
+   ========================================================================== */
+.otk-app { display: grid; grid-template-columns: var(--otk-spine-w) var(--otk-rail-w) minmax(0, 1fr); height: 100dvh; overflow: hidden; }
+
+.otk-spine { display: flex; flex-direction: column; align-items: center; padding: 22px 0; background: var(--otk-spine-bg); border-right: var(--otk-hair) solid var(--otk-line); }
+.otk-spine__mark { width: 12px; height: 12px; background: var(--otk-accent); flex: none; }
+.otk-app.is-offline .otk-spine__mark { background: var(--otk-faint); }
+.otk-spine__name { flex: 1; min-height: 0; overflow: hidden; display: flex; align-items: center; }
+.otk-spine__name > span { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; font-family: var(--otk-font-mono); font-size: var(--otk-size-label); letter-spacing: 0.34em; text-transform: uppercase; color: var(--otk-muted); }
+.otk-spine__toggle { flex: none; margin-top: 14px; display: none; font-family: var(--otk-font-mono); font-size: var(--otk-size-tag); letter-spacing: var(--otk-track-foot); text-transform: uppercase; color: var(--otk-muted); writing-mode: vertical-rl; padding: 8px 0; }
+.otk-spine__dots { display: flex; flex-direction: column; gap: 14px; align-items: center; padding-top: 16px; }
+.otk-spine__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--otk-faint); }
+.otk-spine__dot[aria-current="true"] { background: var(--otk-ink); }
+
+.otk-rail { display: flex; flex-direction: column; padding: 30px 0 22px; overflow: hidden; }
+.otk-rail__head { display: flex; flex-direction: column; gap: 8px; padding: 0 30px 22px; }
+.otk-rail__head::after { content: ""; height: var(--otk-hair); background: var(--otk-line); }
+.otk-toc { flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 0 30px; overflow-y: auto; counter-reset: otk-folio; }
+.otk-toc__row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; width: 100%; padding: 5px 0; font-family: var(--otk-font-prose); font-size: var(--otk-size-note); color: var(--otk-muted); counter-increment: otk-folio; }
+.otk-toc__row:hover:not(:disabled) { color: var(--otk-ink); }
+.otk-toc__row--lead { color: var(--otk-ink); font-weight: 600; }
+/* the folio is counted, not typed, so a new row never renumbers the rest */
+.otk-toc__row::after { content: counter(otk-folio, lower-roman); font-family: var(--otk-font-mono); font-size: var(--otk-size-foot); color: var(--otk-faint); }
+.otk-toc__gap { flex: none; min-height: 14px; }
+.otk-rail__foot { flex: none; display: flex; flex-direction: column; gap: 3px; margin: 0 30px; padding-top: 14px; border-top: var(--otk-hair) solid var(--otk-line); font-family: var(--otk-font-mono); font-size: var(--otk-size-small); color: var(--otk-muted); }
+.otk-rail__model { letter-spacing: 0.08em; text-transform: uppercase; color: var(--otk-accent-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* =============================================================================
+   THE PAGE
+   ========================================================================== */
+.otk-main { display: flex; flex-direction: column; align-items: center; min-width: 0; min-height: 0; padding: 30px 40px 0; }
+.otk-page {
+  width: 100%; max-width: var(--otk-page-max); flex: 1; min-height: 0;
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--otk-paper);
+  border: var(--otk-hair) solid var(--otk-line); border-bottom: 0;
+  box-shadow: var(--otk-shadow-page);
+}
+.otk-runhead { flex: none; display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 22px var(--otk-page-pad) 10px; font-family: var(--otk-font-mono); font-size: var(--otk-size-foot); letter-spacing: var(--otk-track-label); text-transform: uppercase; color: var(--otk-faint); }
+.otk-runhead__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.otk-runhead__folio { flex: none; margin-left: auto; white-space: nowrap; color: var(--otk-accent); }
+
+.otk-transcript {
+  flex: 1; min-height: 0; overflow-y: auto;
+  overflow-anchor: none;             /* the flow holds its own space after an undo */
+  display: flex; flex-direction: column; gap: 24px;
+  padding: 22px var(--otk-page-pad) 30px;
+}
+.otk-prose { margin: 0; font-family: var(--otk-font-prose); font-size: var(--otk-size-page); line-height: var(--otk-leading-page); color: var(--otk-body); text-wrap: pretty; overflow-wrap: anywhere; }
+/* The model's own marks take no colour of their own: they read in whatever
+   they stand in — the body's ink in narration, the spoken colour in a quote. */
+.otk-prose em { font-style: italic; color: var(--otk-em); }
+.otk-prose strong { font-weight: var(--otk-strong-weight); color: var(--otk-strong); }
+/* Spoken lines take a colour of their own, and stay UPRIGHT: the quotation
+   marks already mark them, and italic belongs to the model's `*emphasis*`. */
+.otk-quote, .otk-prose--dialogue { color: var(--otk-dialogue); font-weight: var(--otk-dialogue-weight); }
+
+/* one reply: its paragraphs flow like the transcript's own children */
+.otk-reply { display: flex; flex-direction: column; gap: 24px; }
+
+/* a played turn reads as an interjection, not a speech bubble */
+.otk-turn { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.otk-turn__rubric { font-family: var(--otk-font-mono); font-size: var(--otk-size-tag); letter-spacing: 0.26em; text-transform: uppercase; color: var(--otk-accent); }
+.otk-turn__body { margin: 0; max-width: 430px; text-align: center; font-family: var(--otk-font-prose); font-size: var(--otk-size-page); font-style: italic; font-weight: 500; line-height: 1.6; color: var(--otk-ink); overflow-wrap: anywhere; }
+.otk-slash { font-family: var(--otk-font-mono); font-size: 0.82em; font-style: normal; color: var(--otk-accent-ink); }
+/* the record's own dim line — the dice a /roll rolled: the stats line's
+   family, centred because the turn is */
+.otk-turn__note { margin: 0; font-family: var(--otk-font-mono); font-size: var(--otk-size-mono-sm); color: var(--otk-faint); font-variant-numeric: tabular-nums; }
+
+/* =============================================================================
+   GENERATING, AND THE OTHER TWO KINDS OF LINE
+
+   Waiting and streaming are ONE state: a blinking caret holds the answer's
+   place and text grows in front of it. Nothing else on the page moves.
+   ========================================================================== */
+@keyframes otk-blink { 0%, 45% { opacity: 1; } 55%, 100% { opacity: 0; } }
+@keyframes otk-creep { 0% { background-position: 0 0; } 100% { background-position: 22px 0; } }
+
+/* the caret: an accent block at the end of what has arrived */
+.otk-caret {
+  display: inline-block; width: 8px; height: 0.95em; margin-left: 3px;
+  background: var(--otk-accent); vertical-align: text-bottom;
+  animation: otk-blink 1.1s steps(1, end) infinite;
+}
+
+/* The reply as it arrives: its paragraphs, and the status beneath them. The
+   block IS the reply (the article carries `.otk-reply` too), so it sets no gap
+   of its own — a paragraph must not sit closer while it streams than it will
+   once the story is drawn again from the store. Whatever sits nearer than that
+   24px rhythm pulls up against it: the status row here, verbose below. */
+.otk-generating { display: flex; flex-direction: column; }
+.otk-generating__status {
+  position: relative; display: flex; align-items: center; gap: 0;
+  flex: none; height: 18px; margin-top: -14px;   /* the 24px gap less 14 leaves 10 */
+  font-family: var(--otk-font-mono); font-size: var(--otk-size-label);
+  letter-spacing: var(--otk-track-foot); text-transform: uppercase; color: var(--otk-muted);
+}
+/* A reply that failed before a word arrived loses its empty paragraph when
+   the turn settles: with nothing above it, the pull would reach into the
+   turn before this one. */
+.otk-generating__status:first-child { margin-top: 0; }
+/* the words sit on paper over the rule, so the creep never appears out of
+   nowhere at an edge */
+.otk-generating__text { position: relative; padding-right: 14px; background: var(--otk-paper); }
+.otk-generating__text:last-of-type { padding-right: 18px; }
+.otk-generating__rule {
+  position: absolute; inset: 50% 0 auto 0; height: 1px;
+  background: repeating-linear-gradient(90deg, var(--otk-accent) 0 6px, transparent 6px 22px);
+  animation: otk-creep 1.4s linear infinite;
+}
+/* idle: the slot keeps its height, so nothing shifts when a reply lands */
+.otk-generating--idle .otk-generating__status { visibility: hidden; }
+.otk-generating--idle .otk-caret { display: none; }
+.otk-generating__elapsed { font-variant-numeric: tabular-nums; color: var(--otk-body); }
+
+/* the model's own reasoning, while it streams: not the story, and set as a
+   note so it never reads as one */
+.otk-thinking {
+  margin: 0; font-family: var(--otk-font-prose); font-size: var(--otk-size-note);
+  font-style: italic; line-height: 1.55; color: var(--otk-faint);
+  border-left: var(--otk-hair) solid var(--otk-line-soft); padding-left: 11px;
+  overflow-wrap: anywhere;
+}
+
+/* Verbose: what the terminal prints after a reply. Machine, so mono — and
+   ONE LINE always, ellipsised rather than wrapped, so a long stats line
+   cannot push the turn below it out of rhythm. It reports on the reply above
+   it and is pulled up against it: 24px of rhythm less 17 leaves 7. */
+.otk-verbose {
+  flex: none;                  /* a shrinkable item beside overflow: hidden
+                                  is a line that can be squashed */
+  margin: -17px 0 0; max-width: var(--otk-measure);
+  font-family: var(--otk-font-mono); font-size: var(--otk-size-mono-sm);
+  line-height: 1.45; color: var(--otk-faint); font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* an error is not a turn: it never reads as the story */
+.otk-error {
+  display: flex; flex-direction: column; gap: 6px;
+  border-left: var(--otk-mark) solid var(--otk-danger); padding: 2px 0 2px 22px;
+}
+.otk-error__label {
+  font-family: var(--otk-font-mono); font-size: var(--otk-size-label);
+  letter-spacing: var(--otk-track-label); text-transform: uppercase; color: var(--otk-danger);
+}
+.otk-error__body { margin: 0; font-family: var(--otk-font-prose); font-size: var(--otk-size-read); line-height: 1.55; color: var(--otk-body); }
+.otk-error__actions { display: flex; gap: 8px; padding-top: 4px; }
+
+/* the space the flow holds open so the page does not move under the reader */
+.otk-gap { flex: none; width: 100%; }
+
+/* =============================================================================
+   STATUS — one reserved line at the foot of the contents, never a bar across
+   the page. It holds its height whether or not it has anything to say.
+   ========================================================================== */
+.otk-status {
+  flex: none; display: flex; align-items: center; gap: 9px;
+  min-height: 34px; margin: 0 30px; padding: 8px 0;
+  border-top: var(--otk-hair) solid var(--otk-line);
+  font-family: var(--otk-font-mono); font-size: var(--otk-size-label);
+  letter-spacing: 0.06em; color: var(--otk-muted);
+}
+.otk-status__lamp { width: 7px; height: 7px; border-radius: 50%; background: var(--otk-ok); flex: none; }
+.otk-status__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.otk-status__action { flex: none; margin-left: auto; color: var(--otk-accent-ink); }
+.otk-status--working .otk-status__lamp { background: var(--otk-accent); animation: otk-blink 1.1s steps(1, end) infinite; }
+.otk-status--offline { color: var(--otk-danger); }
+/* A lamp that is OUT: grey, and still a lamp — the same grey the mark in
+   the spine and the tab icon take when otaku stops. The sentence beside
+   it carries the alarm. */
+.otk-status--offline .otk-status__lamp { background: var(--otk-faint); }
+.otk-status--idle .otk-status__lamp { background: var(--otk-line); }
+/* the line carries the backend's sentence; the lamp says what the session
+   is doing */
+.otk-status--said { color: var(--otk-body); }
+.otk-status--error { color: var(--otk-danger); }
+
+/* =============================================================================
+   COMPOSER
+   ========================================================================== */
+.otk-composer { flex: none; position: relative; display: flex; flex-direction: column; gap: 12px; padding: 16px 28px 20px; background: var(--otk-band); border-top: var(--otk-hair) solid var(--otk-line-soft); }
+.otk-composer__row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+.otk-composer__input { flex: 1 1 300px; min-width: 280px; display: flex; align-items: flex-start; gap: 10px; }
+.otk-composer__input textarea {
+  flex: 1 1 auto; min-width: 0; min-height: 30px; max-height: 180px;
+  field-sizing: content; resize: none; border: 0; outline: none; background: none;
+  font-family: var(--otk-font-prose); font-size: var(--otk-size-lead); line-height: var(--otk-leading-row); color: var(--otk-ink);
+  overflow-y: auto;
+}
+.otk-composer__input textarea::placeholder { color: var(--otk-faint); }
+.otk-composer__verbs { flex: 0 1 auto; margin-left: auto; display: flex; align-items: center; gap: 7px; }
+.otk-hints { margin: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 16px; font-family: var(--otk-font-mono); font-size: var(--otk-size-tag); letter-spacing: var(--otk-track-foot); text-transform: uppercase; color: var(--otk-faint); }
+.otk-hints > * { white-space: nowrap; }
+/* A hint that is a button reads as one of the row, not as a control in it:
+   the UA stylesheet resets casing and tracking on a form control, so they
+   are taken back from the line. */
+.otk-hints > button { text-transform: inherit; letter-spacing: inherit; }
+
+/* the prefix menu: the story's own typed openers, grouped by what they reach */
+.otk-prefixes { position: absolute; left: 14px; bottom: 100%; margin-bottom: 8px; width: 428px; max-width: calc(100% - 28px); display: flex; flex-direction: column; padding: 4px 0 6px; background: var(--otk-paper); border: var(--otk-hair) solid var(--otk-line); box-shadow: var(--otk-shadow-slip); }
+.otk-prefixes__group { display: flex; align-items: baseline; gap: 9px; padding: 7px 16px 3px; }
+.otk-prefixes__group::after { content: ""; flex: 1; height: var(--otk-hair); background: var(--otk-line-soft); }
+.otk-prefix { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 10px; align-items: baseline; width: 100%; padding: 3px 16px; }
+.otk-prefix__token { font-family: var(--otk-font-mono); font-size: var(--otk-size-mono-sm); color: var(--otk-accent-ink); }
+.otk-prefix__desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--otk-font-prose); font-size: var(--otk-size-note); line-height: var(--otk-leading-row); color: var(--otk-body); }
+.otk-prefixes--cast { width: 320px; max-height: 200px; overflow-y: auto; }
+.otk-prefix--name { grid-template-columns: minmax(0, 1fr); }
+.otk-prefix--name .otk-prefix__token { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.otk-prefix[aria-selected="true"] { background: var(--otk-accent-tint); }
+.otk-prefix[aria-selected="true"] .otk-prefix__desc { color: var(--otk-ink); }
+
+/* =============================================================================
+   PANELS — an auxiliary tool the reader steps out to, never a page.
+   Every panel, docket and dialog is a native <dialog>; the scrim is its
+   backdrop, so stacking and focus are the platform's.
+   ========================================================================== */
+/* `overflow` goes with the rest of the UA's dialog box: a docket carries its
+   shadow on the section inside, which the dialog shrink-wraps exactly, so
+   clipping cuts the shadow off. A panel sets its own `overflow: hidden`. */
+dialog { margin: auto; padding: 0; border: 0; background: none; color: inherit; overflow: visible; max-width: none; max-height: none; }
+/* the panel classes set display, which would beat the UA's `:not([open])` */
+dialog:not([open]) { display: none; }
+dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk-scrim-blur)); }
+
+.otk-panel {
+  display: flex; flex-direction: column; overflow: hidden;
+  width: min(var(--otk-panel-story), calc(100vw - 48px));
+  height: min(920px, calc(100dvh - 48px));
+  background: var(--otk-paper); border: var(--otk-hair) solid var(--otk-line);
+  box-shadow: var(--otk-shadow-panel);
+}
+.otk-panel--wide { width: min(var(--otk-panel-wide), calc(100vw - 48px)); }
+/* the wire is the longest thing in the app: it gets the whole desk */
+.otk-panel--read { width: min(var(--otk-panel-read), calc(100vw - 48px)); height: calc(100dvh - 48px); }
+
+.otk-panel__head { flex: none; display: flex; align-items: center; gap: 14px; padding: 14px var(--otk-panel-pad) 10px; }
+/* the FIRST button takes the auto margin and the rest sit beside it, so a
+   header's controls read as one group at the right */
+.otk-panel__head .otk-btn:first-of-type { margin-left: auto; }
+.otk-panel__head > .otk-push ~ .otk-btn { margin-left: 0; }
+.otk-panel__head .otk-eyebrow { min-width: 0; overflow: hidden; white-space: nowrap; }
+.otk-panel__head > .otk-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.otk-tabs { flex: none; display: flex; align-items: center; gap: 36px; padding: 0 var(--otk-panel-pad); border-bottom: var(--otk-hair) solid var(--otk-line-soft); }
+.otk-tab { font-family: var(--otk-font-display); font-size: 16px; font-weight: 600; letter-spacing: -0.01em; padding-bottom: 14px; color: var(--otk-muted); border-bottom: var(--otk-mark) solid transparent; }
+.otk-tab[aria-selected="true"] { color: var(--otk-ink); border-bottom-color: var(--otk-accent); }
+.otk-tabs__aside { margin-left: auto; padding-bottom: 14px; font-family: var(--otk-font-mono); font-size: var(--otk-size-small); color: var(--otk-faint); }
+
+.otk-panel__body { flex: 1; min-height: 0; display: grid; }
+.otk-panel__body--split   { grid-template-columns: 1.1fr 1fr; }
+.otk-panel__body--models  { grid-template-columns: 2.15fr 1fr; }
+.otk-panel__body--dossier { display: flex; overflow-x: auto; }
+
+/* a column that both scrolls and pins something under itself */
+.otk-col { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.otk-col--divided { border-right: var(--otk-hair) solid var(--otk-line-soft); }
+.otk-col__scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-block: 8px; }
+.otk-col__scroll:focus { outline: none; }
+.otk-col__pinned { flex: 0 0 auto; display: flex; align-items: center; padding: 11px var(--otk-panel-pad); border-top: var(--otk-hair) solid var(--otk-line-soft); }
+
+/* the filter belongs to the list it filters, and sits below it */
+.otk-filter { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--otk-font-prose); font-size: var(--otk-size-note); color: var(--otk-ink); background: var(--otk-paper); border: var(--otk-hair) solid var(--otk-line-soft); padding: var(--otk-field-pad); }
+.otk-filter::placeholder { color: var(--otk-faint); opacity: 1; }
+.otk-filter:focus { border-color: var(--otk-accent); outline: none; }
+
+/* a group of rows under a provider or a scene */
+.otk-group { display: flex; align-items: center; gap: 11px; padding: 26px var(--otk-panel-pad) 13px; margin: 0; }
+.otk-group__name { font-family: var(--otk-font-display); font-size: var(--otk-size-head); font-weight: 800; letter-spacing: -0.02em; color: var(--otk-ink); }
+.otk-group__count { margin-left: auto; font-family: var(--otk-font-mono); font-size: var(--otk-size-small); color: var(--otk-faint); }
+.otk-group + .otk-rule { height: var(--otk-hair); background: var(--otk-ink); margin: 0 var(--otk-panel-pad) 7px; }
+
+/* A row: selection is an accent rule plus a tint, never colour alone. Its
+   height is DECLARED — every cell states the same line-height and the row a
+   floor — or a list of mixed scripts ripples, Cyrillic standing taller than
+   Latin. */
+.otk-row { display: flex; align-items: baseline; gap: 14px; width: 100%; min-height: var(--otk-row-h); padding: 4.5px var(--otk-panel-pad) 1.5px; border-left: var(--otk-mark) solid transparent; }
+.otk-row--indent { padding-left: 40px; }
+.otk-row[aria-selected="true"] { border-left-color: var(--otk-accent); background: var(--otk-accent-tint); }
+.otk-row__title { flex: 1 1 0%; min-width: 132px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--otk-font-prose); font-size: var(--otk-size-row); line-height: var(--otk-leading-row); color: var(--otk-body); }
+.otk-row__id { width: 26px; flex: none; text-align: right; font-family: var(--otk-font-mono); font-size: var(--otk-size-mono-sm); line-height: var(--otk-leading-row); color: var(--otk-faint); font-variant-numeric: tabular-nums; }
+.otk-row__who { width: 58px; flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--otk-font-mono); font-size: var(--otk-size-label); line-height: var(--otk-leading-row); letter-spacing: 0.14em; text-transform: uppercase; color: var(--otk-faint); }
+.otk-row__who--you { color: var(--otk-accent-ink); }
+.otk-row__num { flex: none; text-align: right; font-family: var(--otk-font-mono); font-size: var(--otk-size-mono-sm); line-height: var(--otk-leading-row); color: var(--otk-muted); font-variant-numeric: tabular-nums; }
+.otk-row--mono .otk-row__title { font-family: var(--otk-font-mono); font-size: var(--otk-size-mono); }
+.otk-row[aria-selected="true"] .otk-row__title { color: var(--otk-ink); }
+/* loaded is bold, unloaded is dim — only where loading is a thing that happens */
+.otk-row.is-loaded .otk-row__title { font-weight: 600; color: var(--otk-ink); }
+.otk-row.is-dim .otk-row__title { color: var(--otk-muted); }
+.otk-row__lamp { width: var(--otk-col-lamp); flex: none; display: flex; align-items: center; }
+.otk-row__num--size  { width: var(--otk-col-size); }
+.otk-row__num--count { width: var(--otk-col-count); }
+.otk-row__num--ago   { width: var(--otk-col-ago); }
+
+/* the index rail of a story: scenes, or cast */
+.otk-index { flex: 0 0 236px; min-width: 150px; min-height: 0; overflow: hidden; display: flex; flex-direction: column; padding: 14px 0; background: var(--otk-band); border-right: var(--otk-hair) solid var(--otk-line); }
+.otk-index__head { flex: 0 0 auto; display: flex; align-items: baseline; gap: 9px; padding: 0 16px 9px; }
+.otk-index__list { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 0 8px; }
+.otk-index__item { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 9px 8px; border-left: var(--otk-mark) solid transparent; }
+.otk-index__item[aria-selected="true"] { border-left-color: var(--otk-accent); background: var(--otk-paper); }
+.otk-index__item--pending { border: var(--otk-hair) dashed var(--otk-line-soft); margin-top: 4px; }
+.otk-index__title { font-family: var(--otk-font-prose); font-size: var(--otk-size-row); line-height: var(--otk-leading-row); color: var(--otk-body); }
+.otk-index__item[aria-selected="true"] .otk-index__title { color: var(--otk-ink); }
+.otk-index__sub { font-family: var(--otk-font-mono); font-size: var(--otk-size-label); line-height: var(--otk-leading-row); color: var(--otk-faint); }
+.otk-index__note { flex: 0 0 auto; margin: 12px 16px 0; padding-top: 11px; border-top: var(--otk-hair) solid var(--otk-line-soft); }
+
+/* the extraction pass: a background job, so it needs a state and not a button */
+.otk-extract { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-start; gap: 7px; margin: 12px 16px 0; padding-top: 11px; border-top: var(--otk-hair) solid var(--otk-line-soft); }
+.otk-extract__line { display: flex; align-items: center; gap: 8px; }
+.otk-extract__state { font-family: var(--otk-font-mono); font-size: var(--otk-size-label); letter-spacing: 0.06em; color: var(--otk-muted); }
+.otk-extract .otk-btn { align-self: stretch; justify-content: center; }
+
+/* the reading column, and the apparatus margin beside it */
+.otk-reading { flex: 1 1 0%; min-width: 300px; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; padding: 20px 30px; }
+.otk-reading__title { margin: 10px 0 14px; font-family: var(--otk-font-display); font-size: 29px; font-weight: 800; letter-spacing: -0.025em; line-height: 1.1; color: var(--otk-ink); }
+.otk-reading__title--lg { font-size: var(--otk-size-display); }
+.otk-reading__lede { margin: 0 0 4px; font-family: var(--otk-font-prose); font-size: var(--otk-size-lead); line-height: 1.68; color: var(--otk-body); border-bottom: var(--otk-hair) dotted var(--otk-line); padding-bottom: 8px; text-wrap: pretty; }
+.otk-passages { display: flex; flex-direction: column; gap: 20px; border-top: var(--otk-hair) solid var(--otk-line); padding-top: 14px; }
+.otk-passage { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: var(--otk-measure); }
+.otk-passage .otk-note { font-size: var(--otk-size-lead); line-height: 1.6; }
+.otk-passage__rubric { font-family: var(--otk-font-mono); font-size: var(--otk-size-label); letter-spacing: var(--otk-track-tag); text-transform: uppercase; color: var(--otk-accent-ink); }
+.otk-passage__body { margin: 0; font-family: var(--otk-font-prose); font-size: var(--otk-size-read); line-height: 1.66; color: var(--otk-body); overflow-wrap: anywhere; }
+.otk-margin { flex: 0 1 var(--otk-reader-w); min-width: 180px; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 20px 18px; border-left: var(--otk-hair) solid var(--otk-line); }
+.otk-margin__fact { display: flex; flex-direction: column; gap: 3px; }
+/* Some values are paragraphs (one wraps, and `present` carries a button per
+   name), so the class owns its box: left alone, the UA's `1em 0` stands every
+   fact a whole line off its key. */
+.otk-margin__value { margin: 0; font-family: var(--otk-font-prose); font-size: var(--otk-size-lead); line-height: 1.5; color: var(--otk-body); }
+.otk-margin__value--mono { font-family: var(--otk-font-mono); font-size: var(--otk-size-mono); }
+.otk-margin__key { font-family: var(--otk-font-mono); font-size: var(--otk-size-label); letter-spacing: 0.1em; text-transform: uppercase; color: var(--otk-faint); }
+.otk-margin__block { padding-top: 10px; border-top: var(--otk-hair) solid var(--otk-line-soft); }
+/* A derived value stands off its key where a plain fact sits tight under it:
+   the ruled inset is a quotation from the extractor and takes a little air to
+   read as one — a little: the column's own gap does the separating. Scoped
+   here — `.otk-derived` is also a row in the message detail and a block in a
+   report, and neither wants the space. */
+.otk-margin__fact > .otk-derived { margin: 8px 0; }
+
+/* the detail pane of a panel: a body that scrolls, and verbs that do not */
+.otk-detail { min-height: 0; overflow: hidden; display: flex; flex-direction: column; padding: 22px var(--otk-panel-pad) 14px; }
+.otk-detail--reader { flex: 0 1 var(--otk-reader-w); min-width: 300px; }
+.otk-detail__scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+.otk-detail__head { display: flex; align-items: baseline; gap: 10px; }
+.otk-detail__title { margin: 12px 0 10px; font-family: var(--otk-font-display); font-size: var(--otk-size-title); font-weight: 800; letter-spacing: -0.02em; color: var(--otk-ink); overflow-wrap: anywhere; }
+.otk-detail__section { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: var(--otk-hair) solid var(--otk-line-soft); }
+.otk-fact { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: 12px; padding: 7px 0; border-bottom: var(--otk-hair) solid var(--otk-line-soft); font-family: var(--otk-font-mono); font-size: var(--otk-size-mono-sm); margin: 0; }
+.otk-fact:last-child { border-bottom: 0; }
+.otk-fact > :first-child { color: var(--otk-muted); }
+.otk-fact > :last-child { color: var(--otk-body); overflow-wrap: anywhere; text-align: right; }
+/* pinned to the foot of its pane: a taller or shorter body above never moves
+   the buttons */
+.otk-actions { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: auto; padding-top: 14px; border-top: var(--otk-hair) solid var(--otk-line-soft); }
+.otk-actions__note { flex-basis: 100%; margin: 0; }
+
+/* one footer, identical in every panel */
+.otk-panel__foot { flex: none; display: flex; align-items: center; gap: 20px; padding: 12px var(--otk-panel-pad); background: var(--otk-band); border-top: var(--otk-hair) solid var(--otk-line-soft); font-family: var(--otk-font-mono); font-size: var(--otk-size-foot); letter-spacing: var(--otk-track-foot); text-transform: uppercase; color: var(--otk-faint); }
+.otk-panel__foot > span + span { margin-left: auto; text-align: right; }
+.otk-panel__foot > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* the premise: no index, one measure */
+.otk-panel__body--premise { display: flex; justify-content: center; padding: 26px 40px 20px; }
+.otk-premise { width: var(--otk-premise-w); max-width: 100%; display: flex; flex-direction: column; }
+.otk-premise__lede { margin-bottom: 18px; }
+.otk-premise__body {
+  flex: 1; min-height: 0; width: 100%; resize: none; overflow-y: auto;
+  border: 0; border-top: var(--otk-hair) solid var(--otk-line); border-radius: 0;
+  outline: none; background: none; padding: 18px 0 0; margin: 0;
+  font-family: var(--otk-font-prose); font-size: var(--otk-size-lead); line-height: 1.74; color: var(--otk-ink);
+}
+/* the field fills the pane the way the bare textarea did, and the edit
+   pair inside it takes the premise measure, not the reading one */
+.otk-premise__field { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.otk-premise__field .otk-edit { flex: 1; min-height: 0; max-width: none; }
+.otk-premise__field .otk-reader { flex: 1; min-height: 0; }
+
+/* context: the request as a document, its stages as live figures */
+.otk-context { display: flex; flex-direction: column; gap: 22px; flex: 1; min-height: 0; overflow-y: auto; padding: 2px 30px 26px; }
+.otk-context__summary { display: flex; align-items: baseline; gap: 20px; flex-wrap: wrap; }
+.otk-context__lead { display: inline-flex; align-items: baseline; gap: 10px; }
+.otk-context__lead .otk-context__figure { font-size: 30px; }
+.otk-context__stages { display: flex; border: var(--otk-hair) solid var(--otk-ink); background: var(--otk-band); }
+.otk-context__cell { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 5px; padding: 18px 14px; background: var(--otk-paper); }
+.otk-context__cell + .otk-context__cell { border-left: var(--otk-hair) solid var(--otk-line); }
+.otk-context__cell--idle { background: none; }
+.otk-context__figure { font-family: var(--otk-font-display); font-size: 28px; font-weight: 800; letter-spacing: -0.02em; color: var(--otk-ink); font-variant-numeric: tabular-nums; }
+.otk-context__cell--idle .otk-context__figure { font-size: 24px; color: var(--otk-faint); }
+.otk-context__tok { font-family: var(--otk-font-mono); font-size: var(--otk-size-label); color: var(--otk-accent-ink); }
+.otk-context__cell--idle .otk-context__tok { color: var(--otk-faint); }
+.otk-context__wire { display: flex; flex-direction: column; gap: 20px; padding-top: 6px; }
+
+/* =============================================================================
+   DOCKET — a torn slip for every small report
+   ========================================================================== */
+/* a slip is torn to length: as tall as what it has to say, bounded by the desk */
+.otk-docket { display: flex; flex-direction: column; width: var(--otk-docket-w); max-height: calc(100dvh - 80px); max-width: calc(100vw - 32px); background: var(--otk-paper); box-shadow: var(--otk-shadow-panel); }
+.otk-docket--narrow { --otk-docket-w: 416px; }
+.otk-docket--wide   { --otk-docket-w: 568px; }
+/* …except balance, whose figures arrive one per provider after the slip is
+   open: a slip that grows under the pointer has moved what was clicked */
+.otk-docket--fixed  { height: min(var(--otk-docket-h), calc(100dvh - 80px)); }
+/* between the click and the figures: the scrim answers, and the slip arrives
+   whole rather than opening small and growing */
+.otk-docket.is-waiting { visibility: hidden; }
+.otk-docket__tear { flex: 0 0 auto; height: 9px; background: radial-gradient(circle at 6px 0, transparent 0 5px, var(--otk-paper) 5.5px) 0 0/12px 9px repeat-x; }
+.otk-docket__tear--bottom { background: radial-gradient(circle at 6px 9px, transparent 0 5px, var(--otk-paper) 5.5px) 0 0/12px 9px repeat-x; }
+.otk-docket__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 17px; padding: 8px 34px 16px; }
+.otk-docket__body:focus { outline: none; }
+.otk-docket__foot { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; margin: 0 34px; padding: 14px 0; border-top: var(--otk-hair) solid var(--otk-line); }
+.otk-docket__foot .otk-btn:last-child { margin-left: auto; }
+.otk-docket__note { font-family: var(--otk-font-mono); font-size: var(--otk-size-foot); letter-spacing: var(--otk-track-foot); text-transform: uppercase; color: var(--otk-faint); }
+.otk-docket__row { display: flex; align-items: baseline; gap: 10px; }
+.otk-docket__name { flex: 1; min-width: 0; overflow-wrap: anywhere; font-family: var(--otk-font-display); font-size: var(--otk-size-note); font-weight: 600; color: var(--otk-ink); }
+.otk-docket__title { font-family: var(--otk-font-display); font-size: 24px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; color: var(--otk-ink); overflow-wrap: anywhere; }
+.otk-docket__story { font-family: var(--otk-font-prose); font-size: 21px; line-height: 1.3; color: var(--otk-ink); }
+.otk-tabs--docket { gap: 22px; padding: 0; border-bottom: var(--otk-hair) solid var(--otk-line); }
+.otk-rule { height: var(--otk-hair); background: var(--otk-line); }
+.otk-rule--double { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; }
+.otk-rule--double::before, .otk-rule--double::after { content: ""; height: var(--otk-hair); background: var(--otk-ink); }
+.otk-total { display: flex; align-items: baseline; gap: 12px; }
+.otk-total__figure { margin-left: auto; font-family: var(--otk-font-display); font-size: 33px; font-weight: 800; letter-spacing: -0.02em; color: var(--otk-ink); font-variant-numeric: tabular-nums; }
+
+/* =============================================================================
+   DIALOG — one decision, 440px, always dismissible
+   ========================================================================== */
+.otk-dialog { width: min(var(--otk-dialog-w), calc(100vw - 32px)); display: flex; flex-direction: column; gap: 16px; padding: var(--otk-dialog-pad); background: var(--otk-paper); border: var(--otk-hair) solid var(--otk-line); box-shadow: var(--otk-shadow-panel); }
+.otk-dialog__subject { display: flex; flex-direction: column; gap: 3px; }
+.otk-dialog__name { font-family: var(--otk-font-display); font-size: 21px; font-weight: 800; letter-spacing: -0.02em; color: var(--otk-ink); overflow-wrap: anywhere; }
+.otk-dialog__body { margin: 0; font-family: var(--otk-font-prose); font-size: var(--otk-size-note); line-height: 1.6; color: var(--otk-body); text-wrap: pretty; }
+.otk-dialog__foot { display: flex; align-items: center; gap: 8px; padding-top: 14px; border-top: var(--otk-hair) solid var(--otk-line-soft); }
+.otk-dialog__foot .otk-btn:first-of-type { margin-left: auto; }
+.otk-dialog__escape { font-family: var(--otk-font-mono); font-size: var(--otk-size-foot); letter-spacing: var(--otk-track-foot); text-transform: uppercase; color: var(--otk-faint); }
+/* a choice between two outcomes is two boxes, not two buttons */
+.otk-choices { display: flex; flex-direction: column; gap: 8px; }
+.otk-choice { display: flex; flex-direction: column; gap: 2px; border: var(--otk-hair) solid var(--otk-line); padding: 11px 14px; }
+.otk-choice[aria-checked="true"] { border-color: var(--otk-accent); background: var(--otk-accent-tint); }
+.otk-choice__name { font-family: var(--otk-font-display); font-size: var(--otk-size-note); font-weight: 600; color: var(--otk-ink); }
+.otk-choice__desc { font-family: var(--otk-font-prose); font-size: var(--otk-size-note); color: var(--otk-muted); }
+.otk-dropzone { display: flex; flex-direction: column; align-items: center; gap: 7px; text-align: center; padding: 34px 20px; background: var(--otk-well); border: var(--otk-hair) dashed var(--otk-line); cursor: pointer; }
+.otk-dropzone__label { font-family: var(--otk-font-prose); font-size: var(--otk-size-lead); color: var(--otk-body); }
+.otk-dropzone__file { font-family: var(--otk-font-mono); font-size: var(--otk-size-mono); color: var(--otk-ink); overflow-wrap: anywhere; }
+.otk-dropzone.is-dragover { border-color: var(--otk-accent); background: var(--otk-accent-tint); }
+.otk-dropzone.is-filled { border-style: solid; }
+.otk-dialog__field { display: flex; align-items: center; gap: 14px; }
+.otk-dialog__field > .otk-label { flex: none; }
+.otk-outcomes { display: flex; flex-direction: column; gap: 6px; }
+.otk-outcome { margin: 0; font-family: var(--otk-font-prose); font-size: var(--otk-size-note); line-height: 1.5; color: var(--otk-body); border-left: var(--otk-hair) solid var(--otk-line); padding-left: 11px; }
+
+/* =============================================================================
+   THE UTILITY LAYER — small, named, and closed: every one of these exists
+   because two or more components need it, and no markup carries a style
+   attribute.
+   ========================================================================== */
+
+/* a vertical stack on a four-step scale */
+.otk-v { display: flex; flex-direction: column; }
+.otk-v--xs { gap: 3px; }
+.otk-v--sm { gap: 6px; }
+.otk-v--md { gap: 10px; }
+.otk-v--lg { gap: 14px; }
+
+/* ink and emphasis */
+.otk-faint { color: var(--otk-faint); }
+.otk-accent-ink { color: var(--otk-accent-ink); }
+.otk-label--accent { color: var(--otk-accent-ink); }
+.otk-code { font-family: var(--otk-font-mono); font-style: normal; }
+.otk-hr { height: var(--otk-hair); background: var(--otk-line); }
+.otk-push { margin-left: auto; }
+/* a wiring hook that must not be a box */
+.otk-slot { display: contents; }
+
+/* a value that is absent, default, or not yet written — always said in words */
+.otk-absent { font-family: var(--otk-font-prose); font-style: italic; color: var(--otk-faint); }
+
+/* a typed key, and a row of them against its meaning */
+.otk-key { font-family: var(--otk-font-mono); font-size: var(--otk-size-mono-sm); color: var(--otk-ink); border: var(--otk-hair) solid var(--otk-line); padding: 3px 9px; }
+.otk-keys { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+/* left only: it stands off the key box it follows, and stays with the key
+   or the argument shape it introduces */
+.otk-keys__plus { padding-left: 6px; font-family: var(--otk-font-mono); font-size: var(--otk-size-label); color: var(--otk-faint); }
+.otk-keys-grid { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 11px 30px; align-items: baseline; }
+.otk-keys__meaning { font-family: var(--otk-font-prose); font-size: var(--otk-size-read); color: var(--otk-muted); }
+
+/* inside a docket */
+.otk-leader__aside { align-self: flex-end; font-family: var(--otk-font-mono); font-size: var(--otk-size-small); color: var(--otk-faint); }
+.otk-leader__aside--tight { margin-top: -3px; font-size: var(--otk-size-mono-sm); }
+/* one step of a ladder written into an aside — the value it would set */
+.otk-step { font-family: var(--otk-font-mono); font-size: var(--otk-size-small); color: var(--otk-faint); }
+.otk-step:hover, .otk-toggle:hover { color: var(--otk-accent-ink); }
+.otk-step[aria-checked="true"], .otk-toggle[aria-checked="true"] { color: var(--otk-ink); font-weight: 500; }
+.otk-toggle { font-family: var(--otk-font-mono); font-size: var(--otk-size-mono); color: var(--otk-faint); }
+
+/* prose variants */
+.otk-prose--read { font-size: var(--otk-size-read); line-height: var(--otk-leading-read); }
+.otk-prose--lead { font-size: var(--otk-size-lead); line-height: 1.55; color: var(--otk-ink); }
+.otk-prose--margin { font-size: var(--otk-size-lead); line-height: 1.6; }
+.otk-prose--wire { max-width: none; white-space: pre-wrap; }
+.otk-prose--said { max-width: none; font-style: italic; color: var(--otk-ink); white-space: pre-wrap; }
+.otk-note--push { margin-top: auto; }
+.otk-meta { font-family: var(--otk-font-mono); font-size: var(--otk-size-mono-sm); color: var(--otk-muted); }
+.otk-stack { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+
+/* the models header's memory reading */
+.otk-memory { margin-left: auto; display: inline-flex; align-items: baseline; gap: 8px; }
+.otk-memory__value { font-family: var(--otk-font-mono); font-size: var(--otk-size-mono-sm); color: var(--otk-body); }
+
+.otk-col--messages { flex: 1 1 0%; min-width: 300px; padding: 12px 22px; }
+.otk-col--messages .otk-row { padding-left: 14px; padding-right: 14px; }
+.otk-col--messages .otk-col__pinned { padding: 11px 0 0; margin-left: 14px; border-top: 0; }
+
+/* =============================================================================
+   FIELD ROWS AND EMPTY STATES — a name against its value, and what a list
+   says when it holds nothing.
+   ========================================================================== */
+
+/* a name and its value on one grid row: the message detail's derived
+   rows, and the card dialog's fields */
+.otk-field-row { display: grid; grid-template-columns: 148px minmax(0, 1fr); gap: 12px; align-items: baseline; width: 100%; padding: 6px 0; border-bottom: var(--otk-hair) solid var(--otk-line-soft); }
+.otk-field-row:last-child { border-bottom: 0; }
+.otk-field-row--card { grid-template-columns: 104px minmax(0, 1fr); gap: 12px 14px; align-items: stretch; border-bottom: 0; }
+.otk-field-row--card > .otk-label { display: flex; align-items: center; }
+/* in the apparatus margin the row is too narrow for two columns: the key
+   stacks over its value, the way the margin's own facts stack */
+.otk-margin .otk-field-row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+
+/* an empty list says what it would hold, and how to reach it */
+.otk-empty { display: flex; flex-direction: column; align-items: center; gap: 7px; text-align: center; padding: 44px 30px; }
+.otk-empty__line { font-family: var(--otk-font-prose); font-size: var(--otk-size-lead); color: var(--otk-muted); }
+.otk-empty__hint { font-family: var(--otk-font-mono); font-size: var(--otk-size-mono-sm); letter-spacing: 0.04em; color: var(--otk-faint); }
+
+/* =============================================================================
+   RESPONSIVE — the shell folds before the page does
+   ========================================================================== */
+@media (max-width: 1100px) {
+  .otk-app { grid-template-columns: var(--otk-spine-w) minmax(0, 1fr); }
+  .otk-rail { display: none; }
+  .otk-spine__toggle { display: block; }
+  .otk-rail[data-open="true"] { display: flex; position: fixed; left: var(--otk-spine-w); top: 0; bottom: 0; z-index: 10; width: var(--otk-rail-w); background: var(--otk-desk); border-right: var(--otk-hair) solid var(--otk-line); }
+  .otk-panel__body { min-height: 0; overflow-y: auto; }
+  .otk-panel__body--split, .otk-panel__body--models { grid-template-columns: minmax(0, 1fr); }
+  .otk-panel__body--dossier { flex-direction: column; overflow-x: visible; }
+  .otk-index { flex: 0 0 auto; border-right: 0; border-bottom: var(--otk-hair) solid var(--otk-line); }
+  .otk-index__list { overflow: visible; }
+  .otk-col, .otk-col--messages, .otk-reading, .otk-detail, .otk-detail--reader { flex: 0 0 auto; min-height: 0; overflow: visible; }
+  .otk-col__scroll, .otk-detail__scroll { flex: 0 0 auto; overflow: visible; }
+  .otk-margin { display: none; }
+}
+@media (max-width: 720px) {
+  .otk-spine { display: flex; flex-direction: row; align-items: center; gap: 14px; height: 48px; padding: 0 14px; border-right: 0; border-bottom: var(--otk-hair) solid var(--otk-line); }
+  .otk-spine__name, .otk-spine__dots { display: none; }
+  .otk-spine__toggle { writing-mode: horizontal-tb; margin: 0; }
+  :root { --otk-page-pad: 24px; --otk-panel-pad: 16px; }
+  .otk-app { grid-template-columns: minmax(0, 1fr); grid-template-rows: 48px minmax(0, 1fr); }
+  .otk-spine { grid-column: 1; }
+  .otk-rail[data-open="true"] { left: 0; top: 48px; }
+  .otk-main { padding: 0; }
+  .otk-panel, .otk-panel--wide, .otk-panel--read { width: 100vw; height: 100dvh; border: 0; }
+  .otk-docket { max-width: 100vw; }
+}
+@media print {
+  .otk-spine, .otk-rail, .otk-composer, dialog { display: none !important; }
+  .otk-app { display: block; height: auto; }
+  .otk-page { max-width: none; border: 0; box-shadow: none; }
+  .otk-transcript { overflow: visible; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

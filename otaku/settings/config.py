@@ -1,22 +1,14 @@
-"""The user's configuration: configs/config.toml.
-
-Read-only for the app — bootstrap writes it once at first run, the user
-edits it thereafter, and the one exception is `settings.migrations`:
-surgical shape updates applied at launch when the file is from an older
-build. Everything the app itself changes lives in state.toml
-(`settings.state`) or models.toml instead.
-
-This module owns the config surface: the dataclasses, the reader, and the
-rendering — `Config.to_toml()` renders any instance as the file. The
-provider sections come from the backend classes (each backend's
-`autoconfigure`), assembled at the first-run write by the CLI.
+"""The user's configuration: config.toml. The provider sections are a
+sibling surface (`settings.providers`); `Config` deliberately does not
+carry them — the Registry does, injected at the launch.
 """
 
 import tomllib
 from dataclasses import dataclass, field
+from pathlib import Path
 
-from otaku.paths import Paths
-from otaku.settings.files import row, toml_key, toml_scalar
+from otaku.formatting import toml_scalar
+from otaku.settings import read_settings, row
 
 
 class ConfigError(Exception):
@@ -24,31 +16,41 @@ class ConfigError(Exception):
 
 
 @dataclass(frozen=True)
-class ProviderConfig:
-    """One [NAME] section of providers.toml: an OpenAI-compatible server."""
+class TerminalSettings:
+    """The looks the terminal frontend needs at its own launch — its
+    slice of config.toml, as `WebSettings` below is the other one's (a
+    persisted slice, hence a settings type; run-time bundles live beside
+    their consumers instead)."""
 
-    name: str
-    url: str
-    api_key: str = ""
-    keep_alive: str = ""  # how long an explicitly loaded model stays resident (ollama)
+    # Which of the shipped themes to paint in: "light" or "dark" says so
+    # outright, and anything else — "auto", or a hand-edited typo, which
+    # should cost the reader nothing — asks the terminal.
+    theme: str
+    dialogue_color: str
+    dialogue_bold: bool
+    show_banner: bool
+    # Defaulted where the others are not: "default" is a real value —
+    # the platform's own sound — so a caller that has no opinion about
+    # sound (the theme's, every time) needs none.
+    notification_sound: str = "default"
 
-    @property
-    def base_url(self) -> str:
-        """The URL without a trailing /v1 — where a backend's native
-        management endpoints live."""
-        return self.url[: -len("/v1")] if self.url.endswith("/v1") else self.url
 
-    @property
-    def headers(self) -> dict[str, str]:
-        """Auth headers for every request to this provider."""
-        return {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+@dataclass(frozen=True)
+class WebSettings:
+    """Where the web frontend listens — the other slice of config.toml
+    that is a frontend's business, and the only one needed before a
+    session exists. Loopback by default: this is one person's
+    application, and reaching it from another machine is a decision to
+    make on purpose."""
+
+    host: str = "127.0.0.1"
+    port: int = 9600
 
 
 @dataclass(frozen=True)
 class Encryption:
-    """The [encryption] section. Provider "none" (the default) stores content
-    as readable plain text; the others name where the key-encryption key
-    comes from — see `otaku.crypto`."""
+    """The [encryption] section. Provider "none" (the default) stores
+    content as readable plain text."""
 
     provider: str = "none"
     retrieve_command: str | None = None
@@ -56,17 +58,22 @@ class Encryption:
 
 @dataclass(frozen=True)
 class Config:
-    providers: dict[str, ProviderConfig]
     encryption: Encryption = field(default_factory=Encryption)
     # [settings]
     show_banner: bool = True
     smooth_streaming: bool = True
-    # [ui]
+    notification_sound: str = "default"  # "default" = the platform's own; else a path
+    # [terminal]
+    theme: str = "auto"  # "auto" asks the terminal; else "light" or "dark"
     dialogue_color: str = "auto"
     dialogue_bold: bool = False
+    # [web]
+    web_host: str = "127.0.0.1"
+    web_port: int = 9600
     # [context]
     head_messages: int = 20
-    tail_messages: int = 150
+    min_tail_messages: int = 150
+    max_context: int = 0
     # [lore_extraction]
     lore_enabled: bool = True
     idle_seconds: float = 300.0
@@ -77,16 +84,10 @@ class Config:
     backups: int = 7
     seed_sample: bool = True
 
-    def serves(self, spec: str) -> bool:
-        """Whether `spec` ("provider/model") names a configured provider —
-        what the launcher asks before resuming a remembered model."""
-        provider_name, _, model = spec.partition("/")
-        return bool(model) and provider_name in self.providers
-
     def to_toml(self) -> str:
-        """This configuration rendered as config.toml text: every key present
-        with an aligned comment, so the whole surface is discoverable and
-        editable in place."""
+        """This configuration rendered as config.toml text: every key
+        present with an aligned comment, so the whole surface is
+        discoverable and editable in place."""
         # One setting per source line, whatever the width — E501 is off
         # for this file (see pyproject).
         # fmt: off
@@ -94,14 +95,21 @@ class Config:
             "[settings]",
             row(f"show_banner = {toml_scalar(self.show_banner)}", "the session header shown when a chat opens"),
             row(f"smooth_streaming = {toml_scalar(self.smooth_streaming)}", "re-time bursty model output into an even stream"),
+            row(f"notification_sound = {toml_scalar(self.notification_sound)}", 'what /set notification plays: "default" is the platform\'s own, else a path'),
             "",
-            "[ui]",
+            "[terminal]",
+            row(f"theme = {toml_scalar(self.theme)}", '"auto" asks the terminal and takes dark when it will not say; or "light"/"dark"'),
             row(f"dialogue_color = {toml_scalar(self.dialogue_color)}", 'spoken lines: "auto" fits the background; a color name ("cyan") or #rrggbb'),
             row(f"dialogue_bold = {toml_scalar(self.dialogue_bold)}", "also bold the spoken lines"),
             "",
+            "[web]",
+            row(f"host = {toml_scalar(self.web_host)}", "where `otaku web` listens; anything but 127.0.0.1 opens it to the network"),
+            row(f"port = {self.web_port}", "…and on which port"),
+            "",
             "[context]",
             row(f"head_messages = {self.head_messages}", "opening messages kept verbatim in the prompt"),
-            row(f"tail_messages = {self.tail_messages}", "recent messages kept verbatim"),
+            row(f"min_tail_messages = {self.min_tail_messages}", "at least this many recent messages kept verbatim"),
+            row(f"max_context = {self.max_context}", "the prompt may use at most this many tokens; 0 = the model's whole window"),
             "",
             "[lore_extraction]",
             row(f"enabled = {toml_scalar(self.lore_enabled)}", "extract lore on idle (/extract always works)"),
@@ -131,20 +139,37 @@ class Config:
             )
         return "\n".join(lines) + "\n"
 
+    @property
+    def web(self) -> WebSettings:
+        """The web frontend's slice, cut like `terminal` below."""
+        return WebSettings(host=self.web_host, port=self.web_port)
 
-def load(paths: Paths) -> Config:
-    """Read and validate config.toml and providers.toml. Raises
-    ConfigError with a message that names the file — both are
-    hand-edited, so errors must be human."""
-    path = paths.config_file
+    @property
+    def terminal(self) -> TerminalSettings:
+        """The terminal frontend's slice, cut once here."""
+        return TerminalSettings(
+            theme=self.theme,
+            dialogue_color=self.dialogue_color,
+            dialogue_bold=self.dialogue_bold,
+            show_banner=self.show_banner,
+            notification_sound=self.notification_sound,
+        )
+
+
+def load(path: Path) -> Config:
+    """Read and validate config.toml. Raises ConfigError with a message
+    that names the file — it is hand-edited, so errors must be human."""
     try:
-        raw = tomllib.loads(path.read_text())
+        raw = tomllib.loads(read_settings(path))
     except FileNotFoundError as e:
         raise ConfigError(f"{path} does not exist") from e
+    except UnicodeDecodeError as e:
+        # TOML is UTF-8 by specification, and this file is hand-edited:
+        # an editor that saved it in the machine's own codepage is the
+        # likely cause, and is something the reader can act on.
+        raise ConfigError(f"{path}: not valid UTF-8 — save the file as UTF-8") from e
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"{path}: invalid TOML — {e}") from e
-
-    providers = _load_providers(paths)
 
     enc_raw = _table(raw, "encryption", path)
     command = enc_raw.get("retrieve_command")
@@ -154,20 +179,29 @@ def load(paths: Paths) -> Config:
     )
 
     settings = _table(raw, "settings", path)
-    ui = _table(raw, "ui", path)
+    terminal = _table(raw, "terminal", path)
+    web = _table(raw, "web", path)
     context = _table(raw, "context", path)
     lore = _table(raw, "lore_extraction", path)
     database = _table(raw, "database", path)
     try:
         return Config(
-            providers=providers,
             encryption=encryption,
             show_banner=bool(settings.get("show_banner", True)),
             smooth_streaming=bool(settings.get("smooth_streaming", True)),
-            dialogue_color=str(ui.get("dialogue_color", "auto")),
-            dialogue_bold=bool(ui.get("dialogue_bold", False)),
+            notification_sound=str(settings.get("notification_sound", "default")),
+            dialogue_color=str(terminal.get("dialogue_color", "auto")),
+            dialogue_bold=bool(terminal.get("dialogue_bold", False)),
+            web_host=str(web.get("host", "127.0.0.1")),
+            # Clamped to the range a socket accepts, 0 excluded: a port
+            # of 0 asks the OS to pick one, and `otaku web` says where
+            # the page is BEFORE it binds — an address nobody can be
+            # told is no use for a page somebody has to open. A second
+            # otaku on one machine names its own port here.
+            web_port=min(65535, max(1, _int(web, "port", 9600))),
             head_messages=max(0, _int(context, "head_messages", 20)),
-            tail_messages=max(1, _int(context, "tail_messages", 150)),
+            min_tail_messages=max(1, _int(context, "min_tail_messages", 150)),
+            max_context=max(0, _int(context, "max_context", 0)),
             lore_enabled=bool(lore.get("enabled", True)),
             idle_seconds=max(0.0, _float(lore, "idle_seconds", 300.0)),
             scene_min_chars=max(1, _int(lore, "scene_min_chars", 6000)),
@@ -178,51 +212,6 @@ def load(paths: Paths) -> Config:
         )
     except ValueError as e:
         raise ConfigError(f"{path}: {e}") from e
-
-
-def providers_toml(providers: dict[str, ProviderConfig]) -> str:
-    """Render configs/providers.toml — one top-level [name] section per
-    provider; what first run writes. Thereafter the file is the user's,
-    edited surgically (the picker's field saves, migrations)."""
-    lines = [
-        "# otaku providers — one [name] section per provider. The model",
-        "# picker edits urls and api keys here; api keys are stored sealed.",
-    ]
-    for provider_config in providers.values():
-        lines += [
-            "",
-            f"[{toml_key(provider_config.name)}]",
-            f"url = {toml_scalar(provider_config.url)}",
-            f"api_key = {toml_scalar(provider_config.api_key)}",
-        ]
-        if provider_config.keep_alive:
-            lines.append(f"keep_alive = {toml_scalar(provider_config.keep_alive)}")
-    return "\n".join(lines) + "\n"
-
-
-def _load_providers(paths: Paths) -> dict[str, ProviderConfig]:
-    """The [NAME] sections of providers.toml, validated."""
-    path = paths.providers_file
-    try:
-        raw = tomllib.loads(path.read_text())
-    except FileNotFoundError as e:
-        raise ConfigError(f"{path} does not exist") from e
-    except tomllib.TOMLDecodeError as e:
-        raise ConfigError(f"{path}: invalid TOML — {e}") from e
-    sections = {name: entry for name, entry in raw.items() if isinstance(entry, dict)}
-    if not sections:
-        raise ConfigError(f"{path}: at least one [NAME] provider section is required")
-    providers: dict[str, ProviderConfig] = {}
-    for name, entry in sections.items():
-        if "url" not in entry:
-            raise ConfigError(f"{path}: [{name}] must have a 'url' key")
-        providers[name] = ProviderConfig(
-            name=str(name),
-            url=str(entry["url"]).rstrip("/"),
-            api_key=str(entry.get("api_key", "")),
-            keep_alive=str(entry.get("keep_alive", "")),
-        )
-    return providers
 
 
 def _table(raw: dict[str, object], name: str, path: object) -> dict[str, object]:
