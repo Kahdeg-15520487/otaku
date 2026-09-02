@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Serve the built terminal demo locally, with the two cross-origin
 isolation headers SharedArrayBuffer requires — the stdlib server plus
-exactly what a deployment's `_headers` file would add:
+the two headers a host must add under the deployed folder:
 
     demo/serve_terminal.py [dir] [port]     (default dist/demo-terminal 8917)
 """

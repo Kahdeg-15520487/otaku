@@ -10,11 +10,15 @@
 # demo/build_web.sh, each into its own dist/demo-* folder.
 #
 # The page uses SharedArrayBuffer, so wherever it is deployed the two
-# isolation headers must ride along (the build writes a Cloudflare
-# `_headers` file into the target as the reference):
+# isolation headers must ride along on every response under it:
 #
 #   Cross-Origin-Opener-Policy: same-origin
 #   Cross-Origin-Embedder-Policy: require-corp
+#
+# They are the host's to add — a `_headers` file, a server rule — so
+# the build writes none; demo/serve_terminal.py adds the same two
+# locally. As with the web demo, whatever else a site lays over the
+# page is that site's to add after the build.
 #
 # Downloads are cached in dist/.demo-terminal-cache; delete it to refetch.
 set -euo pipefail
@@ -102,13 +106,6 @@ text = page.read_text()
 text = re.sub(r"wcwidth-[^\"]+\.whl", sys.argv[2], text)
 text = re.sub(r"otaku-[^\"]+\.whl", sys.argv[3], text)
 page.write_text(text)
-EOF
-
-# --- the isolation headers, as Cloudflare spells them ---
-cat > "$TARGET/_headers" <<'EOF'
-/*
-  Cross-Origin-Opener-Policy: same-origin
-  Cross-Origin-Embedder-Policy: require-corp
 EOF
 
 echo "built $TARGET ($(find "$TARGET" -type f | wc -l | tr -d ' ') files, $(du -sh "$TARGET" | cut -f1))"

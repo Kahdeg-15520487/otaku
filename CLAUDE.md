@@ -432,7 +432,10 @@ mechanics live in the module docstrings:
   alike — `demo/build_web.sh` and
   `demo/build_terminal.sh`, each into its own `dist/demo-*`
   folder — and `demo/terminal/smoke.mjs` is the terminal demo's
-  offline check, driving a scripted session under Node.
+  offline check, driving a scripted session under Node. Nothing
+  site-specific lives here: a demo build carries no tracker and no
+  deploy detail — what otaku.sh lays over the pages (its headers, its
+  counters) is that site's own repo's business, added after the build.
 
 ## Copy conventions
 

@@ -6,11 +6,10 @@
 #   demo/build_web.sh [target-dir]     (default dist/demo-web)
 #
 # The two demos build alike: demo/web here, demo/terminal through
-# demo/build_terminal.sh, each into its own dist/demo-* folder.
-# Deploying is copying the target into the otaku.sh Worker's assets
-# (public/demo/) and running that repo's `wrangler deploy` — e.g.
-#
-#   demo/build_web.sh path/to/otaku-sh/public/demo
+# demo/build_terminal.sh, each into its own dist/demo-* folder. The
+# target is plain static files: any static host serves it as it is,
+# and whatever a site lays over the page — its own headers, its own
+# scripts — is that site's to add after the build.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

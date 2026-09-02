@@ -6,8 +6,8 @@ builds. Every script starts with a verb and ends with the frontend it
 serves; the mechanics live in each script's own header.
 
 - **`build_web.sh`** → `dist/demo-web`. The real page
-  (`otaku/web/static`, byte for byte) plus the demo's own files, one
-  script tag injected.
+  (`otaku/web/static`, byte for byte) plus the demo's own files, the
+  demo's script tags injected.
 - **`build_terminal.sh`** → `dist/demo-terminal`. The real terminal
   frontend on Pyodide: the otaku wheel, the runtime, xterm.js — all
   self-hosted static files.
@@ -19,9 +19,18 @@ serves; the mechanics live in each script's own header.
   the review of what the demo will now claim.
 - **`serve_terminal.py`** — serves `dist/demo-terminal` locally with the
   two cross-origin isolation headers SharedArrayBuffer requires (in
-  deployment the built `_headers` file carries them). There is no
+  deployment they are the host's to add). There is no
   `serve_web`: the web demo is plain static files, so any static server
   works — `python3 -m http.server -d dist/demo-web`.
 
 The terminal demo's offline check is `demo/terminal/smoke.mjs` (a
 scripted session on Pyodide under Node); its header says how to run it.
+
+## Deploying
+
+Both builds are plain static files and go up as they are. A host owes
+the terminal demo one thing beyond serving it: the two isolation
+headers on every response under its folder (`build_terminal.sh`'s
+header spells them). Whatever a site lays over the pages — its own
+headers, its own scripts — it adds after the build; the demos
+themselves carry nothing of the kind.
