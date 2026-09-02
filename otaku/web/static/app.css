@@ -381,7 +381,8 @@ textarea.otk-editable { margin: 0; padding: 0; border: 0; }
   border-radius: var(--otk-radius); padding: var(--otk-field-pad);
 }
 .otk-field--mono { font-family: var(--otk-font-mono); font-size: var(--otk-size-mono); }
-.otk-field:focus-within, .otk-field:focus { border-color: var(--otk-accent); outline: none; }
+.otk-field:focus-within, .otk-field:focus,
+.otk-filter:focus-within, .otk-filter:focus { border-color: var(--otk-accent); outline: none; }
 
 /* a derived value: never editable, and says so without relying on colour */
 .otk-derived {
@@ -694,8 +695,8 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
 .otk-col__pinned { flex: 0 0 auto; display: flex; align-items: center; padding: 11px var(--otk-panel-pad); border-top: var(--otk-hair) solid var(--otk-line-soft); }
 
 /* the filter belongs to the list it filters, and sits below it */
-.otk-filter { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--otk-font-mono); font-size: var(--otk-size-mono); color: var(--otk-body); background: var(--otk-paper); border: var(--otk-hair) solid var(--otk-line-soft); padding: var(--otk-field-pad); }
-.otk-filter::placeholder { color: var(--otk-faint); }
+.otk-filter { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--otk-font-prose); font-size: var(--otk-size-note); color: var(--otk-ink); background: var(--otk-paper); border: var(--otk-hair) solid var(--otk-line-soft); padding: var(--otk-field-pad); }
+.otk-filter::placeholder { color: var(--otk-faint); opacity: 1; }
 .otk-filter:focus { border-color: var(--otk-accent); outline: none; }
 
 /* a group of rows under a provider or a scene */
@@ -708,7 +709,7 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
    height is DECLARED — every cell states the same line-height and the row a
    floor — or a list of mixed scripts ripples, Cyrillic standing taller than
    Latin. */
-.otk-row { display: flex; align-items: center; gap: 14px; width: 100%; min-height: var(--otk-row-h); padding: 3px var(--otk-panel-pad); border-left: var(--otk-mark) solid transparent; }
+.otk-row { display: flex; align-items: baseline; gap: 14px; width: 100%; min-height: var(--otk-row-h); padding: 4.5px var(--otk-panel-pad) 1.5px; border-left: var(--otk-mark) solid transparent; }
 .otk-row--indent { padding-left: 40px; }
 .otk-row[aria-selected="true"] { border-left-color: var(--otk-accent); background: var(--otk-accent-tint); }
 .otk-row__title { flex: 1 1 0%; min-width: 132px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--otk-font-prose); font-size: var(--otk-size-row); line-height: var(--otk-leading-row); color: var(--otk-body); }
