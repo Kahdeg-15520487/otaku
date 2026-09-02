@@ -647,6 +647,69 @@ export function recordTurn(role, body) {
   return { ...turn };
 }
 
+export function importCard(landed) {
+  /* The three writes `backend.api.cards.add` makes, on this store: the
+     typed /card row (speaker-linked), the cast row with the card
+     archive, and the greeting as the character's own first words —
+     provider "card", the file for a model, exactly as the product
+     spells authored rows. `persona` is remembered per story, the way
+     the real import reads it back from the archive. */
+  let story = state.stories.get(state.open);
+  if (!story) {
+    const id = addStory("", "", []);
+    state.open = id;
+    story = state.stories.get(id);
+  }
+  story.turns.push({
+    id: state.nextMessage++,
+    role: "user",
+    body: landed.line,
+    kind: "card",
+    speaker: landed.name,
+    provider: null,
+    model: null,
+    template: null,
+  });
+  const memory = memoryOf(state.open);
+  const characterId = memory.characters.reduce((top, c) => Math.max(top, c.id), 0) + 1;
+  memory.characters.push({
+    id: characterId,
+    name: landed.name,
+    aliases: [],
+    description: landed.description,
+    card: landed.card,
+    history: "",
+    updated_at: new Date().toISOString(),
+    journals: [],
+  });
+  story.persona = landed.persona;
+  if (landed.greeting) {
+    story.turns.push({
+      id: state.nextMessage++,
+      role: "assistant",
+      body: landed.greeting,
+      kind: "dialogue",
+      speaker: landed.name,
+      provider: "card",
+      model: landed.fileName,
+      template: null,
+    });
+  }
+  touch(state.open);
+  moved(state.open);
+}
+
+export function personaOf() {
+  // The story's memory of who the player is — asked once, then the
+  // default every later import offers (`api.cards.remembered_persona`).
+  return state.stories.get(state.open)?.persona ?? "";
+}
+
+export function findCharacter(name) {
+  const memory = state.lore.get(state.open);
+  return (memory?.characters ?? []).find((person) => person.name === name) ?? null;
+}
+
 export function dropLastReply() {
   const story = state.stories.get(state.open);
   if (!story || story.turns.at(-1)?.role !== "assistant") return null;

@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>otaku terminal demo</title>
+<!-- the product page's icon, verbatim (otaku/web/static/index.html) -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Crect%20x='3'%20y='3'%20width='10'%20height='10'%20fill='%23b06636'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="vendor/xterm.css">
 <style>
   html, body { height: 100%; margin: 0; background: #fafafa; }
@@ -15,11 +17,35 @@
     font: 13px/1.4 system-ui, sans-serif; pointer-events: none;
   }
   #status[hidden] { display: none; }
+  /* The corner ribbon, exactly as the web demo wears it — the rule's
+     home is demo/web/custom.css (.demo-ribbon). The color is the
+     ribbon's own, outside the product tokens, so the two demos match
+     by construction. */
+  .demo-ribbon {
+    position: fixed;
+    width: 8rem;
+    right: -1.9rem;
+    top: 1.4rem;
+    z-index: 50;
+    transform: rotate(45deg);
+    padding: 0.26rem 0;
+    text-align: center;
+    background: oklch(0.55 0.13 55);
+    color: oklch(0.984 0.005 95);
+    font: 600 0.72rem/1.4 monospace;
+    letter-spacing: 0.16em;
+    text-indent: 0.16em; /* the last letter's tracking, given back */
+    text-transform: uppercase;
+    text-decoration: none;
+    box-shadow: 0 1px 6px rgb(0 0 0 / 0.25);
+  }
+  .demo-ribbon:hover { filter: brightness(1.08); }
 </style>
 </head>
 <body>
 <div id="terminal"></div>
 <div id="status">loading…</div>
+<a class="demo-ribbon" href="https://otaku.sh" target="_blank" rel="noopener">demo</a>
 <script src="vendor/xterm.js"></script>
 <script src="vendor/addon-fit.js"></script>
 <script src="vendor/addon-webgl.js"></script>

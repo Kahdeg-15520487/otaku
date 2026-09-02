@@ -16,12 +16,12 @@
 #   Cross-Origin-Opener-Policy: same-origin
 #   Cross-Origin-Embedder-Policy: require-corp
 #
-# Downloads are cached in dist/.demo-cache; delete it to refetch.
+# Downloads are cached in dist/.demo-terminal-cache; delete it to refetch.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 TARGET="${1:-dist/demo-terminal}"
-CACHE="dist/.demo-cache"
+CACHE="dist/.demo-terminal-cache"
 PYODIDE_VERSION="0.28.2"
 PYODIDE_CDN="https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full"
 XTERM_VERSION="5.5.0"

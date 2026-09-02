@@ -41,7 +41,7 @@ text = page.read_text()
 tag = '<script type="module" src="app.js"></script>'
 assert text.count(tag) == 1, "index.html changed shape — update build_web.sh"
 text = text.replace(tag, f'<script type="module" src="demo.js"></script>\n{tag}')
-text = text.replace("<title>otaku</title>", "<title>otaku demo</title>")
+text = text.replace("<title>otaku</title>", "<title>otaku web demo</title>")
 page.write_text(text)
 EOF
 

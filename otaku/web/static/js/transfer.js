@@ -11,7 +11,7 @@
 
 import * as api from "./api.js";
 import { $, element, pickFile } from "./dom.js";
-import { ask, guard } from "./browser.js";
+import { ask, guard, wiring } from "./browser.js";
 import { landed, watchExtraction } from "./shell.js";
 import { tell } from "./status.js";
 
@@ -47,7 +47,11 @@ export async function importCard() {
     const heading = $("[data-outcomes-label]", dialog);
     const note = $("[data-card-note]", dialog);
     name.value = "";
+    name.placeholder = "optional rename";
     persona.value = "";
+    // Emptied so the SAME file chosen again fires `change`: a card
+    // refused as a duplicate is picked again with a rename beside it.
+    picker.value = "";
     personaNote.hidden = true;
     filename.hidden = true;
     outcomes.hidden = true;
@@ -77,12 +81,19 @@ export async function importCard() {
       if (!prepared.card) {
         note.textContent = prepared.notice;
         note.hidden = false;
+        // A rename is the way out of a refusal, so the hint stops
+        // calling it optional. (Every refusal: the page reads the flag,
+        // never the sentence, so a duplicate and a non-card look alike.)
+        name.placeholder = "rename";
+        arm();
         return;
       }
+      name.placeholder = "optional rename";
       // Who the card speaks to: the story's memory of it when there is
       // one, the plain default when there is not — and the note says
       // what the field DOES either way.
-      persona.value = prepared.card.persona || "you";
+      // The ask's default — never over a name the reader already typed.
+      if (!persona.value.trim()) persona.value = prepared.card.persona || "you";
       personaNote.hidden = false;
       // What an import always does (the three halves of the product's
       // own rule), and under them what the BACKEND said about this
@@ -102,6 +113,7 @@ export async function importCard() {
       }
       note.textContent = caveats.join(" ");
       note.hidden = !caveats.length;
+      arm();
     };
 
     picker.onchange = guard(() => take(picker.files[0]));
@@ -114,6 +126,68 @@ export async function importCard() {
       event.preventDefault();
       return take(event.dataTransfer.files[0]);
     });
+
+    /* The dialog's two MANDATORY fields, enforced: a card file and a
+       user name — without both, Import does nothing but say what is
+       missing (a dialog button is no form submit, so the field's
+       `required` needs this hand-wiring). No file: the note asks for
+       one. A name emptied: the field says so — it binds `{{user}}`
+       everywhere, and a silent default would decide it for the reader.
+       A file that refused to read: the refusal already on screen stays
+       the answer until the rename changes. Wired before `ask` adds its
+       own listeners, so the stop is the whole veto — the button and
+       the dialog's Enter alike; `wiring` drops the last opening's veto
+       with its stale closures. */
+    const signal = wiring(dialog);
+    const importButton = $('[data-choice="import"]', dialog);
+    /* The button SAYS it: disabled until a user name is typed AND a
+       card is in hand — read, or refused with a NEW rename typed, which
+       is another read waiting to happen. The name is asked in every
+       state: a refusal moves nothing onto the rename field. */
+    const arm = () => {
+      const another = name.value.trim() !== renamed;
+      importButton.disabled = !(chosen && persona.value.trim() && (prepared?.card || another));
+    };
+    arm();
+    persona.addEventListener("input", arm, { signal });
+    name.addEventListener("input", arm, { signal });
+    const veto = (event) => {
+      // Settle only with a read card, a user name, and a rename that IS
+      // the read one: every other press stays in the dialog. A changed
+      // rename re-prepares HERE for both a refused and a read card, so a
+      // refusal always answers into the open dialog, never past it.
+      if (prepared?.card && persona.value.trim() && name.value.trim() === renamed) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (!chosen) {
+        note.textContent = "Choose a card file first.";
+        note.hidden = false;
+      } else if (!persona.value.trim()) {
+        // Asked BEFORE any re-read: the read's prefill must never
+        // answer for a reader who left the field empty.
+        persona.reportValidity();
+      } else if (name.value.trim() !== renamed) {
+        /* The door out of a refusal the terminal always had
+           (`/card FILE NAME`): the new name is another read.
+           Re-prepare under it and press again when it takes — a name
+           refused again keeps the dialog open with its fresh answer. */
+        guard(async () => {
+          await take(chosen);
+          if (prepared?.card && persona.value.trim()) importButton.click();
+        })();
+      }
+      // a refused read under an unchanged name keeps its refusal shown
+    };
+    $('[data-choice="import"]', dialog).addEventListener("click", veto, { signal });
+    dialog.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key === "Enter" && !event.shiftKey && !event.target.matches("textarea")) {
+          veto(event);
+        }
+      },
+      { signal },
+    );
   });
 
   if (choice !== "import" || !chosen) return;
@@ -128,7 +202,9 @@ export async function importCard() {
     tell(prepared.notice, "otk-error");
     return;
   }
-  const persona = $("#otk-card-persona")?.value.trim() || "you";
+  // Never empty here: Import settles only through the veto above, and
+  // no default stands in for a name — the prefill IS the default.
+  const persona = $("#otk-card-persona").value.trim();
   const { notice } = await api.addCard(prepared.token, persona);
   await landed(notice, { redraw: "always" });
 }

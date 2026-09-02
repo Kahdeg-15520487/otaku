@@ -98,8 +98,9 @@ const ROUTES = {
   "POST /api/stories/{story}/extraction": () => startExtract(),
   "DELETE /api/stories/{story}/extraction": () => stopExtract(),
   // Cards
-  "POST /api/cards": () => ({ notice: `Card import is not in the demo — ${store.INSTALL}.`, refused: true }),
-  "PUT /api/cards/{token}": () => ({ notice: "No card is waiting.", refused: true }),
+  "POST /api/cards": (p, q, b) =>
+    prepareCard(String(b.name ?? ""), String(b.data ?? ""), String(b.rename ?? "")),
+  "PUT /api/cards/{token}": (p, q, b) => addCard(p.token, String(b.persona ?? "")),
   // Models
   "GET /api/providers": (p, q) => store.providers(q.get("scope") ?? ""),
   "GET /api/providers/{provider}": (p) => store.providers(p.provider),
@@ -206,6 +207,243 @@ function importDocument(text, name) {
   };
 }
 
+// ---------- character cards ----------
+
+/* The real import, one layer down: the parse mirrors
+   `otaku/backend/formats/cards.py` — the PNG text chunks and JSON, ccv3
+   preferred, the same allowlist, the same refusal sentences — and the
+   flow mirrors `web.api._prepare_card`/`_add_card`: 201 with a token
+   and Location, the persona answer closing it, the writes landing as
+   `backend.api.cards.add` lands them. The token estimate is the demo's
+   own arithmetic, as its numbers always are. */
+
+const _PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+const _LARGE_CARD_TOKENS = 4000; // the same warning threshold as `backend.api.cards`
+const _CHAR_MACRO = /\{\{\s*char\s*\}\}|<BOT>/gi;
+const _USER_MACRO = /\{\{\s*user\s*\}\}|<USER>/gi;
+const _ANY_MACRO = /\{\{[^{}]{1,40}\}\}/g;
+
+class _NotACard extends Error {}
+
+const _latin = (bytes) => Array.from(bytes, (b) => String.fromCharCode(b)).join("");
+const _b64bytes = (text) =>
+  Uint8Array.from(atob(text.replace(/[^A-Za-z0-9+/=]/g, "")), (ch) => ch.charCodeAt(0));
+const _newlines = (text) => text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+const _bind = (text, char, user) =>
+  text.replace(_CHAR_MACRO, () => char).replace(_USER_MACRO, () => user);
+
+async function _inflate(bytes) {
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function _pngCandidates(bytes) {
+  const out = [];
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let pos = _PNG_MAGIC.length;
+  while (pos + 8 <= bytes.length) {
+    const length = view.getUint32(pos);
+    const ctype = _latin(bytes.subarray(pos + 4, pos + 8));
+    const chunk = bytes.subarray(pos + 8, pos + 8 + length);
+    pos += 12 + length; // length + type + payload + crc, never validated
+    if (ctype === "IEND") break;
+    if (!["tEXt", "zTXt", "iTXt"].includes(ctype)) continue;
+    const zero = chunk.indexOf(0);
+    if (zero < 0) continue;
+    const keyword = _latin(chunk.subarray(0, zero)).toLowerCase();
+    if (keyword !== "chara" && keyword !== "ccv3") continue;
+    let rest = chunk.subarray(zero + 1);
+    try {
+      if (ctype === "zTXt") {
+        rest = await _inflate(rest.subarray(1)); // one compression-method byte first
+      } else if (ctype === "iTXt") {
+        const compressed = rest[0] === 1;
+        rest = rest.subarray(2); // compression flag + method
+        rest = rest.subarray(rest.indexOf(0) + 1); // language tag
+        rest = rest.subarray(rest.indexOf(0) + 1); // translated keyword
+        if (compressed) rest = await _inflate(rest);
+      }
+      const payload = JSON.parse(new TextDecoder().decode(_b64bytes(_latin(rest))));
+      if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+        out.push([keyword, payload]);
+      }
+    } catch {
+      // a chunk that will not read is not the card
+    }
+  }
+  return out;
+}
+
+function _cardDict(payload) {
+  const data = payload.data;
+  return data && typeof data === "object" && !Array.isArray(data) ? data : payload;
+}
+
+function _normalizeCard(payload) {
+  const card = _cardDict(payload);
+  const text = (key) => (typeof card[key] === "string" ? _newlines(card[key]).trim() : "");
+  const name = text("name");
+  if (!name) return null;
+  const extensions = card.extensions;
+  const depth =
+    extensions && typeof extensions === "object" && extensions.depth_prompt &&
+    typeof extensions.depth_prompt === "object"
+      ? _newlines(String(extensions.depth_prompt.prompt ?? "")).trim()
+      : "";
+  return {
+    name,
+    description: text("description"),
+    personality: text("personality"),
+    scenario: text("scenario"),
+    greeting: text("first_mes"),
+    alternate_greetings: (Array.isArray(card.alternate_greetings) ? card.alternate_greetings : [])
+      .map((item) => _newlines(String(item)).trim())
+      .filter(Boolean),
+    examples: text("mes_example").split(/<START>/i).map((block) => block.trim()).filter(Boolean),
+    depth_note: depth,
+    system_prompt: text("system_prompt"),
+    post_history_instructions: text("post_history_instructions"),
+    creator_notes: text("creator_notes"),
+  };
+}
+
+function _unknownMacros(card) {
+  const text = [
+    card.description, card.personality, card.scenario, card.greeting, card.depth_note,
+    ...card.alternate_greetings, ...card.examples,
+  ].join("\n");
+  const seen = new Map();
+  for (const macro of text.match(_ANY_MACRO) ?? []) {
+    if (!/^\{\{\s*char\s*\}\}$/i.test(macro) && !/^\{\{\s*user\s*\}\}$/i.test(macro)) {
+      seen.set(macro, null);
+    }
+  }
+  return [...seen.keys()];
+}
+
+async function _loadCard(bytes, fileName) {
+  let candidates;
+  if (_PNG_MAGIC.every((value, i) => bytes[i] === value)) {
+    candidates = await _pngCandidates(bytes);
+    if (!candidates.length) throw new _NotACard("no character card embedded in this PNG");
+  } else {
+    let parsed;
+    try {
+      let text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+      parsed = JSON.parse(text);
+    } catch (e) {
+      throw new _NotACard(`not a PNG and not readable as JSON (${e.message})`);
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new _NotACard("the JSON holds no card object");
+    }
+    candidates = [["json", parsed]];
+  }
+  const normalized = candidates.map(([keyword, payload]) => [keyword, payload, _normalizeCard(payload)]);
+  const valid = normalized.filter(([, , card]) => card !== null);
+  if (!valid.length) throw new _NotACard("the card carries no character name");
+  const chosen = valid.find(([keyword]) => keyword === "ccv3") ?? valid[0];
+  const [keyword, payload, card] = chosen;
+  const notes = [];
+  const same = JSON.stringify(card);
+  if (valid.some(([, , other]) => JSON.stringify(other) !== same)) {
+    notes.push(`the file embeds ${valid.length} cards that disagree; imported the ${keyword} one`);
+  }
+  const book = _cardDict(payload).character_book;
+  const entries = book && typeof book === "object" ? book.entries : null;
+  if (Array.isArray(entries) && entries.length) {
+    notes.push(`dropped the card's lorebook (${entries.length} entries) — not supported`);
+  }
+  const unbound = _unknownMacros(card);
+  if (unbound.length) notes.push("left as written (nothing binds them): " + unbound.join(", "));
+  card.file_name = fileName;
+  return { card, notes };
+}
+
+function _cardToml(card, user) {
+  // The archive's keys in `context.cards.card_toml`'s order; the demo
+  // writes plain TOML — the same fields, its own formatting.
+  const pair = (key, value) =>
+    Array.isArray(value)
+      ? `${key} = [${value.map((item) => JSON.stringify(item)).join(", ")}]`
+      : `${key} = ${JSON.stringify(value)}`;
+  const lines = [pair("name", card.name), pair("user", user)];
+  const keys = [
+    "description", "personality", "scenario", "greeting", "alternate_greetings",
+    "examples", "depth_note", "system_prompt", "post_history_instructions",
+    "creator_notes", "file_name",
+  ];
+  for (const key of keys) {
+    const value = card[key];
+    if (value == null || value.length === 0) continue;
+    lines.push(pair(key, value));
+  }
+  return lines.join("\n\n");
+}
+
+let _cardTokens = 0;
+const _waitingCards = new Map(); // token → the prepared card, exactly `Pending`'s card shelf
+
+async function prepareCard(fileName, data, rename) {
+  let loaded;
+  try {
+    loaded = await _loadCard(_b64bytes(data), fileName);
+  } catch (e) {
+    if (!(e instanceof _NotACard)) throw e;
+    return { notice: `Not a character card: ${e.message}`, refused: true };
+  }
+  const card = loaded.card;
+  if (rename) card.name = rename;
+  const existing = store.findCharacter(card.name);
+  if (existing) {
+    const source = existing.card ? "imported earlier" : "extracted from play";
+    return {
+      notice: `${existing.name} already exists in this story (${source}) — import under another name: /card FILE NAME.`,
+      refused: true,
+    };
+  }
+  const tokens = Math.ceil(_cardToml(card, store.personaOf() || "you").length / 4);
+  const token = String(++_cardTokens);
+  const line = `/card ${fileName}` + (rename ? ` ${rename}` : "");
+  _waitingCards.set(token, { card, notes: loaded.notes, tokens, line });
+  return json(
+    {
+      token,
+      card: {
+        name: card.name,
+        notes: loaded.notes,
+        tokens,
+        large: tokens > _LARGE_CARD_TOKENS,
+        persona: store.personaOf(),
+      },
+    },
+    201,
+    { Location: `/api/cards/${token}` },
+  );
+}
+
+function addCard(token, persona) {
+  const held = _waitingCards.get(token);
+  if (!held) return { notice: "No card is waiting.", refused: true };
+  _waitingCards.delete(token);
+  const { card, notes, tokens, line } = held;
+  store.importCard({
+    name: card.name,
+    description: card.description,
+    card: _cardToml(card, persona),
+    greeting: _bind(card.greeting, card.name, persona),
+    fileName: card.file_name,
+    line,
+    persona,
+  });
+  const report = [`imported ${card.name} (card ≈ ${tokens} tokens)`, ...notes];
+  if (tokens > _LARGE_CARD_TOKENS) {
+    report.push("a large card — it rides every request and never leaves the context");
+  }
+  return { notice: report.join(" · ") };
+}
+
 // ---------- the reply stream ----------
 
 function play(body, regenerate, signal) {
@@ -310,7 +548,7 @@ window.fetch = async (input, init) => {
   // The two that answer with a STREAM rather than a payload.
   if (method === "POST" && path === "/api/play") return play(body, false, init && init.signal);
   if (method === "POST" && path === "/api/play/last") return play(body, true, init && init.signal);
-  const payload = routed(method, path, query, body);
+  const payload = await routed(method, path, query, body);
   if (payload === null) return status(404);
   return payload instanceof Response ? payload : json(payload);
 };
@@ -366,4 +604,10 @@ ribbon.href = "https://otaku.sh";
 ribbon.target = "_blank";
 ribbon.rel = "noopener";
 ribbon.textContent = "demo";
-document.addEventListener("DOMContentLoaded", () => document.body.append(ribbon));
+document.addEventListener("DOMContentLoaded", () => {
+  document.body.append(ribbon);
+  // Story import is not offered here: the button goes quiet instead of
+  // answering with a sentence — the real formats need the real parsers.
+  const door = document.querySelector('button[data-command="/import"]');
+  if (door) door.disabled = true;
+});

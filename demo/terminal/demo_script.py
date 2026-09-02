@@ -10,6 +10,24 @@ end to end on canned answers."""
 import json
 import re
 
+# The shipped character card (/card /cards/odo.json): a real V2 card
+# file the REAL parser reads — nothing about the import is faked. The
+# greeting's {{user}} shows the persona binding the ask decides.
+SAMPLE_CARD = """\
+{
+  "spec": "chara_card_v2",
+  "spec_version": "2.0",
+  "data": {
+    "name": "Odo",
+    "description": "The toll-taker at Harrow Lock: a short, broad man of sixty-odd years in an oilskin coat worn to the color of tea, who keeps the lock's ledger — every vessel, every walker, every rumor that passes the gates, in a hand small as bird tracks.",
+    "personality": "Unhurried, exact, dry as a lock ledger; secretly sentimental about water.",
+    "scenario": "The river has left its bed and the lock stands dry, and Odo keeps opening the gates on schedule anyway, because the schedule is the last thing still flowing.",
+    "first_mes": "Odo does not look up from the ledger. \\"Boat or no boat, {{user}}, the toll is the same: a story. Where you are from, where you are bound, and what you saw of the water on the way. Pay in full, and mind the wet step. Habit, you understand.\\"",
+    "mes_example": "<START>\\n{{user}}: Has anything come through today?\\n{{char}}: \\"Two swallows and a rumor. The rumor paid.\\""
+  }
+}
+"""
+
 # The continuations, in playing order; `alt` is the regenerate's other
 # take. The prose is demo/script.js's, verbatim.
 CONTINUATIONS = [
@@ -255,7 +273,9 @@ def reply(body: dict, purpose: str) -> tuple[str, str]:
 
 def _play(prompt: str, body: dict) -> tuple[str, str]:
     thinking = ""
-    if body.get("reasoning_effort"):
+    # "none" is the app ACTIVELY disabling thinking (providers.base
+    # `_apply_thinking`), and it is the default — only a real level asks.
+    if body.get("reasoning_effort") not in (None, "none"):
         thinking = "The mapmaker holds her ground; the river wants to be believed. Stay in the water's voice, keep the map at the center. "
     # The same last line asked twice is a regenerate: answer the standing
     # beat's other take, as a fresh sample would differ.

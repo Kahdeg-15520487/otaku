@@ -397,7 +397,7 @@ def _demo_input(prompt: str = "") -> str:
 
 PROVIDER = "demo"
 MODEL = "demo-model"
-CONTEXT_SIZE = 16384
+CONTEXT_SIZE = 32768  # matches the web demo's WINDOW (demo/web/store.js)
 
 _FIRST_TOKEN_WAIT = 0.55
 _CHUNK_WAIT = 0.045
@@ -716,6 +716,20 @@ def main() -> None:
 
     bindings._INTERACTIVE["/web"] = demo_disabled
     bindings._INTERACTIVE["/bye"] = demo_disabled
+
+    # /card is REAL here — parser, persona ask, join, greeting all run —
+    # so a bare /card points at the card the demo ships instead of
+    # leaving the visitor with no file to name.
+    real_card = bindings._INTERACTIVE["/card"]
+
+    def demo_card(chat, raw: str) -> None:
+        if not raw.strip():
+            chat.say("Usage: /card FILE [NAME] — the demo ships one: /card /cards/odo.json")
+            chat.ledger.invalidate()
+            return
+        real_card(chat, raw)
+
+    bindings._INTERACTIVE["/card"] = demo_card
     # /context pages through `less`; the terminal here scrolls instead.
     bindings.click = SimpleNamespace(
         echo_via_pager=lambda text, color=True: (
@@ -726,6 +740,13 @@ def main() -> None:
 
     root = Path("/state/otaku")
     _seed_state_dir(root)
+    # The visitor's "own" file, outside the state dir: the card /card
+    # imports — a real file the real parser reads.
+    import demo_script
+
+    cards = Path("/cards")
+    cards.mkdir(parents=True, exist_ok=True)
+    (cards / "odo.json").write_text(demo_script.SAMPLE_CARD, encoding="utf-8")
     session = backend_launch.open_session(root)
     if not session.model:
         api_providers.switch_model(session, PROVIDER, MODEL)

@@ -21,8 +21,12 @@
   transform: rotate(45deg);
   padding: 0.26rem 0;
   text-align: center;
-  background: var(--otk-accent, #b58900);
-  color: var(--otk-paper, #fff);
+  /* The ribbon's color is its OWN, outside the product tokens: the
+     badge must read the same over every theme, and a token rename or
+     repaint must not touch it. The values are the light theme's look,
+     frozen. */
+  background: oklch(0.55 0.13 55);
+  color: oklch(0.984 0.005 95);
   font: 600 0.72rem/1.4 var(--otk-font-mono, monospace);
   letter-spacing: 0.16em;
   text-indent: 0.16em; /* the last letter's tracking, given back */
@@ -33,4 +37,8 @@
 
 .demo-ribbon:hover {
   filter: brightness(1.08);
+  /* The product paints every a:hover in the accent, which would swap
+     the word's ink out from under the band. The pseudo-class outranks
+     the page's rule and keeps the ribbon's own ink. */
+  color: oklch(0.984 0.005 95);
 }

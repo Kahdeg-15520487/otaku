@@ -18,6 +18,7 @@ column; a web palette binds (or skips) medium-bound commands.
 """
 
 import enum
+import sys
 from dataclasses import dataclass
 
 from otaku.context import syntax
@@ -107,7 +108,9 @@ COMMANDS: tuple[CommandSpec, ...] = (
     _direction("/you", "Tell the model to play NAME; optional HINT rides the turn"),
     _direction("/ooc", "Talk to the model out of character"),
     CommandSpec("/undo", "", "Discard the last turn", "playing", CommandKind.INTERACTIVE),
-    CommandSpec("/regen", "", "Re-run the last prompt (mid-stream: cancel + regen)", "playing", CommandKind.INTERACTIVE),
+    # The mid-stream take is the terminal's POSIX-only watcher — the
+    # Windows consoles have no termios, so there the row must not say more.
+    CommandSpec("/regen", "", "Re-run the last prompt" + ("" if sys.platform == "win32" else " (mid-stream: cancel + regen)"), "playing", CommandKind.INTERACTIVE),
     CommandSpec("/last", "[N]", "Show the last N turns (default 5) — a clean view after undos, regens, etc.", "playing", CommandKind.INTERACTIVE),
     CommandSpec("/clear", "", "Clear the screen", "playing", CommandKind.INTERACTIVE),
     # Inside a prompt

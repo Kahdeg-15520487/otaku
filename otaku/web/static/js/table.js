@@ -21,6 +21,10 @@ export function load(loaded) {
   tokens = rows()
     .flatMap((row) => row.token.split(" "))
     .filter((word) => /^\/[a-z]+$/.test(word));
+  // Plus the ONE command a transcript can carry: importing a character
+  // records its `/card FILE` line (`backend.api.cards.add`), and that
+  // row must read as a command here the way the terminal's block reads.
+  tokens.push("/card");
 }
 
 /** The openers a line may begin with, then the inliners it may carry —

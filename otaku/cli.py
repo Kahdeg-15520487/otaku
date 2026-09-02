@@ -51,7 +51,7 @@ def resolve_root() -> Path | None:
 @click.version_option(__version__, "-v", "--version", prog_name="otaku")
 @click.pass_context
 def main(ctx: click.Context) -> None:
-    """A roleplay terminal client."""
+    """A roleplay client."""
     if ctx.invoked_subcommand is not None:
         return
     root = resolve_root()

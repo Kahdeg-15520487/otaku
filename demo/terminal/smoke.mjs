@@ -15,7 +15,7 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const cache = join(here, "../../dist/.demo-cache");
+const cache = join(here, "../../dist/.demo-terminal-cache");
 const wheel = (prefix) => {
   const name = readdirSync(cache).find((f) => f.startsWith(prefix) && f.endsWith(".whl"));
   if (!name) throw new Error(`no ${prefix}*.whl in ${cache} — run demo/build_terminal.sh`);
