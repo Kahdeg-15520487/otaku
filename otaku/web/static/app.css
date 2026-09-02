@@ -212,6 +212,11 @@ button:disabled { cursor: default; }
 a { color: var(--otk-accent-ink); text-decoration: none; }
 a:hover { color: var(--otk-accent); }
 ::selection { background: var(--otk-accent-tint); }
+/* No focus ring anywhere, by decision: a dialog opening lands focus on
+   its first button and Safari would draw one there. Fields show focus by
+   their accent border, rows by their selection tint; buttons and links
+   show none. */
+:focus, :focus-visible { outline: none; }
 
 /* The standard properties are unconditional; only an engine without them
    falls through to the ::-webkit- pseudo-elements. Do not invert the test —
@@ -229,7 +234,6 @@ a:hover { color: var(--otk-accent); }
 /* every scrolling column reserves the gutter, so columns stay aligned */
 .otk-col__scroll, .otk-detail__scroll, .otk-index__list, .otk-reading, .otk-margin,
 .otk-transcript, .otk-docket__body, .otk-premise__body, .otk-context { scrollbar-gutter: stable; }
-:focus-visible { outline: var(--otk-mark) solid var(--otk-accent); outline-offset: 2px; }
 [hidden] { display: none !important; }
 
 /* =============================================================================

@@ -43,7 +43,7 @@ stylesheet that reaches past the contract accepts the breakage itself.
 | `--otk-line` | panel edges, button borders, hard rules |
 | `--otk-line-soft` | rules inside paper |
 | `--otk-hair` | every rule width — there is only one |
-| `--otk-mark` | the selection rule on a row, the active tab, the focus ring |
+| `--otk-mark` | the selection rule on a row, the active tab |
 | `--otk-rule-w` | the accent rule of a panel title |
 
 ## Accent and status

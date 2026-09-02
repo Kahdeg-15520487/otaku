@@ -16,6 +16,8 @@ in one command, and requires minimal configuration.
 
 ## Demo
 
+Demos are available on the [website](https://otaku.sh/):
+
 - Web UI demo: https://otaku.sh/demo-web/
 - Terminal demo: https://otaku.sh/demo-terminal/
 
