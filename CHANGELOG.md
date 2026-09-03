@@ -5,6 +5,44 @@ All notable changes to otaku are documented in this file. The format is based on
 [Semantic Versioning](https://semver.org/) — while pre-1.0, minor releases may include breaking
 changes.
 
+## [0.4.1] - 2026-09-03
+
+**TL;DR**
+
+- A Generic OpenAI provider - any OpenAI-compatible server should work with it.
+- The web UI gets a dark theme switch.
+
+**Full version:**
+
+### Added
+
+- A Generic OpenAI provider, first in the provider panel (the `[generic]` section): any
+  OpenAI-compatible server, by URL and key, over the protocol alone. Models are listed and
+  turns streamed; a context window is read when the listing carries one. What needs an
+  engine's own API is absent — no load state, no sizes, no prompt warm-up (the URL could name
+  a hosted catalog, where a warm-up bills a whole window for one token).
+- A theme switch in the web UI, at the spine's foot: sun, moon and the knob between them. On,
+  the page is dark whatever the OS says; off, it follows the OS as before. The choice is kept in
+  the browser's storage, so each browser remembers its own, and applied before the first paint.
+
+### Changed
+
+- In the terminal's provider panel, Delete clears the field under the cursor whichever it is —
+  the URL as well as the API key.
+
+### Fixed
+
+- The web UI's dark theme gave an open field no ground of its own, so a field being typed in
+  went near-white on a dark page.
+- An unloaded Ollama model reported the model card's trained maximum as its context window,
+  and the figure was kept for the session — so a story on a model that loads at Ollama's
+  default window (4K on most machines) was budgeted at up to 128K and cut by the engine from
+  the front, the opening first. An unloaded model now has no window until it loads; the live
+  one is read once it does.
+- The model picker's cursor drifted off the story's model when a provider listed earlier in
+  the panel answered later, its rows landing above the cursor. The cursor now follows the
+  model.
+
 ## [0.4.0] - 2026-09-02
 
 **TL;DR**

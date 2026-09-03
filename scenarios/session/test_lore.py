@@ -779,11 +779,38 @@ class TestWarmUp:
     warm — sending it there bills a full context window for one token —
     so the close warms local engines and never a hosted catalog."""
 
-    def test_a_local_close_warms_the_next_prompt(self, app: App) -> None:
-        remembered(app)
-        # The waiter is answered BEFORE the warm-up, so the request may
-        # still be in flight when /extract returns.
-        assert _warm_requests(app.server, within=5.0) == 1
+    def test_a_local_close_warms_the_next_prompt(
+        self, server: scripted.ModelServer, tmp_path: Path
+    ) -> None:
+        # The same scripted server behind a provider the registry builds
+        # as an engine ON THIS MACHINE — the section's NAME picks the
+        # class.
+        root = tmp_path / "state"
+        set_config_provider(root, server, name="llamacpp")
+        app = launch(root, server, spec="llamacpp/test-model")
+        try:
+            remembered(app)
+            # The waiter is answered BEFORE the warm-up, so the request
+            # may still be in flight when /extract returns.
+            assert _warm_requests(app.server, within=5.0) == 1
+        finally:
+            app.close()
+
+    def test_the_generic_provider_never_warms(
+        self, server: scripted.ModelServer, tmp_path: Path
+    ) -> None:
+        # Its url could name a hosted catalog and the app cannot tell —
+        # so the one request that could bill a window for a token is
+        # never sent there.
+        root = tmp_path / "state"
+        set_config_provider(root, server, name="generic")
+        app = launch(root, server, spec="generic/test-model")
+        try:
+            remembered(app)
+            time.sleep(1.5)  # the window the local warm-up starts within
+            assert _warm_requests(app.server, within=0) == 0
+        finally:
+            app.close()
 
     def test_a_cloud_close_never_warms(self, server: scripted.ModelServer, tmp_path: Path) -> None:
         # The same scripted server behind a provider the registry builds

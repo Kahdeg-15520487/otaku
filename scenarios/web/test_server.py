@@ -505,6 +505,33 @@ class TestThePicker:
         assert [model["name"] for model in mine["models"]] == ["test-model"]
         assert panel["current"] == "test/test-model"
         assert mine["connected"] is True
+        assert mine["locality"] == "unknown"  # a hand-written section: nobody can say
+
+    def test_the_panel_says_where_each_engine_runs(self, page: Page) -> None:
+        # The vocabulary the page's captions and the demo's fake read:
+        # the generic provider first and unable to say, an engine on this
+        # machine, a catalog over the wire.
+        panel = page.get("/api/providers")
+        assert panel["engines"][0]["name"] == "generic"
+        by_name = {engine["name"]: engine["locality"] for engine in panel["engines"]}
+        assert by_name["generic"] == "unknown"
+        assert by_name["llamacpp"] == "local"
+        assert by_name["openrouter"] == "remote"
+
+    def test_the_two_phases_carry_the_panel_order(self, page: Page) -> None:
+        # The page asks in two phases and merges by each card's `order`:
+        # the generic provider answers in the second phase and belongs
+        # first, a hand-written section last. Sorting both answers by it
+        # restores the unscoped panel exactly.
+        whole = [engine["name"] for engine in page.get("/api/providers")["engines"]]
+        local = page.get("/api/providers?scope=local")["engines"]
+        cloud = page.get("/api/providers?scope=cloud")["engines"]
+        assert {engine["name"] for engine in cloud} >= {"generic", "openrouter", "nanogpt"}
+        assert all(engine["name"] not in {"generic", "openrouter"} for engine in local)
+        merged = sorted(local + cloud, key=lambda engine: (engine["order"], engine["name"]))
+        assert [engine["name"] for engine in merged] == whole
+        assert merged[0]["name"] == "generic" and merged[0]["order"] == 0
+        assert merged[-1]["name"] == "test"  # the harness's own section, after every engine
 
 
 class TestOpenToTheNetwork:

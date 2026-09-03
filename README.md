@@ -1,4 +1,4 @@
-# otaku — a roleplay client
+# otaku — an LLM frontend for roleplay
 
 [![PyPI](https://img.shields.io/pypi/v/otaku.svg)](https://pypi.org/project/otaku/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/enclavum/otaku/blob/main/LICENSE)
@@ -7,7 +7,7 @@
 
 ![otaku web](https://raw.githubusercontent.com/enclavum/otaku/main/images/capture-web.png?v=0.4.0)
 
-Otaku is an LLM roleplay client (similar to SillyTavern, Janitor AI, etc.).
+Otaku is an LLM frontend for roleplay (similar to SillyTavern, Janitor AI, etc.).
 
 It's free, works on your machine, and lets you play either in a web UI or in the terminal. LLMs
 can be local (via llama.cpp, KoboldCpp, Ollama, and others) or accessed via an API service
@@ -53,7 +53,8 @@ Import your content:
 - Local LLM provider(s) **or** an API key for cloud provider(s).
 
 Backends and providers supported: llama.cpp, KoboldCpp, Ollama, oMLX, LM Studio; OpenRouter and
-NanoGPT.
+NanoGPT; and any other OpenAI-compatible server through the Generic OpenAI provider, by URL and
+key.
 
 ## Installation
 
@@ -108,9 +109,10 @@ otaku web  # for web UI; default URL is http://localhost:9600
 
 On first start, you choose a provider and a model: otaku automatically detects local LLM
 backends and lets you pick from their models. Cloud providers (OpenRouter, NanoGPT) are also in
-the picker — enter an API key and their catalogs appear. After you've chosen (or cancelled with
-Esc), you land at the prompt. The model picker is available later with the `/model` (Ctrl+O)
-command.
+the picker — enter an API key and their catalogs appear — and the Generic OpenAI provider, first
+in the picker's panel, takes any other OpenAI-compatible server's URL and key. After you've
+chosen (or cancelled with Esc), you land at the prompt. The model picker is available later with
+the `/model` (Ctrl+O) command.
 
 To give you an idea of the features and what play looks like, two sample stories are imported on
 first start. `/stories` lets you choose one or the other, and `/lore`, `/cast`, and `/context`

@@ -23,13 +23,15 @@ class KoboldCppClient(LocalSingleClient):
         stripped; admin mode's active state refines `loaded` when that
         surface answers."""
         active = self._active_model(timeout=1.5)
+        names = [_bare(raw) for raw in self._model_names(timeout)]
+        context = self._window(names)
         return [
             ModelInfo(
                 name=name,
-                context=self.get_context_size(name),
+                context=context,
                 loaded=name == active if active is not None else True,
             )
-            for name in (_bare(raw) for raw in self._model_names(timeout))
+            for name in names
         ]
 
     def _active_model(self, timeout: float) -> str | None:

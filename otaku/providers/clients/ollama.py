@@ -49,11 +49,15 @@ class OllamaClient(ManagedClient):
         response.raise_for_status()
 
     def _list(self, timeout: float) -> list[ModelInfo]:
-        """One row per model: names and sizes from /api/tags, loaded state
-        from /api/ps, context windows through the per-model cache (the
-        live window for a loaded model, /api/show's static one otherwise).
-        A loaded model missing from the registry still belongs in the
-        list."""
+        """One row per model: names and sizes from /api/tags, load state
+        and the live window from /api/ps — one call each, however long
+        the registry. An unloaded model carries NO window: Ollama sizes
+        one at load time, from a server-wide default (tiered by VRAM, or
+        OLLAMA_CONTEXT_LENGTH) clamped to the card's trained maximum, and
+        no endpoint says what that default is. The card's figure is a
+        ceiling, not the window — reported as one it budgeted stories
+        past what the model could hold. A loaded model missing from the
+        registry still belongs in the list."""
         sizes: dict[str, int] = {}
         data = self._get_json("/api/tags", timeout=timeout)
         if data is None:
@@ -63,46 +67,44 @@ class OllamaClient(ManagedClient):
             size = entry.get("size")
             if isinstance(name, str):
                 sizes[name] = size if isinstance(size, int) and size > 0 else 0
-        loaded = self._loaded(timeout=1.5)
-        names = sorted(sizes) + sorted(loaded - set(sizes))
+        running = self._running(timeout=1.5)
+        # The listing just paid for every live window — seed the cache,
+        # so the budget's ask for a loaded model never refetches it.
+        for name, window in running.items():
+            if window:
+                self._context_cache[name] = window
+        names = sorted(sizes) + sorted(set(running) - set(sizes))
         return [
             ModelInfo(
                 name=name,
                 size=sizes.get(name) or None,
-                context=self.get_context_size(name),
-                loaded=name in loaded,
+                context=running.get(name) or None,
+                loaded=name in running,
             )
             for name in names
         ]
 
-    def _loaded(self, timeout: float) -> set[str]:
-        loaded: set[str] = set()
+    def _running(self, timeout: float) -> dict[str, int]:
+        """The loaded models with their live windows, from /api/ps: name →
+        context_length, 0 where the server does not state one."""
+        running: dict[str, int] = {}
         data = self._get_json("/api/ps", timeout=timeout)
         if not isinstance(data, dict):
-            return loaded
+            return running
         for entry in data.get("models") or []:
             name = entry.get("name") or entry.get("model")
-            if name:
-                loaded.add(str(name))
-        return loaded
+            if not name:
+                continue
+            window = entry.get("context_length")
+            running[str(name)] = window if isinstance(window, int) and window > 0 else 0
+        return running
 
     def _fetch_context_size(self, model: str) -> int | None:
-        # The live window of a loaded model first — num_ctx at load time
-        # beats the model card — then /api/show's static card value.
-        data = self._get_json("/api/ps", timeout=1.5)
-        if isinstance(data, dict):
-            for entry in data.get("models") or []:
-                named = entry.get("name") == model or entry.get("model") == model
-                if named and isinstance(entry.get("context_length"), int):
-                    return int(entry["context_length"])
-        shown = self._post_json("/api/show", {"model": model}, timeout=1.5)
-        if isinstance(shown, dict):
-            info = shown.get("model_info")
-            if isinstance(info, dict):
-                for key, value in info.items():
-                    if key.endswith(".context_length") and isinstance(value, int) and value > 0:
-                        return value
-        return None
+        # Only a loaded model has a window (see `_list`): unknown until
+        # then, and the base caches nothing for an unknown — so the first
+        # turn, the one whose request loads the model, budgets on the
+        # assembler's default, and the next ask reads the live figure.
+        return self._running(timeout=1.5).get(model) or None
 
 
 def _parse_host(value: str) -> str | None:

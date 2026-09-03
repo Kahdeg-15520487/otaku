@@ -16,8 +16,12 @@ import httpx
 from otaku.backend.session import Refused, Session
 from otaku.encryption import SealedError, seal
 from otaku.formatting import printable, toml_key, toml_scalar
-from otaku.providers import CLIENTS, ManagedClient, Provider, ProviderConfig
+from otaku.providers import CLIENTS, Locality, ManagedClient, Provider, ProviderConfig
 from otaku.settings.migrations import PROMPT_CACHE_ROW, surgery
+
+# The two fields of a section a panel edits — what `save_field` and
+# `clear_field` take, so a frontend cannot name a third.
+ProviderField = Literal["url", "api_key"]
 
 
 def switch_model(session: Session, provider: str, model: str) -> str:
@@ -61,19 +65,20 @@ def get_providers(
 @dataclass(frozen=True)
 class Engine:
     """One supported engine, as the provider panel captions it — name
-    (the section key), label (the project's own spelling), and whether
-    it runs locally (a catalog's url is fixed; its models are billed)."""
+    (the section key), label (the project's own spelling), and where it
+    runs (a catalog's url is fixed and its models billed; the generic
+    provider's url could name either, so it says unknown)."""
 
     name: str
     label: str
-    local: bool
+    locality: Locality
 
 
 def engines(session: Session) -> list[Engine]:
     """The supported engines in the panel's canonical order — the ONE
-    source of the captions and the local/cloud split, so no frontend
+    source of the captions and the where-it-runs split, so no frontend
     keeps its own table."""
-    return [Engine(cls.kind, cls.label, cls.local) for cls in CLIENTS.values()]
+    return [Engine(cls.kind, cls.label, cls.locality) for cls in CLIENTS.values()]
 
 
 def configured(session: Session) -> set[str]:
@@ -114,7 +119,7 @@ def section(session: Session, provider: str) -> ProviderConfig:
     return ProviderConfig(name=provider, url="")
 
 
-def save_field(session: Session, provider: str, attr: Literal["url", "api_key"], value: str) -> str:
+def save_field(session: Session, provider: str, attr: ProviderField, value: str) -> str:
     """Save a url or api key: sealed (keys), written surgically into
     providers.toml (a missing section is founded — how a cloud provider
     is added), live in the registry at once. Returns "" or the warning
@@ -163,23 +168,26 @@ def save_field(session: Session, provider: str, attr: Literal["url", "api_key"],
     return ""
 
 
-def clear_api_key(session: Session, provider: str) -> str:
-    """Forget a stored key — file and session both, or NEITHER: a clear
-    that cannot reach the file keeps the session copy too, and says so.
-    Returns "" when forgotten (or there was nothing to forget)."""
+def clear_field(session: Session, provider: str, attr: ProviderField) -> str:
+    """Forget a url or a stored key — file and session both, or NEITHER:
+    a clear that cannot reach the file keeps the session copy too, and
+    says so. A cleared url leaves the provider with nowhere to ask, so
+    its rows go with it. Returns "" when forgotten (or there was nothing
+    to forget)."""
     config = section(session, provider)
-    if not config.api_key:
+    if not getattr(config, attr):
         return ""  # nothing to clear — and the field is visibly bare
     written = surgery.update_providers(
         session._paths.providers_file,
         session._paths.config_backups_dir,
-        [surgery.set_key(provider, "api_key", 'api_key = ""')],
+        [surgery.set_key(provider, attr, f'{attr} = ""')],
     )
     if not written:
         # Forgetting that does not reach the file is not forgetting: the
-        # key stays — in the session too, so the (set) mark stays honest.
+        # value stays — in the session too, so the panel stays honest.
         return "Not forgotten — providers.toml could not be written."
-    session._providers_registry.update_provider(replace(config, api_key=""))
+    cleared = replace(config, url="") if attr == "url" else replace(config, api_key="")
+    session._providers_registry.update_provider(cleared)
     return ""
 
 

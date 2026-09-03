@@ -48,13 +48,17 @@ export async function openModels(answered = "", tab = "models") {
   build(tab, answered);
 
   // The cloud catalogs answer at their own pace, behind the open
-  // panel — merged in and redrawn wherever the reader is by then.
+  // panel — merged in and redrawn wherever the reader is by then, in
+  // the panel's own order: each card says its position, and the one
+  // that answers last may belong first (the generic provider).
   api.providers("cloud").then(
     guard((cloud) => {
       if (!popup.open || epoch !== _opening) return;
       state.panel = {
         ...state.panel,
-        engines: [...state.panel.engines, ...cloud.engines],
+        engines: [...state.panel.engines, ...cloud.engines].sort(
+          (a, b) => a.order - b.order || a.name.localeCompare(b.name),
+        ),
       };
       build(state.tab);
     }),
@@ -106,7 +110,7 @@ function buildModels(state, notice) {
   const offered = panel.engines.flatMap((engine) =>
     engine.models.map((model) => ({ engine, model, haystack: model.name.toLowerCase() })),
   );
-  const local = offered.filter((entry) => entry.engine.local).length;
+  const local = offered.filter((entry) => entry.engine.locality === "local").length;
   const remote = offered.length - local;
   $("[data-tabs-aside]", popup).textContent =
     `${offered.length} ${offered.length === 1 ? "model" : "models"}`;
@@ -202,7 +206,7 @@ function modelRow(entry, current) {
 
 function modelDetail(pane, entry, current, { use, setLoaded }) {
   const managed = entry.model.can_load_unload;
-  const where = entry.engine.local ? "on this machine" : "over the wire";
+  const where = whereItRuns(entry.engine);
   const state = !managed ? "" : entry.model.loaded ? " · loaded" : " · not loaded";
   const chosen = `${entry.engine.name}/${entry.model.name}` === current;
 
@@ -247,7 +251,7 @@ function engineHeading(engine) {
   heading.append(
     element("span", engine.connected ? "otk-dot" : "otk-dot otk-dot--off"),
     span("otk-group__name", engine.label),
-    span("otk-group__count", `${engine.models.length} ${engine.local ? "on this machine" : "over the wire"}`),
+    span("otk-group__count", `${engine.models.length} ${whereItRuns(engine)}`),
   );
   return [heading, element("div", "otk-rule")];
 }
@@ -338,9 +342,19 @@ function urlField(state, engine) {
   input.type = "url";
   input.dataset.provider = "url";
   input.value = engine.url;
-  input.disabled = !engine.local;
-  if (engine.local) saveOnEnter(state, input, engine, "url");
+  input.disabled = engine.locality === "remote";
+  if (!input.disabled) saveOnEnter(state, input, engine, "url");
   return input;
+}
+
+/* Where an engine runs, as its client knows it (`backend.Locality`):
+   the generic provider is a url and cannot say, so its caption says
+   neither. The footnote's count above puts the unknowns with the
+   remote ones — the side that may cost money. */
+function whereItRuns(engine) {
+  if (engine.locality === "local") return "on this machine";
+  if (engine.locality === "remote") return "over the wire";
+  return "wherever the url points";
 }
 
 // What a key that is SET looks like. The value never arrives on this

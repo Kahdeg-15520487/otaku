@@ -7,7 +7,7 @@ this file and the product design disagree, the product design wins.
 
 ## What otaku is
 
-A roleplay client for OpenAI-compatible LLM servers (Ollama,
+An LLM frontend for roleplay, talking to OpenAI-compatible servers (Ollama,
 omlx, KoboldCpp, and others). Chats are stories that can be
 branched from any message. A background pass extracts lore from played
 messages — scenes, characters, journals — and the context sent to the model
@@ -143,6 +143,21 @@ migrated database equals a fresh one, `sqlite_master` row for row.
 `created_at` / `updated_at` columns are audit fields: no business logic
 may ever rely on them. UI display use (e.g. ordering the story list by
 recency, "extracted 4m ago") is allowed.
+
+### Providers
+
+A client declares where its server runs as `providers.Locality`:
+`LOCAL` (the engines on this machine), `REMOTE` (the hosted catalogs)
+or `UNKNOWN` — the generic provider (`clients/generic.py`, the
+`[generic]` section, first in the panel) is a url and cannot say, and
+neither can a hand-written section, which the same client serves.
+Every reader picks its safe side for `UNKNOWN`: what costs money or
+waits on the internet (the worker's warm-up, the info report's listing,
+the page's second listing phase) treats it as remote; what edits (the
+url field) treats it as local; what STATES a fact (the cloud prompt
+marker, a caption) says only what is known. A new reader of the flag
+decides the same way, in both frontends, and the enum has no boolean
+shortcut on purpose.
 
 ### Names
 

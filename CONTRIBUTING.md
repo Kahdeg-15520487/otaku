@@ -1,7 +1,6 @@
 # Contributing to otaku
 
-otaku is a small, focused project — a roleplay terminal client. Contributions that keep it sharp
-are very welcome.
+otaku is a focused project — an LLM frontend for roleplay. Contributions that keep it sharp are very welcome.
 
 ## Development setup
 

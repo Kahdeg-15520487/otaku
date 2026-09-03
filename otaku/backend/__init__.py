@@ -27,7 +27,7 @@ package root.
 """
 
 from otaku.encryption import EncryptionError
-from otaku.providers import ModelInfo, Provider, ProviderConfig
+from otaku.providers import Locality, ModelInfo, Provider, ProviderConfig
 from otaku.settings.config import ConfigError, TerminalSettings, WebSettings
 from otaku.store import DatabaseError
 from otaku.store.ops.stories import StoryListing
@@ -39,6 +39,7 @@ __all__ = [
     "DatabaseError",
     "EncryptionError",
     "Journal",
+    "Locality",
     "Message",
     "ModelInfo",
     "Provider",

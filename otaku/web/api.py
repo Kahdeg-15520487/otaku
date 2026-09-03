@@ -31,7 +31,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from otaku import __version__
-from otaku.backend import Journal, Message, commands, meminfo
+from otaku.backend import Journal, Locality, Message, commands, meminfo
 from otaku.backend.api import cards as api_cards
 from otaku.backend.api import lore as api_lore
 from otaku.backend.api import play as api_play
@@ -326,12 +326,13 @@ def _providers(session: Session, scope: str = "") -> dict[str, Any]:
     back to it.
 
     `scope` is which slice to ask — the terminal's own two-phase rule
-    (its picker opens on the local engines and lets each cloud catalog
-    answer after): "local" probes and lists everything but the cloud
-    catalogs, "cloud" only those, a provider's name only it (the
+    (its picker opens on the engines on this machine and lets the rest
+    answer after): "local" probes and lists everything but the catalogs,
+    "cloud" only those — the hosted ones and the generic provider,
+    whose url could point anywhere — a provider's name only it (the
     one-provider refresh a Test connection is), "" the whole set."""
     engines = api_providers.engines(session)
-    catalogs = {engine.name for engine in engines if not engine.local}
+    catalogs = {engine.name for engine in engines if engine.locality is not Locality.LOCAL}
     everyone = {engine.name for engine in engines} | api_providers.configured(session)
     if scope == "local":
         asked = everyone - catalogs
@@ -365,7 +366,11 @@ def _providers(session: Session, scope: str = "") -> dict[str, Any]:
     # The engines in their own order, then whatever else is configured,
     # by name — the terminal's `order.get(name, len(order))` — and only
     # the slice that was asked: a scoped answer carries no card it did
-    # not probe, so the page never draws a lamp nobody checked.
+    # not probe, so the page never draws a lamp nobody checked. Each card
+    # SAYS its position too, because the page asks in two phases and the
+    # order runs across both: the generic provider is first in the
+    # panel and last to answer.
+    rank = {engine.name: i for i, engine in enumerate(engines)}
     named = [engine.name for engine in engines if engine.name in asked]
     named += sorted(name for name in models if name not in known)
     return {
@@ -374,7 +379,10 @@ def _providers(session: Session, scope: str = "") -> dict[str, Any]:
         # fills a machine up. Said below both frontends, so the terminal's
         # gauge and the page's are one sentence (`backend.meminfo`).
         "memory": meminfo.gauge(),
-        "engines": [_engine(session, name, known.get(name), models, reachable) for name in named],
+        "engines": [
+            _engine(session, name, known.get(name), rank.get(name, len(rank)), models, reachable)
+            for name in named
+        ],
     }
 
 
@@ -382,17 +390,20 @@ def _engine(
     session: Session,
     name: str,
     engine: Engine | None,
+    order: int,
     models: dict[str, list[dict[str, Any]]],
     reachable: set[str] | frozenset[str],
 ) -> dict[str, Any]:
     """One provider as the picker draws it. A configured section that is
     not one of the engines has no catalog entry to describe it, so it
-    speaks for itself: its own name, and what its config says."""
+    speaks for itself: its own name, what its config says, and no idea
+    where it runs."""
     section = api_providers.section(session, name)
     return {
         "name": name,
         "label": engine.label if engine is not None else name,
-        "local": engine.local if engine is not None else True,
+        "order": order,
+        "locality": (engine.locality if engine is not None else Locality.UNKNOWN).value,
         "connected": name in reachable,
         "url": section.url,
         "has_key": bool(section.api_key),

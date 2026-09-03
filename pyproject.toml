@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "otaku"
 dynamic = ["version"]
-description = "A roleplay client"
+description = "LLM frontend for roleplay"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

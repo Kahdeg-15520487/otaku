@@ -27,6 +27,7 @@ watched=False and skip it.
 """
 
 import contextlib
+import enum
 import json
 import time
 from abc import ABC, abstractmethod
@@ -80,6 +81,20 @@ class Stats:
 Chunk = Text | Thinking | Stats
 
 
+class Locality(enum.Enum):
+    """Where a provider's server runs, as far as its CLIENT can tell —
+    class knowledge, like `supports_thinking`. An engine's client knows
+    (llama.cpp is on this machine, OpenRouter is not); the generic
+    provider is a url and cannot. Every reader picks its safe side for
+    UNKNOWN: what costs money or waits on the internet (the warm-up, a
+    catalog fetch at a header's speed) treats it as REMOTE, what edits
+    (the url) treats it as LOCAL, and a caption says neither."""
+
+    LOCAL = "local"
+    REMOTE = "remote"
+    UNKNOWN = "unknown"
+
+
 @dataclass(frozen=True)
 class Provider:
     """One reachable provider with its models — what
@@ -88,7 +103,7 @@ class Provider:
     config: ProviderConfig
     models: list[ModelInfo]
     can_load_unload: bool
-    local: bool  # False: a hosted catalog — billed rows, nothing to size
+    locality: Locality  # not LOCAL: nothing to size, no load state
 
 
 class DeclinedError(RuntimeError):
@@ -134,16 +149,19 @@ class WireMessage(Protocol):
 
 
 class OpenAIClient:
-    kind: ClassVar[str] = "openai"
-    label: ClassVar[str] = "OpenAI-compatible"  # how the provider panel captions it
+    # Every client names itself — the section key that selects it, and
+    # how the provider panel captions it. The protocol is not a provider,
+    # so the base declares the names and holds none.
+    kind: ClassVar[str]
+    label: ClassVar[str]
     # Whether the engine understands a request-level thinking knob —
     # class knowledge, not configuration. The OpenAI protocol itself has
     # `reasoning_effort`, so the base says yes; engines where thinking is
     # baked into the model declare False, and /set think refuses levels.
     supports_thinking: ClassVar[bool] = True
-    # Whether the engine runs on this machine. A cloud catalog says no,
-    # and launch-time introspection never waits on the internet for it.
-    local: ClassVar[bool] = True
+    # Where the server runs (see `Locality`). The protocol alone cannot
+    # say, so the base says UNKNOWN; the engine bases below know.
+    locality: ClassVar[Locality] = Locality.UNKNOWN
     # Whether the engine honours explicit prompt-cache breakpoints
     # (`cache_control` on content parts — Anthropic's marking, forwarded
     # by OpenRouter). Class knowledge like `supports_thinking`; the
@@ -217,6 +235,36 @@ class OpenAIClient:
         response.raise_for_status()
         data = response.json()
         return sorted(str(m["id"]) for m in data.get("data", []))
+
+    def _catalog(self, timeout: float, *, query: str = "") -> list[ModelInfo]:
+        """The /models listing as rows, every one available (nothing to
+        load, nothing to size), with the context window read where the
+        server sends `context_length` — not the protocol's, but the
+        extension the catalogs share. `query` is what a service wants
+        appended to include the details. Raises when unreachable. The
+        listing just paid for every window it carried, so the cache is
+        seeded: the budget's ask never refetches what the picker
+        brought home."""
+        response = httpx.get(
+            f"{self.config.url}/models{query}",
+            headers=self._headers,
+            timeout=_timeout(timeout, connect=2.0),
+        )
+        response.raise_for_status()
+        rows = []
+        for entry in response.json().get("data", []):
+            context = entry.get("context_length")
+            rows.append(
+                ModelInfo(
+                    name=str(entry["id"]),
+                    context=context if isinstance(context, int) and context > 0 else None,
+                    loaded=True,
+                )
+            )
+        for row in rows:
+            if row.context:
+                self._context_cache[row.name] = row.context
+        return sorted(rows, key=lambda row: row.name)
 
     def chat_stream(
         self,
@@ -476,19 +524,32 @@ class OpenAIClient:
 class LocalSingleClient(OpenAIClient):
     """A single-model engine (llama.cpp, KoboldCpp): the server fronts the
     one model it was launched with — or none — and never loads or unloads.
-    Every listed row is loaded and asked for its context window."""
+    Every listed row is loaded, and the context window is the SERVER's:
+    the native endpoint takes no model name, so a listing asks once and
+    stamps every row. That keeps a listing that came back long — a
+    catalog url pasted into the section answers with hundreds of names —
+    at one probe rather than one per name, each a full round trip."""
+
+    locality = Locality.LOCAL
 
     def _list(self, timeout: float) -> list[ModelInfo]:
-        return [
-            ModelInfo(name=name, context=self.get_context_size(name), loaded=True)
-            for name in self._model_names(timeout)
-        ]
+        names = self._model_names(timeout)
+        context = self._window(names)
+        return [ModelInfo(name=name, context=context, loaded=True) for name in names]
+
+    def _window(self, names: list[str]) -> int | None:
+        """The server's one window, asked through the cache under the
+        first name — the hook ignores the name, and a real engine lists
+        exactly one, so the chosen model's later ask is the same entry."""
+        return self.get_context_size(names[0]) if names else None
 
 
 class ManagedClient(OpenAIClient, ABC):
     """A local registry (Ollama, omlx, LM Studio) that can load and unload
     models on demand — the actions on top of the passive base. UI offers
     load/unload exactly when a client is one of these."""
+
+    locality = Locality.LOCAL
 
     @abstractmethod
     def load_model(self, model: str) -> None: ...
@@ -504,7 +565,7 @@ class CloudClient(OpenAIClient):
     available, so all of them list as loaded. Cloud alone has an account
     to bill, so `balance` lives here."""
 
-    local = False
+    locality = Locality.REMOTE
     # Extra query string for the catalog listing, when the service wants
     # one to include the model details.
     _MODELS_QUERY: ClassVar[str] = ""
@@ -543,30 +604,9 @@ class CloudClient(OpenAIClient):
             raise PermissionError(f"{self.config.name} has no api key")
         if not self._key_works(timeout):
             raise PermissionError(f"{self.config.name} rejected the api key")
-        response = httpx.get(
-            f"{self.config.url}/models{self._MODELS_QUERY}",
-            headers=self._headers,
-            timeout=_timeout(timeout, connect=2.0),
-        )
-        response.raise_for_status()
-        rows = []
-        for entry in response.json().get("data", []):
-            context = entry.get("context_length")
-            rows.append(
-                ModelInfo(
-                    name=str(entry["id"]),
-                    context=context if isinstance(context, int) and context > 0 else None,
-                    loaded=True,
-                )
-            )
-        # The catalog just paid for every window — seed the cache, so
-        # chat-time lookups (the assembler's budget, the stats line)
-        # never refetch what the picker already carried home.
-        for row in rows:
-            if row.context:
-                self._context_cache[row.name] = row.context
+        rows = self._catalog(timeout, query=self._MODELS_QUERY)
         self._catalog_down = False
-        return sorted(rows, key=lambda row: row.name)
+        return rows
 
     def _fetch_context_size(self, model: str) -> int | None:
         # The catalog is the one source — usually pre-seeded by `_list`;

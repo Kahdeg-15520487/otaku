@@ -8,7 +8,8 @@ text — or to a `(thinking, text)` pair, the thinking streamed as a
 reasoning delta before the content. `default_script` recognizes the lore
 prompts by their fixed openings and answers with canned extraction JSON
 and rollups, so even the whole extraction pipeline plays end to end
-offline. Every request body is kept in `requests` for assertions — the
+offline. Every request body is kept in `requests` for assertions, and
+every GET path in `gets` — the
 wire promise is checked against it — and its headers in
 `request_headers`, row for row.
 """
@@ -46,6 +47,11 @@ class ModelServer:
         self.loaded: set[str] = set()
         self.sizes: dict[str, int] = {}  # reported bytes per model; absent → 1 MB
         self.contexts: dict[str, int] = {}  # context per model; absent → 8192
+        # A single-model engine's one loaded window, served on llama.cpp's
+        # /props and KoboldCpp's true_max_context_length; None → 404, not
+        # such an engine.
+        self.window: int | None = None
+        self.list_delay = 0.0  # seconds /models waits before answering — arrival order
         self.status = False  # True → serve omlx's rich /v1/models/status
         self.credits: tuple[float, float] | None = (
             10.0,
@@ -63,6 +69,7 @@ class ModelServer:
         self.refuse: Callable[[dict[str, Any]], int | None] = lambda body: None
         self.requests: list[dict[str, Any]] = []
         self.request_headers: list[dict[str, str]] = []  # one row per POST, same order
+        self.gets: list[str] = []  # every GET path, in order
         self.script: Callable[[dict[str, Any]], str | tuple[str, str]] = default_script
         outer = self
 
@@ -72,6 +79,13 @@ class ModelServer:
 
             def do_GET(self) -> None:
                 path = self.path.split("?", 1)[0].rstrip("/")
+                outer.gets.append(path)
+                if outer.window is not None and path.endswith("/props"):
+                    self._json({"default_generation_settings": {"n_ctx": outer.window}})
+                    return
+                if outer.window is not None and path.endswith("/true_max_context_length"):
+                    self._json({"value": outer.window})
+                    return
                 if outer.status and path.endswith("/models/status"):
                     self._json(
                         {
@@ -88,6 +102,8 @@ class ModelServer:
                     )
                     return
                 if path.endswith("/models"):
+                    if outer.list_delay:
+                        time.sleep(outer.list_delay)
                     # `context_length` rides along when a test sets it —
                     # the cloud catalogs report it there.
                     rows: list[dict[str, Any]] = []
@@ -157,10 +173,6 @@ class ModelServer:
                         return
                     self._json(outer.balances)
                     return
-                if outer.managed and self.path.rstrip("/").endswith("/api/show"):
-                    context = outer.contexts.get(str(body.get("model")), 8192)
-                    self._json({"model_info": {"test.context_length": context}})
-                    return
                 if outer.managed and self.path.rstrip("/").endswith("/api/generate"):
                     # Ollama's load door: an empty prompt with a keep_alive
                     # loads the model; keep_alive 0 unloads it.
@@ -226,6 +238,7 @@ class ModelServer:
         self.refuse = lambda body: None
         self.requests.clear()
         self.request_headers.clear()
+        self.gets.clear()
 
     def close(self) -> None:
         self._httpd.shutdown()

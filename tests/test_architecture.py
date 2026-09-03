@@ -14,6 +14,7 @@ both in the same commit.
 
 import ast
 import dataclasses
+import enum
 import re
 from pathlib import Path
 
@@ -86,8 +87,8 @@ class TestArrows:
 class TestBridge:
     def test_the_backend_bridge_reexports_only_inert_data(self) -> None:
         # backend/__init__ may re-export from lower packages ONLY data —
-        # frozen dataclasses and exceptions. Nothing with state or
-        # behavior can be laundered through it into a frontend.
+        # frozen dataclasses, enums and exceptions. Nothing with state
+        # or behavior can be laundered through it into a frontend.
         alive = [
             name for name in otaku.backend.__all__ if not _is_inert(getattr(otaku.backend, name))
         ]
@@ -180,10 +181,11 @@ def _absolute(node: ast.ImportFrom, path: Path) -> str:
 
 
 def _is_inert(obj: object) -> bool:
-    """Data, not behavior: a frozen dataclass or an exception type."""
+    """Data, not behavior: a frozen dataclass, an enum (a closed set of
+    constants) or an exception type."""
     if not isinstance(obj, type):
         return False
-    if issubclass(obj, BaseException):
+    if issubclass(obj, BaseException | enum.Enum):
         return True
     return dataclasses.is_dataclass(obj) and obj.__dataclass_params__.frozen
 

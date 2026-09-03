@@ -173,34 +173,27 @@ function allProviders() {
       {
         name: PROVIDER,
         label: "Demo",
-        local: true,
+        order: 8, // a hand-written section sorts after the eight engines, as in the product
+        locality: "unknown", // the product cannot say where such a section runs
         connected: true,
         url: "in this browser tab",
         has_key: false,
         models: MODELS.map((m) => ({ ...m })),
       },
       ...[
-        ["ollama", "Ollama", "http://localhost:11434/v1"],
-        ["omlx", "oMLX", "http://localhost:8100/v1"],
-        ["koboldcpp", "KoboldCpp", "http://localhost:5001/v1"],
-        ["llamacpp", "llama.cpp", "http://localhost:8080/v1"],
-        ["lmstudio", "LM Studio", "http://localhost:1234/v1"],
-      ].map(([name, labelled, url]) => ({
+        ["generic", "Generic OpenAI provider", "", "unknown"],
+        ["llamacpp", "llama.cpp", "http://localhost:8080/v1", "local"],
+        ["koboldcpp", "KoboldCpp", "http://localhost:5001/v1", "local"],
+        ["ollama", "Ollama", "http://localhost:11434/v1", "local"],
+        ["omlx", "oMLX", "http://localhost:8100/v1", "local"],
+        ["lmstudio", "LM Studio", "http://localhost:1234/v1", "local"],
+        ["openrouter", "OpenRouter", "https://openrouter.ai/api/v1", "remote"],
+        ["nanogpt", "NanoGPT", "https://nano-gpt.com/api/v1", "remote"],
+      ].map(([name, labelled, url, locality], order) => ({
         name,
         label: labelled,
-        local: true,
-        connected: false,
-        url,
-        has_key: false,
-        models: [],
-      })),
-      ...[
-        ["openrouter", "OpenRouter", "https://openrouter.ai/api/v1"],
-        ["nanogpt", "NanoGPT", "https://nano-gpt.com/api/v1"],
-      ].map(([name, labelled, url]) => ({
-        name,
-        label: labelled,
-        local: false,
+        order,
+        locality,
         connected: false,
         url,
         has_key: false,
