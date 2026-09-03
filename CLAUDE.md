@@ -7,7 +7,7 @@ this file and the product design disagree, the product design wins.
 
 ## What otaku is
 
-A roleplay client for OpenAI-compatible LLM servers (Ollama,
+An LLM frontend for roleplay, talking to OpenAI-compatible servers (Ollama,
 omlx, KoboldCpp, and others). Chats are stories that can be
 branched from any message. A background pass extracts lore from played
 messages — scenes, characters, journals — and the context sent to the model

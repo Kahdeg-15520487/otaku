@@ -1,4 +1,4 @@
-# otaku — a roleplay client
+# otaku — an LLM frontend for roleplay
 
 [![PyPI](https://img.shields.io/pypi/v/otaku.svg)](https://pypi.org/project/otaku/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/enclavum/otaku/blob/main/LICENSE)
@@ -7,7 +7,7 @@
 
 ![otaku web](https://raw.githubusercontent.com/enclavum/otaku/main/images/capture-web.png?v=0.4.0)
 
-Otaku is an LLM roleplay client (similar to SillyTavern, Janitor AI, etc.).
+Otaku is an LLM frontend for roleplay (similar to SillyTavern, Janitor AI, etc.).
 
 It's free, works on your machine, and lets you play either in a web UI or in the terminal. LLMs
 can be local (via llama.cpp, KoboldCpp, Ollama, and others) or accessed via an API service

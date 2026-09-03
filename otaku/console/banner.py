@@ -166,7 +166,7 @@ def _render(version: str, lines: list[str]) -> str:
     beside = " " * len(_SPRITE[0])
     beginning = [
         f"{style.accent}{style.bold}otaku{style.reset} {style.dim}v{version}{style.reset}",
-        f"{style.dim}a roleplay terminal client{style.reset}",
+        f"{style.dim}a roleplay client{style.reset}",
         "",
     ]
     said = beginning + lines
