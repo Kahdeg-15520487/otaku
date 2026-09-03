@@ -109,9 +109,10 @@ otaku web  # for web UI; default URL is http://localhost:9600
 
 On first start, you choose a provider and a model: otaku automatically detects local LLM
 backends and lets you pick from their models. Cloud providers (OpenRouter, NanoGPT) are also in
-the picker — enter an API key and their catalogs appear. After you've chosen (or cancelled with
-Esc), you land at the prompt. The model picker is available later with the `/model` (Ctrl+O)
-command.
+the picker — enter an API key and their catalogs appear — and the Generic OpenAI provider, first
+in the picker's panel, takes any other OpenAI-compatible server's URL and key. After you've
+chosen (or cancelled with Esc), you land at the prompt. The model picker is available later with
+the `/model` (Ctrl+O) command.
 
 To give you an idea of the features and what play looks like, two sample stories are imported on
 first start. `/stories` lets you choose one or the other, and `/lore`, `/cast`, and `/context`

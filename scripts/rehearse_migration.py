@@ -52,7 +52,7 @@ from scenarios.support.server import ModelServer  # noqa: E402
 # require Python >= 3.14 and are out of scope. A release already on the
 # current schema is still rehearsed — the settings, the export and the
 # read-back all matter — it simply has no ladder to run.
-VERSIONS = ("0.2.1", "0.2.2", "0.3.0")
+VERSIONS = ("0.2.1", "0.2.2", "0.3.0", "0.4.0")
 PROVIDER, MODEL = "test", "test-model"
 WORK = Path(os.environ.get("REHEARSAL_DIR", "/tmp/otaku-rehearsal"))
 
@@ -220,15 +220,23 @@ def install_current() -> str:
     return str(venv / "bin/otaku")
 
 
-def seed_config(python: str, root: Path, server_url: str, *, encrypted: bool) -> None:
+def seed_config(python: str, root: Path, server_url: str, *, version: str, encrypted: bool) -> None:
     """The old release writes its OWN default config (its shape, no network),
     then every provider url is dead-ended and the scripted one added. The
-    snippet is the OLD release's api — never this build's."""
-    code = (
-        "from otaku.paths import Paths;"
-        "from otaku.app import load_config;"
-        f"load_config(Paths.resolve({str(root)!r}))"
-    )
+    snippet is the OLD release's api — never this build's: `otaku.app`
+    up to 0.3.0, the backend's launch module from 0.4.0 on."""
+    if tuple(int(n) for n in version.split(".")) < (0, 4, 0):
+        code = (
+            "from otaku.paths import Paths;"
+            "from otaku.app import load_config;"
+            f"load_config(Paths.resolve({str(root)!r}))"
+        )
+    else:
+        code = (
+            "from otaku.backend.paths import Paths;"
+            "from otaku.backend.launch import _load_config;"
+            f"_load_config(Paths.resolve({str(root)!r}))"
+        )
     run_in_venv(python, code, check=True)
 
     for name in ("config.toml", "providers.toml"):
@@ -307,7 +315,15 @@ def read_through_app(current: str, root: Path) -> dict:
     return json.loads(rows[-1])
 
 
-def verify(current: str, root: Path, report: Report, *, stamped: str, encrypted: bool) -> None:
+def verify(
+    current: str,
+    root: Path,
+    report: Report,
+    *,
+    stamped: str,
+    encrypted: bool,
+    settings_before: dict[str, str],
+) -> None:
     print("\n--- the store ---")
     conn = sqlite3.connect(root / "database/history.db")
     try:
@@ -382,14 +398,25 @@ def verify(current: str, root: Path, report: Report, *, stamped: str, encrypted:
         report.check("no api key is left in plain text", not plain, str(plain))
     config = tomllib.loads((root / "configs/config.toml").read_text())
     report.check("providers left config.toml", "providers" not in config, str(list(config)))
-    report.check(
-        "a pre-edit config backup exists", bool(sorted((root / "configs/backups").glob("*.toml")))
-    )
+    # A backup is owed only when the launch edited a settings file — a
+    # release already in the converged shape leaves them alone.
+    if settings_texts(root) != settings_before:
+        report.check(
+            "a pre-edit config backup exists",
+            bool(sorted((root / "configs/backups").glob("*.toml"))),
+        )
+    else:
+        print("    (the settings needed no edit — no backup owed)")
     prompts = tomllib.loads((root / "configs/prompts.toml").read_text())
     report.check(
         "an unedited template followed the new built-in",
         'anyone named in "speakers" or "characters"' in prompts.get("extract_prompt", ""),
     )
+
+
+def settings_texts(root: Path) -> dict[str, str]:
+    """The settings files as they are, by name — what a launch may edit."""
+    return {p.name: p.read_text() for p in sorted((root / "configs").glob("*.toml"))}
 
 
 def verify_convergence(current: str, root: Path, report: Report) -> None:
@@ -441,11 +468,12 @@ def rehearse(version: str, current: str, *, encrypted: bool) -> Report:
     binary, python = install(version)
     server = ModelServer()
     try:
-        seed_config(python, root, server.url, encrypted=encrypted)
+        seed_config(python, root, server.url, version=version, encrypted=encrypted)
         old_session(binary, root, version, doc)
         conn = sqlite3.connect(root / "database/history.db")
         stamped = conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]
         conn.close()
+        settings_before = settings_texts(root)
 
         print(f"\n--- this build opens the state {version} left (schema v{stamped}) ---")
         t = Otaku(current, str(root))
@@ -465,7 +493,14 @@ def rehearse(version: str, current: str, *, encrypted: bool) -> Report:
         code = t.quit()
         report.check("a turn plays after the upgrade", code == 0, f"exit {code}")
 
-        verify(current, root, report, stamped=stamped, encrypted=encrypted)
+        verify(
+            current,
+            root,
+            report,
+            stamped=stamped,
+            encrypted=encrypted,
+            settings_before=settings_before,
+        )
         verify_convergence(current, root, report)
         verify_export(current, root, doc, report)
     finally:
