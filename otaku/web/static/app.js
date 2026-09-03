@@ -19,7 +19,7 @@ import { closeAll } from "./js/browser.js";
 import { keepsScreen, openMessages, run as runCommand } from "./js/commands.js";
 import { focusComposer, primeHistory, wire as wireComposer } from "./js/composer.js";
 import { $, $$, watchTextareas } from "./js/dom.js";
-import { disconnected, showFacts, watchServer } from "./js/shell.js";
+import { disconnected, showFacts, watchServer, wireTheme } from "./js/shell.js";
 import { load as loadTable } from "./js/table.js";
 import { showTurns } from "./js/transcript.js";
 import { watchForChanges } from "./js/watch.js";
@@ -44,6 +44,7 @@ async function boot() {
 
 function start() {
   wireComposer();
+  wireTheme();
   watchTextareas();
   /* One stream, opened once and held: what is on disk is what the
      browser has, so a page whose files changed under it replaces

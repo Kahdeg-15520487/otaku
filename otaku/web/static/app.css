@@ -151,6 +151,7 @@
   --otk-spine-bg:    oklch(0.19 0.006 175);
   --otk-paper:       oklch(0.26 0.008 90);
   --otk-well:        oklch(0.23 0.008 90);
+  --otk-edit-bg:     oklch(0.30 0.008 90);
   --otk-band:        oklch(0.24 0.008 90);
   --otk-ink:         oklch(0.94 0.006 95);
   --otk-body:        oklch(0.88 0.008 95);
@@ -176,6 +177,7 @@
     --otk-spine-bg:    oklch(0.19 0.006 175);
     --otk-paper:       oklch(0.26 0.008 90);
     --otk-well:        oklch(0.23 0.008 90);
+    --otk-edit-bg:     oklch(0.30 0.008 90);
     --otk-band:        oklch(0.24 0.008 90);
     --otk-ink:         oklch(0.94 0.006 95);
     --otk-body:        oklch(0.88 0.008 95);
@@ -441,15 +443,28 @@ textarea.otk-editable { margin: 0; padding: 0; border: 0; }
    ========================================================================== */
 .otk-app { display: grid; grid-template-columns: var(--otk-spine-w) var(--otk-rail-w) minmax(0, 1fr); height: 100dvh; overflow: hidden; }
 
-.otk-spine { display: flex; flex-direction: column; align-items: center; padding: 22px 0; background: var(--otk-spine-bg); border-right: var(--otk-hair) solid var(--otk-line); }
-.otk-spine__mark { width: 12px; height: 12px; background: var(--otk-accent); flex: none; }
+/* The name runs the spine's whole height behind everything else; the mark,
+   the toggle, the dots and the switch sit over it on the spine's own ground,
+   so the words pass under them rather than fight them for room. */
+.otk-spine { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 22px 0; background: var(--otk-spine-bg); border-right: var(--otk-hair) solid var(--otk-line); }
+.otk-spine__mark { width: 12px; height: 12px; background: var(--otk-accent); flex: none; position: relative; z-index: 1; }
 .otk-app.is-offline .otk-spine__mark { background: var(--otk-faint); }
-.otk-spine__name { flex: 1; min-height: 0; overflow: hidden; display: flex; align-items: center; }
+.otk-spine__name { position: absolute; inset: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; }
 .otk-spine__name > span { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; font-family: var(--otk-font-mono); font-size: var(--otk-size-label); letter-spacing: 0.34em; text-transform: uppercase; color: var(--otk-muted); }
-.otk-spine__toggle { flex: none; margin-top: 14px; display: none; font-family: var(--otk-font-mono); font-size: var(--otk-size-tag); letter-spacing: var(--otk-track-foot); text-transform: uppercase; color: var(--otk-muted); writing-mode: vertical-rl; padding: 8px 0; }
-.otk-spine__dots { display: flex; flex-direction: column; gap: 14px; align-items: center; padding-top: 16px; }
+.otk-spine__toggle { flex: none; margin-top: 14px; display: none; position: relative; z-index: 1; background: var(--otk-spine-bg); font-family: var(--otk-font-mono); font-size: var(--otk-size-tag); letter-spacing: var(--otk-track-foot); text-transform: uppercase; color: var(--otk-muted); writing-mode: vertical-rl; padding: 8px 0; }
+.otk-spine__dots { display: flex; flex-direction: column; gap: 14px; align-items: center; padding-top: 16px; position: relative; z-index: 1; background: var(--otk-spine-bg); }
 .otk-spine__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--otk-faint); }
 .otk-spine__dot[aria-current="true"] { background: var(--otk-ink); }
+
+/* the theme switch lives in the spine's foot, above the story dots — app
+   chrome with the app chrome. The spine is vertical, so the switch is too:
+   sun above, moon below, the knob sliding between them. */
+.otk-theme { flex: none; display: flex; flex-direction: column; align-items: center; gap: 8px; padding-bottom: 18px; margin-top: auto; position: relative; z-index: 1; background: var(--otk-spine-bg); }
+.otk-theme__word { display: flex; line-height: 1; color: var(--otk-faint); }
+.otk-switch { position: relative; width: 18px; height: 36px; flex: none; padding: 0; background: var(--otk-well); border: var(--otk-hair) solid var(--otk-line); border-radius: 999px; cursor: pointer; }
+.otk-switch__knob { position: absolute; left: 3px; top: 3px; width: 10px; height: 10px; border-radius: 50%; background: var(--otk-faint); transition: top 120ms ease, background 120ms ease; }
+.otk-switch[aria-checked="true"] .otk-switch__knob { top: 21px; }
+.otk-switch:hover .otk-switch__knob { background: var(--otk-accent); }
 
 .otk-rail { display: flex; flex-direction: column; padding: 30px 0 22px; overflow: hidden; }
 .otk-rail__head { display: flex; flex-direction: column; gap: 8px; padding: 0 30px 22px; }
@@ -986,6 +1001,7 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
 @media (max-width: 720px) {
   .otk-spine { display: flex; flex-direction: row; align-items: center; gap: 14px; height: 48px; padding: 0 14px; border-right: 0; border-bottom: var(--otk-hair) solid var(--otk-line); }
   .otk-spine__name, .otk-spine__dots { display: none; }
+  .otk-theme { flex-direction: row; gap: 8px; margin: 0 0 0 auto; padding: 0; }
   .otk-spine__toggle { writing-mode: horizontal-tb; margin: 0; }
   :root { --otk-page-pad: 24px; --otk-panel-pad: 16px; }
   .otk-app { grid-template-columns: minmax(0, 1fr); grid-template-rows: 48px minmax(0, 1fr); }

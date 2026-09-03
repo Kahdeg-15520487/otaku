@@ -5,6 +5,26 @@ All notable changes to otaku are documented in this file. The format is based on
 [Semantic Versioning](https://semver.org/) — while pre-1.0, minor releases may include breaking
 changes.
 
+## [0.4.1] - [planned]
+
+**TL;DR**
+
+- The web UI gets a dark theme switch, at the foot of the spine; the choice is remembered per
+  browser.
+
+**Full version:**
+
+### Added
+
+- A theme switch in the web UI, at the spine's foot: sun, moon and the knob between them. On,
+  the page is dark whatever the OS says; off, it follows the OS as before. The choice is kept in
+  the browser's storage, so each browser remembers its own, and applied before the first paint.
+
+### Fixed
+
+- The web UI's dark theme gave an open field no ground of its own, so a field being typed in
+  went near-white on a dark page.
+
 ## [0.4.0] - 2026-09-02
 
 **TL;DR**
