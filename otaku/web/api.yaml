@@ -103,7 +103,7 @@ openapi: 3.1.0
 
 info:
   title: otaku web API
-  version: 0.4.0
+  version: 0.4.1
   contact:
     name: otaku
     url: https://otaku.sh
@@ -851,8 +851,9 @@ paths:
           schema: { type: string, enum: [local, cloud] }
           description: >
             Which slice to probe and list — the terminal's own two-phase
-            rule: "local" everything but the cloud catalogs, "cloud" only
-            those, absent the whole set. A single provider is
+            rule: "local" the engines on this machine, "cloud" the rest
+            (the hosted catalogs and the generic provider, whose url could
+            point anywhere), absent the whole set. A single provider is
             /api/providers/{provider}.
       responses:
         default: { $ref: "#/components/responses/Failed" }
@@ -1469,7 +1470,21 @@ components:
             properties:
               name: { type: string }
               label: { type: string }
-              local: { type: boolean }
+              order:
+                type: integer
+                description: >
+                  The card's position in the panel — the engines in their
+                  canonical order, then hand-written sections, which share
+                  one rank and sort by name. Runs across the two scoped
+                  phases, so the page merges them by it.
+              locality:
+                type: string
+                enum: [local, remote, unknown]
+                description: >
+                  Where the engine runs, as its client knows it: the
+                  generic provider (and a hand-written section) cannot say.
+                  The url is editable unless remote; sizes and load state
+                  exist only when local.
               connected: { type: boolean }
               url: { type: string }
               has_key: { type: boolean, description: "Whether a key is SET — never the value." }

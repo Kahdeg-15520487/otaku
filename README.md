@@ -53,7 +53,8 @@ Import your content:
 - Local LLM provider(s) **or** an API key for cloud provider(s).
 
 Backends and providers supported: llama.cpp, KoboldCpp, Ollama, oMLX, LM Studio; OpenRouter and
-NanoGPT.
+NanoGPT; and any other OpenAI-compatible server through the Generic OpenAI provider, by URL and
+key.
 
 ## Installation
 

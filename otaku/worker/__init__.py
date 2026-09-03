@@ -27,7 +27,7 @@ from otaku.context import assembler
 from otaku.context.assembler import ContextShape
 from otaku.formatting import format_duration
 from otaku.logging import ErrorLog, SystemLog
-from otaku.providers import OpenAIClient, Registry
+from otaku.providers import Locality, OpenAIClient, Registry
 from otaku.store import Store
 from otaku.store.schema import Message
 from otaku.worker.extraction import ExtractionSettings, Extractor, PassResult, Report
@@ -287,9 +287,9 @@ class Worker:
         first-token wait. A hosted catalog keeps no per-session cache an
         OpenAI-compatible request could warm — the same request there is
         a full context window BILLED for one token, so it is never
-        sent."""
+        sent; nor to the generic provider, whose url could name one."""
         assert self._deferred is not None
-        if not client.local:
+        if client.locality is not Locality.LOCAL:
             return
         if not job.messages or self._deferred.is_set():
             return

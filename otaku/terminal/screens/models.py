@@ -32,7 +32,7 @@ over a highlighted value is what replacing one looks like everywhere
 else, and Esc restores from either way in; a paste onto a CLOSED
 field (Cmd+V, Ctrl+V) sets it outright — a url or a key is pasted whole
 rather than composed — while inside the editor a paste is an ordinary
-paste; Delete on an api key, outside the editor, clears it. Saves go
+paste; Delete on a field, outside the editor, clears it. Saves go
 through `api.providers.save_field` (sealed keys, surgical writes, live
 registry — all the backend's), and the provider's models are re-listed
 under the new configuration.
@@ -68,9 +68,9 @@ from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import D
 from prompt_toolkit.styles import Style
 
-from otaku.backend import Provider, meminfo
+from otaku.backend import Locality, Provider, meminfo
 from otaku.backend.api import providers as api_providers
-from otaku.backend.api.providers import Engine
+from otaku.backend.api.providers import Engine, ProviderField
 from otaku.backend.session import Refused, Session
 from otaku.formatting import format_context, format_size, truncate
 from otaku.terminal.screens.base import ListScreen, base_style, bordered_box, text_line
@@ -112,6 +112,7 @@ def pick(session: Session, initial_spec: str | None = None) -> str | None:
 
 
 _FIELD_LABELS = {"url": "URL:", "api_key": "API key:"}
+_ATTRS: tuple[ProviderField, ...] = ("url", "api_key")  # the panel's rows per engine, in order
 
 # A model row's shape: a 4-column prefix ("  > "), the model name, then
 # two right-aligned columns held at a FIXED width — the widest label
@@ -173,7 +174,9 @@ class ModelEntry:
     can_load_unload: bool = True  # False → served statically
     size_bytes: int | None = None  # None when the provider doesn't expose it
     context: int | None = None  # the model's context window, when reported
-    cloud: bool = False  # a hosted catalog's row: normal weight, no size
+    # A row with no disk to weigh — a catalog's, or the generic
+    # provider's: normal weight, no size.
+    cloud: bool = False
 
 
 class ModelPicker(ListScreen):
@@ -189,8 +192,8 @@ class ModelPicker(ListScreen):
     ) -> None:
         super().__init__()
         self.session = session
-        # The panel vocabulary — captions, order, and the local/cloud
-        # split — from the backend's one source.
+        # The panel vocabulary — captions, order, and where each runs —
+        # from the backend's one source.
         self.engines = engines
         self._order = {engine.name: i for i, engine in enumerate(engines)}
         self._captions = {engine.name: engine.label for engine in engines}
@@ -207,11 +210,11 @@ class ModelPicker(ListScreen):
         # visible, so the base's one integer serves the models side and
         # the key handling swaps), the inline editor.
         self.side: str = "models"
-        self.fields: list[tuple[str, str]] = [
+        self.fields: list[tuple[str, ProviderField]] = [
             (engine.name, attr)
             for engine in engines
-            for attr in ("url", "api_key")
-            if attr != "url" or engine.local
+            for attr in _ATTRS
+            if attr != "url" or engine.locality is not Locality.REMOTE
         ]
         self.field_cursor: int = 0
         self.editing: bool = False
@@ -705,7 +708,7 @@ class ModelPicker(ListScreen):
             return
         name, attr = self.fields[self.field_cursor]
         try:
-            warning = api_providers.save_field(self.session, name, attr, value)  # type: ignore[arg-type]
+            warning = api_providers.save_field(self.session, name, attr, value)
         except Refused as e:
             self.notice = str(e)
             return
@@ -730,20 +733,19 @@ class ModelPicker(ListScreen):
         self._finish_field_edit(save=True)
 
     def _clear_field(self) -> None:
-        """Delete on an api key field, outside the editor: forget the
+        """Delete on a field, outside the editor: forget the url or the
         stored key — the config and the running session both."""
         if self.side != "providers":
             return
         name, attr = self.fields[self.field_cursor]
-        if attr != "api_key":
-            return
-        if not api_providers.section(self.session, name).api_key:
+        if not getattr(api_providers.section(self.session, name), attr):
             return  # nothing to clear — and no hint: the field is visibly bare
-        warning = api_providers.clear_api_key(self.session, name)
+        warning = api_providers.clear_field(self.session, name, attr)
         if warning:
             self.notice = warning
             return
-        # The vanished (set) mark reports it.
+        # The bare field reports it — and a provider with no url loses
+        # its rows, the listing having nowhere to go.
         self._refresh_provider(name, settled=True)
 
     def _fetch_rows(self, name: str) -> list[Provider]:
@@ -803,7 +805,7 @@ class ModelPicker(ListScreen):
                     can_load_unload=row.can_load_unload,
                     size_bytes=model.size,
                     context=model.context,
-                    cloud=not row.local,
+                    cloud=row.locality is not Locality.LOCAL,
                 )
                 for row in fetched
                 for model in row.models
@@ -812,22 +814,35 @@ class ModelPicker(ListScreen):
             # the same list — the swap happens under the lock, so no
             # worker starts from a list another is replacing.
             with self._lock:
+                before = [e.full_spec for e in self.filtered]
+                under = before[self.cursor] if before else None
                 entries = [e for e in self.all if e.provider_name != name]
                 self.all = _ordered(entries + rows, self._order)
                 self.pending.discard(name)
                 self._refilter()
                 self._settle_side()
-                # A remembered model whose rows just arrived gets the
-                # cursor, unless the user already moved it somewhere.
-                if self._initial_spec and self.cursor == 0:
-                    for i, e in enumerate(self.filtered):
-                        if e.full_spec == self._initial_spec:
-                            self.cursor = i
-                            break
+                self._keep_cursor(under, before)
             with contextlib.suppress(Exception):
                 self.app.invalidate()
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _keep_cursor(self, under: str | None, before: list[str]) -> None:
+        """Rows land in PROVIDER order, not arrival order, so a listing
+        that lands above the cursor would shove another model under it.
+        The cursor follows a model, never an index: the remembered one
+        the moment its provider answers — it may be the last to — and
+        otherwise whatever was under the cursor, which is the remembered
+        model until the user moves off it. `under` and `before` are the
+        cursor's row and the rows as they were before the swap."""
+        wanted = under
+        if self._initial_spec and self._initial_spec not in before:
+            wanted = self._initial_spec
+        specs = [e.full_spec for e in self.filtered]
+        for spec in (wanted, under):
+            if spec in specs:
+                self.cursor = specs.index(spec)
+                return
 
     # ---------- application wiring ----------
 

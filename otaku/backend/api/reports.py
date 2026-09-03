@@ -21,7 +21,7 @@ from otaku.formatting import (
     printable,
     truncate_label,
 )
-from otaku.providers import CLIENTS, CloudClient, ProviderConfig
+from otaku.providers import CLIENTS, CloudClient, Locality, ProviderConfig
 
 
 @dataclass(frozen=True)
@@ -443,8 +443,9 @@ def _model_rows(session: Session) -> tuple[tuple[str, str], ...]:
     # (a plain endpoint or a cloud catalog serves everything statically).
     # A cloud catalog has neither a load state nor a size to report, and
     # asking costs a full catalog fetch: skip what would print nothing.
-    row = client.model(session.model) if client.local else None
-    if row is not None and client.local and client.kind != "openai":
+    # The generic provider has neither either, wherever its url points.
+    row = client.model(session.model) if client.locality is Locality.LOCAL else None
+    if row is not None:
         out.append(("Loaded", "yes" if row.loaded else "no"))
     if row is not None and row.size:
         out.append(("Size", format_size(row.size)))

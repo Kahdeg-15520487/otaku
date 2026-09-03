@@ -29,7 +29,7 @@ from otaku.context import assembler
 from otaku.context.assembler import AssembledPrompt, ContextShape
 from otaku.formatting import pretty_path
 from otaku.logging import ErrorLog
-from otaku.providers import OpenAIClient, ProviderConfig, Registry
+from otaku.providers import Locality, OpenAIClient, ProviderConfig, Registry
 from otaku.settings import models as models_file
 from otaku.settings import state as state_file
 from otaku.settings.config import Config, TerminalSettings, WebSettings
@@ -181,7 +181,7 @@ class Session:
 
     @property
     def engine(self) -> str:
-        """The KIND of server behind the model — "ollama", "openai" — as
+        """The KIND of server behind the model — "ollama", "generic" — as
         against `provider`, which is the section that configured it: a
         section somebody named themselves is not named after its engine.
         "" while no model is selected."""
@@ -191,9 +191,11 @@ class Session:
     @property
     def on_cloud(self) -> bool:
         """Whether the story is played against a hosted catalog — the
-        prompt marker's question, answered per turn."""
+        prompt marker's question, answered per turn. The generic provider
+        is not one: its url could name a catalog, but the marker says
+        what is known, not what might be."""
         client = self._client()
-        return client is not None and not client.local
+        return client is not None and client.locality is Locality.REMOTE
 
     @property
     def model(self) -> str:
@@ -278,10 +280,11 @@ class Session:
         """The loaded model's window, for a header to state — None when
         nobody can say. Best-effort and never blocking on the internet:
         a CLOUD catalog is not asked, because its answer lives across
-        the internet and a launch does not wait for that. Not a property:
-        a local engine is asked over its own socket."""
+        the internet and a launch does not wait for that; the generic
+        provider answers from its cache alone, nothing over the wire.
+        Not a property: a local engine is asked over its own socket."""
         client = self._client()
-        if client is None or not client.local:
+        if client is None or client.locality is Locality.REMOTE:
             return None
         try:
             return client.get_context_size(self.model)

@@ -15,6 +15,7 @@ import tomllib
 
 from otaku.backend.api import providers as api_providers
 from otaku.encryption import unseal
+from otaku.providers import Locality
 from otaku.terminal.chat import stream
 from otaku.terminal.screens import models as screen_models
 from otaku.terminal.tty import clipboard
@@ -349,18 +350,44 @@ class TestManagedPicker:
             app.close()
             server.close()
 
-    def test_the_inventory_reports_context_windows(self, tmp_path) -> None:
-        # The picker's context column reads these rows: the loaded window
-        # from /api/ps, the model card's from /api/show otherwise.
+    def test_the_inventory_reports_live_windows_only(self, tmp_path) -> None:
+        # The picker's context column reads these rows: a loaded model's
+        # window from /api/ps, and NOTHING for an unloaded one — Ollama
+        # sizes a window at load time from a server-wide default nothing
+        # exposes, so the card's figure would be a ceiling, not the window.
         app, server = self.launch_managed(tmp_path)
+        server.loaded = {"alpha"}
         server.contexts["alpha"] = 32768
+        server.gets.clear()
         try:
             rows, _ = api_providers.get_providers(app.session)
             ollama = next(r for r in rows if r.config.name == "ollama")
             by_name = {m.name: m for m in ollama.models}
             assert by_name["alpha"].context == 32768
-            assert by_name["beta"].context == 8192  # the scripted default
+            assert by_name["beta"].context is None
             assert by_name["alpha"].size == 1_000_000
+            # One pass over each native endpoint, however long the list,
+            # and no per-model card lookups (the harness's generic
+            # provider shares the port; its /v1/models is not ollama's).
+            assert [p for p in server.gets if "/api/" in p] == ["/api/tags", "/api/ps"]
+            assert all("messages" in r or "prompt" in r for r in server.requests)
+        finally:
+            app.close()
+            server.close()
+
+    def test_an_unloaded_models_window_is_unknown_until_it_loads(self, tmp_path) -> None:
+        # The budget asks the same question: unknown before the load, the
+        # live figure after — and only the live figure is kept, so the
+        # first ask never pins "unknown" on a model that loads a moment
+        # later.
+        app, server = self.launch_managed(tmp_path)
+        try:
+            assert app.session.context_size() is None
+            server.loaded = {"alpha"}
+            server.contexts["alpha"] = 4096
+            assert app.session.context_size() == 4096
+            server.loaded = set()
+            assert app.session.context_size() == 4096
         finally:
             app.close()
             server.close()
@@ -374,6 +401,43 @@ class TestManagedPicker:
             assert server.loaded == set()
             unload = next(r for r in server.requests if r.get("keep_alive") == 0)
             assert unload["model"] == "alpha"
+        finally:
+            app.close()
+            server.close()
+
+    def test_rows_landing_above_the_cursor_leave_it_on_the_model(self, tmp_path) -> None:
+        # Rows land in PROVIDER order, not arrival order: the generic
+        # provider is first in the panel and here the last to answer, so
+        # its rows land ABOVE the remembered model's — a model that is
+        # not its provider's first row would otherwise lose the cursor to
+        # whatever slid under it. The cursor follows the model.
+        server = ModelServer(models=("alpha", "beta"), managed=True)
+        server.list_delay = 0.5  # /v1/models, the generic listing, answers after /api/tags
+        root = tmp_path / "state"
+        set_config_provider(root, server, name="ollama", keep_alive="24h")
+        set_config_provider(root, server, name="generic")
+        app = launch(root, server, spec="ollama/beta")
+
+        def settled() -> str | None:
+            engines = api_providers.engines(app.session)
+            picker = screen_models.ModelPicker(
+                app.session, engines, [], initial_spec="ollama/beta", fetch=["ollama", "generic"]
+            )
+            deadline = time.monotonic() + 5
+            while picker.pending and time.monotonic() < deadline:
+                time.sleep(0.02)
+            assert [e.full_spec for e in picker.filtered] == [
+                "generic/alpha",
+                "generic/beta",
+                "ollama/alpha",
+                "ollama/beta",
+            ]
+            assert picker.filtered[picker.cursor].full_spec == "ollama/beta"
+            return picker.run()
+
+        try:
+            notice = run_screen(ENTER, settled)
+            assert notice is not None and "ollama/beta" in notice
         finally:
             app.close()
             server.close()
@@ -395,20 +459,21 @@ class TestProviderPanel:
     """The picker's right side: the app's backends in a fixed order,
     each with an editable URL and API key — Tab over, ↑/↓ between
     fields, Enter to edit in place. Editing a backend that is not in
-    the config yet writes its section; the first field is llama.cpp's
-    URL."""
+    the config yet writes its section; the first field is the Generic
+    OpenAI provider's URL — a section nothing wrote yet, so every edit
+    here founds it."""
 
     def test_an_edited_url_lands_in_config_and_the_session(self, app: App) -> None:
-        # Tab to the panel; Enter edits llama.cpp's URL (prefilled with
-        # the configured value); Ctrl+U clears; the new url is typed;
-        # Enter saves.
+        # Tab to the panel; Enter edits the generic provider's URL
+        # (prefilled with the configured value, here none); Ctrl+U
+        # clears; the new url is typed; Enter saves.
         keys = "\t" + ENTER + "\x15" + "http://localhost:7777/v1" + ENTER + ESC + ESC
         picked = run_screen(keys, lambda: screen_models.pick(app.session))
         assert picked is None
         raw = app.paths.providers_file.read_text()
         assert 'url = "http://localhost:7777/v1"' in raw
         assert "[test]" in raw  # the other sections survived
-        assert api_providers.section(app.session, "llamacpp").url == "http://localhost:7777/v1"
+        assert api_providers.section(app.session, "generic").url == "http://localhost:7777/v1"
 
     def test_a_section_name_cannot_write_rows_of_its_own(self, app: App) -> None:
         """The name reaches this from a request (the page PATCHes
@@ -431,7 +496,7 @@ class TestProviderPanel:
         monkeypatch.setattr(clipboard, "paste", lambda: "sk-pasted")
         keys = "\t" + _DOWN + CTRL_V + ESC + ESC
         run_screen(keys, lambda: screen_models.pick(app.session))
-        entry = tomllib.loads(app.paths.providers_file.read_text())["llamacpp"]
+        entry = tomllib.loads(app.paths.providers_file.read_text())["generic"]
         assert _unsealed(app, entry["api_key"]) == "sk-pasted"
 
     def test_a_terminal_paste_sets_the_field_too(self, app: App) -> None:
@@ -440,7 +505,7 @@ class TestProviderPanel:
         # binding alone would leave the field untouched.
         keys = "\t" + _DOWN + pasted("sk-from-cmd-v") + ESC + ESC
         run_screen(keys, lambda: screen_models.pick(app.session))
-        entry = tomllib.loads(app.paths.providers_file.read_text())["llamacpp"]
+        entry = tomllib.loads(app.paths.providers_file.read_text())["generic"]
         assert _unsealed(app, entry["api_key"]) == "sk-from-cmd-v"
 
     def test_a_paste_inside_the_editor_stays_an_ordinary_paste(self, app: App) -> None:
@@ -448,42 +513,139 @@ class TestProviderPanel:
         # and Enter is still what saves — only a CLOSED field is set.
         keys = "\t" + _DOWN + ENTER + "head-" + pasted("tail") + ENTER + ESC + ESC
         run_screen(keys, lambda: screen_models.pick(app.session))
-        entry = tomllib.loads(app.paths.providers_file.read_text())["llamacpp"]
+        entry = tomllib.loads(app.paths.providers_file.read_text())["generic"]
         assert _unsealed(app, entry["api_key"]) == "head-tail"
 
     def test_ctrl_v_sets_a_url_the_same_way(self, app: App, monkeypatch) -> None:
         monkeypatch.setattr(clipboard, "paste", lambda: "http://localhost:7777/v1")
         run_screen("\t" + CTRL_V + ESC + ESC, lambda: screen_models.pick(app.session))
         assert 'url = "http://localhost:7777/v1"' in app.paths.providers_file.read_text()
-        assert api_providers.section(app.session, "llamacpp").url == "http://localhost:7777/v1"
+        assert api_providers.section(app.session, "generic").url == "http://localhost:7777/v1"
 
     def test_a_saved_api_key_is_sealed_never_plain(self, app: App) -> None:
         keys = "\t" + _DOWN + ENTER + "hunter-2" + ENTER + ESC + ESC
         run_screen(keys, lambda: screen_models.pick(app.session))
         raw = app.paths.providers_file.read_text()
         assert "hunter-2" not in raw  # never plain text in the config
-        entry = tomllib.loads(raw)["llamacpp"]
-        assert entry["url"] == "http://127.0.0.1:9/v1"  # the key edit left the url alone
+        entry = tomllib.loads(raw)["generic"]
+        assert entry["url"] == ""  # the key edit founded the section and left the url alone
         assert entry["api_key"].startswith("sealed:")
         assert _unsealed(app, entry["api_key"]) == "hunter-2"
         # The running session got the plain key at once...
-        assert api_providers.section(app.session, "llamacpp").api_key == "hunter-2"
+        assert api_providers.section(app.session, "generic").api_key == "hunter-2"
         # ...and the next launch resolves it back from the sealed value.
         relaunched = launch(app.paths.root, app.server)
         try:
-            assert api_providers.section(relaunched.session, "llamacpp").api_key == "hunter-2"
+            assert api_providers.section(relaunched.session, "generic").api_key == "hunter-2"
         finally:
             relaunched.close()
+
+    def test_delete_outside_the_editor_clears_the_url_too(self, app: App) -> None:
+        # Two rows down is llama.cpp's URL, which the harness pre-seeds:
+        # Delete forgets it in the file and the session both, and the
+        # engine, with nowhere to ask, is no longer connected.
+        keys = "\t" + _DOWN + _DOWN + _DEL + ESC + ESC
+        run_screen(keys, lambda: screen_models.pick(app.session))
+        raw = app.paths.providers_file.read_text()
+        assert tomllib.loads(raw)["llamacpp"]["url"] == ""
+        assert api_providers.section(app.session, "llamacpp").url == ""
+        _, reachable = api_providers.get_providers(app.session)
+        assert "llamacpp" not in reachable
 
     def test_delete_outside_the_editor_clears_a_saved_key(self, app: App) -> None:
         keys = "\t" + _DOWN + ENTER + "hunter-2" + ENTER + _DEL + ESC + ESC
         run_screen(keys, lambda: screen_models.pick(app.session))
         raw = app.paths.providers_file.read_text()
-        assert tomllib.loads(raw)["llamacpp"]["api_key"] == ""
-        assert api_providers.section(app.session, "llamacpp").api_key == ""
+        assert tomllib.loads(raw)["generic"]["api_key"] == ""
+        assert api_providers.section(app.session, "generic").api_key == ""
+
+
+class TestGenericProvider:
+    """The generic provider: the protocol alone, by url and key — first
+    in the panel, and unable to say where its server runs."""
+
+    def test_it_is_first_in_the_panel_and_cannot_say_where_it_runs(self, app: App) -> None:
+        engines = api_providers.engines(app.session)
+        assert engines[0].name == "generic"
+        assert engines[0].locality is Locality.UNKNOWN
+        # The engines know: the ones on this machine, the catalogs.
+        by_name = {engine.name: engine.locality for engine in engines}
+        assert by_name["llamacpp"] is Locality.LOCAL
+        assert by_name["openrouter"] is Locality.REMOTE
+
+    def test_the_listing_reads_a_window_the_server_sends(self, tmp_path) -> None:
+        # /models is the protocol's; `context_length` on a row is the
+        # catalogs' extension — read when present, unknown otherwise, and
+        # what the listing carried the budget need not refetch.
+        server = ModelServer(models=("a", "b"))
+        server.contexts["a"] = 32_000
+        try:
+            set_config_provider(tmp_path / "state", server, name="generic")
+            app = launch(tmp_path / "state", server, spec="generic/a")
+            try:
+                rows, reachable = api_providers.get_providers(app.session)
+                assert "generic" in reachable
+                generic = next(r for r in rows if r.config.name == "generic")
+                assert [(m.name, m.context, m.loaded) for m in generic.models] == [
+                    ("a", 32_000, True),
+                    ("b", None, True),
+                ]
+                assert generic.locality is Locality.UNKNOWN
+                assert app.session.context_size() == 32_000
+            finally:
+                app.close()
+        finally:
+            server.close()
+
+    def test_a_section_under_any_other_name_is_served_the_same_way(self, app: App) -> None:
+        # The harness's own provider is a hand-written section named
+        # "test": not an engine, so the generic client serves it.
+        rows, _ = api_providers.get_providers(app.session)
+        mine = next(r for r in rows if r.config.name == "test")
+        assert mine.locality is Locality.UNKNOWN
+
+
+class TestLlamaCpp:
+    def test_the_window_is_asked_once_for_every_row(self, tmp_path) -> None:
+        # The server fronts one model, and its window is the server's —
+        # so a listing that came back long (a catalog url pasted into the
+        # section) still costs one probe, stamped on every row, not one
+        # per name.
+        server = ModelServer(models=("a", "b", "c"))
+        server.window = 4096
+        try:
+            set_config_provider(tmp_path / "state", server, name="llamacpp")
+            app = launch(tmp_path / "state", server, spec=None)
+            try:
+                rows, _ = api_providers.get_providers(app.session)
+                llama = next(r for r in rows if r.config.name == "llamacpp")
+                assert [m.context for m in llama.models] == [4096, 4096, 4096]
+                assert sum(p.endswith("/props") for p in server.gets) == 1
+            finally:
+                app.close()
+        finally:
+            server.close()
 
 
 class TestKoboldCpp:
+    def test_the_window_is_asked_once_for_every_row(self, tmp_path) -> None:
+        # The same rule as llama.cpp's, held separately: this engine lists
+        # its own way (the prefix, admin mode's active model).
+        server = ModelServer(models=("koboldcpp/a", "koboldcpp/b", "koboldcpp/c"))
+        server.window = 2048
+        try:
+            set_config_provider(tmp_path / "state", server, name="koboldcpp")
+            app = launch(tmp_path / "state", server, spec=None)
+            try:
+                rows, _ = api_providers.get_providers(app.session)
+                kobold = next(r for r in rows if r.config.name == "koboldcpp")
+                assert [m.context for m in kobold.models] == [2048, 2048, 2048]
+                assert sum(p.endswith("/true_max_context_length") for p in server.gets) == 1
+            finally:
+                app.close()
+        finally:
+            server.close()
+
     def test_the_engines_own_prefix_leaves_the_model_name(self, tmp_path) -> None:
         server = ModelServer(models=("koboldcpp/tiny",))
         try:

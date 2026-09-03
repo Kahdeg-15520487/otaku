@@ -1,12 +1,13 @@
 """Provider lookup and fan-out.
 
-The provider's section name selects its engine — the single-model
-engines ("llamacpp", "koboldcpp"), the local managed registries
-("ollama", "omlx", "lmstudio"), and the cloud catalogs ("openrouter",
-"nanogpt") each get their native client; any other name is served as a
-plain OpenAI endpoint. First-run autoconfiguration writes sections for
-the local engines only — a cloud provider is added deliberately, keys
-and all.
+The provider's section name selects its engine — the generic provider
+("generic", the protocol alone), the single-model engines ("llamacpp",
+"koboldcpp"), the local managed registries ("ollama", "omlx",
+"lmstudio"), and the cloud catalogs ("openrouter", "nanogpt") each get
+their native client; any other name is served by the generic client.
+First-run autoconfiguration writes sections for the local engines only —
+the generic provider and a cloud one are added deliberately, url and
+keys and all.
 
 The `Registry` is composed by the backend package and injected
 everywhere a client
@@ -23,6 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import TypeVar
 
 from otaku.providers.base import ManagedClient, OpenAIClient, Provider, RequestSink
+from otaku.providers.clients.generic import GenericClient
 from otaku.providers.clients.koboldcpp import KoboldCppClient
 from otaku.providers.clients.llamacpp import LlamaCppClient
 from otaku.providers.clients.lmstudio import LmStudioClient
@@ -35,9 +37,11 @@ from otaku.settings.providers import ProviderConfig
 _T = TypeVar("_T")  # Registry.map's result type
 
 # The client classes with a native API, by the provider name that
-# activates them, in the model picker's canonical order; every other
-# name gets the plain OpenAIClient.
+# activates them, in the model picker's canonical order — the generic
+# provider first, the engines on this machine, the catalogs; every other
+# name gets the generic client too.
 CLIENTS: dict[str, type[OpenAIClient]] = {
+    GenericClient.kind: GenericClient,
     LlamaCppClient.kind: LlamaCppClient,
     KoboldCppClient.kind: KoboldCppClient,
     OllamaClient.kind: OllamaClient,
@@ -70,7 +74,7 @@ class Registry:
         config = self._providers.get(provider)
         if config is None:
             raise ValueError(f"no provider {provider!r} in the configuration")
-        cls = CLIENTS.get(provider, OpenAIClient)
+        cls = CLIENTS.get(provider, GenericClient)
         client = cls(config, request_log=self._request_log, smooth=self._smooth)
         self._clients[provider] = client
         return client
@@ -121,7 +125,9 @@ class Registry:
             models = client.models(timeout=5.0)
         except Exception:
             return None
-        return provider, Provider(config, models, isinstance(client, ManagedClient), client.local)
+        return provider, Provider(
+            config, models, isinstance(client, ManagedClient), client.locality
+        )
 
 
 def autoconfigure_providers() -> dict[str, ProviderConfig]:
