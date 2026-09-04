@@ -449,8 +449,10 @@ textarea.otk-editable { margin: 0; padding: 0; border: 0; }
 .otk-spine__mark { width: 12px; height: 12px; background: var(--otk-accent); flex: none; }
 .otk-app.is-offline .otk-spine__mark { background: var(--otk-faint); }
 .otk-spine__name { flex: 1; min-height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-.otk-spine__name > span { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; font-family: var(--otk-font-mono); font-size: var(--otk-size-label); letter-spacing: 0.34em; text-transform: uppercase; color: var(--otk-muted); }
-.otk-spine__toggle { flex: none; margin-top: 14px; display: none; font-family: var(--otk-font-mono); font-size: var(--otk-size-tag); letter-spacing: var(--otk-track-foot); text-transform: uppercase; color: var(--otk-muted); writing-mode: vertical-rl; padding: 8px 0; }
+/* the spine's two words — the name, and the contents toggle once the rail
+   folds — are one line of type, read the same way: bottom to top */
+.otk-spine__name > span, .otk-spine__toggle { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; font-family: var(--otk-font-mono); font-size: var(--otk-size-label); letter-spacing: 0.34em; text-transform: uppercase; color: var(--otk-muted); }
+.otk-spine__toggle { flex: none; margin: 14px 0 22px; display: none; padding: 8px 0; } /* the foot below it is the theme switch: room between the word and the sun */
 .otk-spine__dots { display: flex; flex-direction: column; gap: 14px; align-items: center; padding-top: 16px; }
 .otk-spine__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--otk-faint); }
 .otk-spine__dot[aria-current="true"] { background: var(--otk-ink); }
@@ -1001,7 +1003,12 @@ dialog::backdrop { background: var(--otk-scrim); backdrop-filter: blur(var(--otk
   .otk-spine { display: flex; flex-direction: row; align-items: center; gap: 14px; height: 48px; padding: 0 14px; border-right: 0; border-bottom: var(--otk-hair) solid var(--otk-line); }
   .otk-spine__name, .otk-spine__dots { display: none; }
   .otk-theme { flex-direction: row; gap: 8px; margin: 0 0 0 auto; padding: 0; }
-  .otk-spine__toggle { writing-mode: horizontal-tb; margin: 0; }
+  /* the bar is horizontal, so the switch lies down too: sun left, moon right,
+     the knob sliding across instead of down */
+  .otk-switch { width: 36px; height: 18px; }
+  .otk-switch__knob { transition: left 120ms ease, background 120ms ease; }
+  .otk-switch[aria-checked="true"] .otk-switch__knob { top: 3px; left: 21px; }
+  .otk-spine__toggle { writing-mode: horizontal-tb; transform: none; margin: 0; }
   :root { --otk-page-pad: 24px; --otk-panel-pad: 16px; }
   .otk-app { grid-template-columns: minmax(0, 1fr); grid-template-rows: 48px minmax(0, 1fr); }
   .otk-spine { grid-column: 1; }

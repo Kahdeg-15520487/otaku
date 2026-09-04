@@ -5,6 +5,16 @@ All notable changes to otaku are documented in this file. The format is based on
 [Semantic Versioning](https://semver.org/) — while pre-1.0, minor releases may include breaking
 changes.
 
+## [0.4.2] - [planned]
+
+### Fixed
+
+- In the web UI, the contents toggle that appears in the spine once the rail folds away read
+  top to bottom, against the name beside it, and in a smaller type; it now reads the same way
+  and in the same type as the name.
+- On a phone, where the spine becomes a bar across the top, the theme switch still stood
+  upright; it now lies along the bar, sun left and moon right, the knob sliding across.
+
 ## [0.4.1] - 2026-09-03
 
 **TL;DR**
