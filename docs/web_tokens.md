@@ -227,13 +227,14 @@ tokens reach both.
 
 ## Dark theme
 
-The page follows the OS (`prefers-color-scheme`); `data-theme="dark"` or
-`"light"` on `<html>` pins it either way. The switch at the spine's foot
-(`[data-theme-switch]`, `role="switch"`) sets `data-theme="dark"` and
-removes it again, nothing else, and keeps the choice in the browser's own
-storage under `otaku-theme` — per browser, never in the state dir. A dark
-theme is the same token names overridden and nothing more — `custom.css`
-outranks all three.
+The page follows the OS (`prefers-color-scheme`) until the switch at the
+spine's foot (`[data-theme-switch]`, `role="switch"`) is first clicked;
+`data-theme="dark"` or `"light"` on `<html>` pins it either way, and a click
+sets one of the two, nothing else. The knob shows the theme in force — the
+pin, or what the OS chose while there is none — and the pin is kept in the
+browser's own storage under `otaku-theme` — per browser, never in the state
+dir. A dark theme is the same token names overridden and nothing more —
+`custom.css` outranks all three.
 
 ## State you can style
 
@@ -248,7 +249,7 @@ in classes, so a stylesheet can name it the same way the scripts do.
 | `aria-disabled="true"` | `.otk-btn` | out of reach for now |
 | `hidden` | any pane or menu | not mounted |
 | `data-popup="/model"` | a `<dialog>` | which command opens it |
-| `data-theme="dark"` | `<html>` | the token set in force |
+| `data-theme="dark"` / `"light"` | `<html>` | the token set pinned; absent, the OS decides |
 | `data-open="true"` | `.otk-rail` | the contents, on a narrow window |
 | `data-editing` | `.otk-edit` | the field editor is open |
 | `.is-offline` | `.otk-app` | the server stopped answering |

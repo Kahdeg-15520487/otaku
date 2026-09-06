@@ -14,6 +14,10 @@ changes.
   and in the same type as the name.
 - On a phone, where the spine becomes a bar across the top, the theme switch still stood
   upright; it now lies along the bar, sun left and moon right, the knob sliding across.
+- The theme switch did nothing on a system set to dark: off meant "follow the OS", which was
+  dark, so both positions gave the same page while the knob sat at light beside a dark one. The
+  knob now shows the theme in force, a click pins the other one in that browser, and the OS is
+  followed only until that first click.
 
 ## [0.4.1] - 2026-09-03
 
