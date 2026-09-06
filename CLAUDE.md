@@ -315,6 +315,9 @@ milliseconds. The fast offline suite is therefore
 
 ## Documentation rules
 
+Everything under `docs/` is the user's own, hand-written: NEVER edit a file
+there unless asked to.
+
 1. Docs describe the final state only — never history or comparisons — and
    each doc has one owner topic.
 2. A change updates its relevant doc in the same commit as the code.

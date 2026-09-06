@@ -96,7 +96,12 @@ export function wire() {
   });
   composer.addEventListener("blur", hideMenu);
   composer.addEventListener("keydown", onKey);
-  $(".otk-composer [data-send]")?.addEventListener("click", () => submit(composer.value));
+  // Sent by the button, the caret comes back to the box: the next line
+  // is typed, not clicked for.
+  $(".otk-composer [data-send]")?.addEventListener("click", () => {
+    submit(composer.value);
+    focusComposer();
+  });
   // The same place, the other half of the turn: what the model is doing
   // is stopped where it was asked for.
   $(".otk-composer [data-stop]")?.addEventListener("click", stopPlaying);

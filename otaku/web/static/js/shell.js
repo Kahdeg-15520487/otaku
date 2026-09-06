@@ -182,27 +182,38 @@ export function watchExtraction(story) {
 /* The theme switch at the spine's foot: one attribute on <html> selects
    the token set, and this browser's storage remembers the choice — a look
    is the medium's own, so it is kept where the medium keeps things, not in
-   the story's settings. Two states: dark, or following the OS (the
-   attribute absent). The head's inline line applies the stored choice
-   before the first paint; this only keeps the switch true to it, and
-   answers the click. The sun and the moon are labels, not lamps: the
-   knob's position is the whole of the state, and both stay one colour. */
+   the story's settings. Until the first click the page follows the OS and
+   the attribute is absent; a click pins the other theme, "dark" or
+   "light", whatever the OS says from then on. The knob shows the theme in
+   FORCE — the pin when there is one, else what the OS chose — never the
+   pin alone: on a dark OS an unpinned page is dark, and a knob reading
+   light beside a dark page is a switch that does nothing. The head's
+   inline line applies the stored pin before the first paint; this only
+   keeps the switch true to it, and answers the click. The sun and the
+   moon are labels, not lamps: the knob's position is the whole of the
+   state, and both stay one colour. */
 export function wireTheme() {
   const control = $("[data-theme-switch]");
   if (!control) return;
-  const show = (dark) => control.setAttribute("aria-checked", String(dark));
-  show(document.documentElement.dataset.theme === "dark");
+  const os = window.matchMedia("(prefers-color-scheme: dark)");
+  const inForce = () => {
+    const pin = document.documentElement.dataset.theme;
+    if (pin === "dark" || pin === "light") return pin;
+    return os.matches ? "dark" : "light";
+  };
+  const show = () => control.setAttribute("aria-checked", String(inForce() === "dark"));
+  show();
+  // an unpinned page turns with the OS, so the knob turns with it too
+  os.addEventListener("change", show);
   control.addEventListener("click", () => {
-    const dark = control.getAttribute("aria-checked") !== "true";
-    if (dark) document.documentElement.dataset.theme = "dark";
-    else delete document.documentElement.dataset.theme;
+    const theme = inForce() === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = theme;
     try {
-      if (dark) localStorage.setItem("otaku-theme", "dark");
-      else localStorage.removeItem("otaku-theme");
+      localStorage.setItem("otaku-theme", theme);
     } catch {
       /* private mode or storage refused: the choice holds for this page */
     }
-    show(dark);
+    show();
   });
 }
 

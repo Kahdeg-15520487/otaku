@@ -292,9 +292,10 @@ export function browser(popup, options) {
     measure and box exactly and nothing reflows when a reader opens one.
 
     Ctrl+S saves, a one-line value is finished by Enter, and Esc puts the
-    stored text back — as does clicking away, which is the promise every
-    field here makes. A field wrapped by `edited` is the exception: its
-    verbs open and close it, so clicking away leaves it open.
+    stored text back. Clicking away SAVES, as Enter would — a value typed
+    and walked away from is a value meant. A field wrapped by `edited` is
+    the exception: its verbs open and close it, so clicking away leaves
+    it open.
 
     `save` is handed the new text and returns the backend's ANSWER: one
     marked `refused` keeps the field open with the words still in it. */
@@ -308,6 +309,13 @@ export function editable(className, { text, save: write, readonly = false, line 
   field._restore = () => {
     field.value = text ?? "";
   };
+  /* What the store holds now, when a write settled on other words than
+     were typed — a number normalised, a cleared value's default: the
+     field shows them, and they are what Esc puts back from here on. */
+  field._settle = (stored) => {
+    text = stored ?? "";
+    field.value = text;
+  };
   /* Answers whether the field is FINISHED: a refusal is reported and
      leaves it open with the words still in it, which a write that did
      not happen must never cost. `save` returns the backend's answer for
@@ -315,7 +323,15 @@ export function editable(className, { text, save: write, readonly = false, line 
      throw, and reading the flag here is what keeps the promise. The
      save callbacks skip their redraw on a refusal for the same reason:
      a rebuilt pane would destroy the open editor under the caret. */
-  field._commit = async () => {
+  let pending = null;
+  field._commit = () => {
+    /* One write at a time: Enter is followed by the blur that finishing
+       causes, and a click away can land while Enter's write is still in
+       flight — both must not write the same words twice. */
+    pending ??= commit().finally(() => (pending = null));
+    return pending;
+  };
+  const commit = async () => {
     if (field.value === text) return true;
     try {
       const answer = await write(field.value);
@@ -342,8 +358,9 @@ export function editable(className, { text, save: write, readonly = false, line 
   const finish = () => (wrapper() ? wrapper()._close() : field.blur());
 
   field.addEventListener("blur", () => {
-    // clicking away from a field nothing else closes leaves it alone
-    if (!wrapper()) field._restore();
+    // A field nothing else closes is finished by leaving it. Refused,
+    // the words stay where they are, as they do after Enter.
+    if (!wrapper()) field._commit();
   });
   field.addEventListener("keydown", async (event) => {
     if (event.key === "Escape") {

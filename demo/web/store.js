@@ -376,6 +376,13 @@ export function exportDocument(storyId) {
 export function land(storyId, messageId, action) {
   const story = state.stories.get(storyId);
   if (!story) return refuse("That message is not on the story's current chain.");
+  if (messageId == null) {
+    // A resume never used the pick, so it may come without one, as the
+    // product's `api.stories.land` says — a story with nothing played
+    // has none to give. The routes hand a null here for a resume alone.
+    state.open = storyId;
+    return say(landed("Resumed"));
+  }
   const at = story.turns.findIndex((t) => t.id === messageId);
   if (at < 0) return refuse("That message is not on the story's current chain.");
   if (action === "fork") {
@@ -783,7 +790,8 @@ function landed(verb) {
   const story = state.stories.get(state.open);
   const named = story ? cut(label(story), 50) : "";
   const head = named ? `Story: ${named}. ` : "";
-  return `${head}${verb} at message ${story ? story.turns.length : 0}.`;
+  const count = story ? story.turns.length : 0;
+  return count ? `${head}${verb} at message ${count}.` : `${head}${verb}, nothing played yet.`;
 }
 
 function numberedTitle(title) {

@@ -567,9 +567,14 @@ def _undo(session: Session) -> str:
 
 def _head(session: Session, ask: Ask) -> str:
     """Where the session is reading. `discard` sets the later turns
-    aside; without it they stay in the database above the tail."""
+    aside; without it they stay in the database above the tail. A resume
+    may name no message — a story with nothing played has none, and a
+    resume never used one — where discarding without one is malformed."""
     action: Any = "truncate" if ask.body.get("discard") else "resume"
-    return api_stories.land(session, int(ask.body["story"]), int(ask.body["message"]), action)
+    message = ask.body.get("message")
+    return api_stories.land(
+        session, int(ask.body["story"]), None if message is None else int(message), action
+    )
 
 
 def _premise(session: Session, ask: Ask) -> str:
@@ -684,16 +689,23 @@ def _load_model(session: Session, ask: Ask) -> str:
 
 def _save_provider(session: Session, ask: Ask) -> str:
     """A provider's url or api key, whichever the body names. The key's
-    value goes IN here and never comes back out through any read."""
+    value goes IN here and never comes back out through any read. An
+    EMPTY value is the terminal's Del: the url or the stored key is
+    forgotten, file and session both."""
     said = ""
+    provider = ask.params["provider"]
     for attr in ("url", "api_key"):
         if attr in ask.body:
             # `need`, not a bare str(): a null here would write the
             # literal url "None" into providers.toml (`Ask.need`).
-            warning = api_providers.save_field(
-                session, ask.params["provider"], attr, ask.need(attr)
-            )
-            said = warning or f"Saved {attr.replace('_', ' ')} for {ask.params['provider']}."
+            value = ask.need(attr)
+            word = attr.replace("_", " ")
+            if value.strip():
+                warning = api_providers.save_field(session, provider, attr, value)
+                said = warning or f"Saved {word} for {provider}."
+            else:
+                warning = api_providers.clear_field(session, provider, attr)
+                said = warning or f"Cleared {word} for {provider}."
     if not said:
         raise Refused("Nothing to change — send a url or an api_key.")
     return said

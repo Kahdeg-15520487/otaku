@@ -111,6 +111,25 @@ class TestStoryBrowser:
     def pick(self, app: App, keys: str):
         return run_screen(keys, lambda: screen_stories.pick(app.session))
 
+    def test_enter_on_a_story_with_nothing_played_resumes_it(self, app: App) -> None:
+        # Nothing played means nothing to pick, and the dossier's messages
+        # tab would open on nothing with no way to land: Enter on the row
+        # resumes the story itself, so a story started and left is not
+        # one that can only be deleted.
+        app.play("I enter the hall.")
+        app.play("/title Played")
+        played = app.session.story_id
+        app.play("/new Blank")
+        blank = app.session.story_id
+        assert self.pick(app, "/Played" + ENTER + ENTER) is not None
+        assert app.session.story_id == played
+        assert self.pick(app, "/Blank" + ENTER) is not None
+        assert app.session.story_id == blank
+        assert app.session.messages == []
+        app.play("A different beginning.")
+        assert app.session.story_id == blank  # the turn lands in it
+        assert len(app.store.stories.get_messages(blank)) == 2
+
     def test_e_edits_a_message_in_place(self, app: App) -> None:
         _first, second = two_stories(app)
         assert self.pick(app, ENTER + "e" + "!" + CTRL_S + ESC + ESC) is None
@@ -392,6 +411,8 @@ def picks(story_id: int, upto: int | None = None, action: str = "resume") -> Pic
 
     def pick(session: Session) -> str | None:
         messages = api_stories.messages_of(session, story_id)
+        if not messages:
+            return api_stories.land(session, story_id)  # nothing to pick: the story alone
         target = messages[-1] if upto is None else messages[upto - 1]
         return api_stories.land(session, story_id, target.id, action)
 

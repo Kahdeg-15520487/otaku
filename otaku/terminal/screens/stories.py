@@ -5,8 +5,8 @@ Application, so drilling in and backing out are flicker-free. The list
 is the level the dossier cannot be — every story at once — and Enter
 opens the highlighted one as the four-tab dossier, on its messages
 (cursor on the tail, so Enter-Enter still resumes an old story the way
-it always has); Esc there reveals the list as it was left, filter and
-all.
+it always has, and a story with nothing played is resumed by that one
+Enter); Esc there reveals the list as it was left, filter and all.
 
 A row's label is the story's title, else its newest story-so-far
 rollup, else its first prompt. `/` filters; the filter also matches
@@ -193,6 +193,11 @@ class StoryPicker(Dossier):
         if not self.filtered:
             return
         row = self.filtered[self.cursor]
+        # Nothing played: no message to pick, and a dossier opened on an
+        # empty tab is a dead end — Enter resumes the story itself.
+        if not row.num_messages:
+            self._land_on(row.id, None, "resume")
+            return
         self._list_state = (self.cursor, self.in_filter, self.query)
         self.in_filter, self.query = False, ""
         # Messages first, cursor on the tail: Enter-Enter resumes an old

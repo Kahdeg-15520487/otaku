@@ -42,12 +42,12 @@ export async function openStories(answered = "", { selectId = null } = {}) {
          a story with a long recap and one with none must put the button
          a reader is aiming at in the same place. */
       $("[data-actions]", popup).replaceChildren(
-        // A story with nothing played in it has no message to land on,
-        // so the verbs that land are off — and the ones that do not
-        // (its inside, its name, its life) stay on.
+        // Continue is never off: a story with nothing played is resumed
+        // by its id alone. What copies or exports a chain has none to
+        // work on, so Fork and Export are off — and the verbs that do
+        // not read the chain (its inside, its name, its life) stay on.
         actionButton("Continue", {
           kind: "otk-btn--primary",
-          off: !story.turns,
           onclick: guard(() => landOn(story, "resume")),
         }),
         actionButton("Into the story →", { onclick: guard(() => goInside(story)) }),
@@ -77,7 +77,7 @@ export async function openStories(answered = "", { selectId = null } = {}) {
         section("First prompt", story.first_user || "(nothing played yet)"),
       ].filter(Boolean);
     },
-    onOpen: (story) => (story.turns ? landOn(story, "resume") : goInside(story)),
+    onOpen: (story) => landOn(story, "resume"),
     onDelete: confirmDelete,
     search: async (needle) => (await api.stories(needle)).map((story) => story.id),
     empty: (filtered) =>
@@ -116,13 +116,12 @@ function exportOne(story) {
 // ---------- the landings ----------
 
 async function landOn(story, action) {
-  /* Continuing and forking are the landing performed inside a story, at
-     its LAST message. The chain is read here rather than carried on the
-     row: a list that knew every story's last message would have read
-     every story's chain to draw itself. */
-  const last = (await api.story(story.id)).messages.at(-1);
-  if (!last) return;
-  await land(story.id, last.id, action);
+  /* Continuing and forking are the landing performed inside a story at
+     its LAST message — which neither needs named: a resume takes the
+     story as it is, and a fork handed no message copies from the head.
+     So the chain is not read here, where a list that knew every story's
+     last message would have read every story's chain to draw itself. */
+  await land(story.id, null, action);
 }
 
 // ---------- the writes ----------

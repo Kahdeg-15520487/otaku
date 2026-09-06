@@ -777,8 +777,14 @@ class Dossier(ListScreen):
         """Execute the settled pick (the screens' one ownership rule) and
         leave with the landing line for the caller to print."""
         upto = self.msgs[self.turn_filtered[self.cursor]]
+        self._land_on(self.story_id, upto.id, action)
+
+    def _land_on(self, story_id: int, upto_id: int | None, action: api_stories.LandAction) -> None:
+        """The landing itself: a story and a pick, the pick absent where
+        there is nothing to pick — the list level resumes a story with
+        nothing played without opening it."""
         try:
-            self.result = api_stories.land(self.session, self.story_id, upto.id, action)
+            self.result = api_stories.land(self.session, story_id, upto_id, action)
         except Refused as e:
             self.notice = str(e)
             return

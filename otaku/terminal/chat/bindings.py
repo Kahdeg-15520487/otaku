@@ -258,8 +258,11 @@ def _landed(chat: Chat, landed: str | None) -> None:
     if landed is None:
         return
     chat.ledger.rule()
-    chat.say(f"{landed}\n\n{last_turns(list(chat.session.messages), RESUME_TURNS)}")
-    chat.restore_tail(RESUME_TURNS)
+    turns = last_turns(list(chat.session.messages), RESUME_TURNS)
+    # A story with nothing played echoes no turns, and no blank for them.
+    chat.say(f"{landed}\n\n{turns}" if turns else landed)
+    if turns:
+        chat.restore_tail(RESUME_TURNS)
 
 
 def _new(chat: Chat, raw: str) -> None:

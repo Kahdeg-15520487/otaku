@@ -5,6 +5,48 @@ All notable changes to otaku are documented in this file. The format is based on
 [Semantic Versioning](https://semver.org/) — while pre-1.0, minor releases may include breaking
 changes.
 
+## [0.4.2] - 2026-09-06
+
+**TL;DR**
+
+Bug fixes.
+
+**Full version:**
+
+
+### Changed
+
+- In the web UI's settings, the context limit and a model's parameters are saved when their
+  field is left — the next field, another control, a click elsewhere — as they already were on
+  Enter; Esc is the one way out that reverts.
+- In the web UI, Ctrl+R and Ctrl+U with the focus outside the prompt no longer reload the page
+  or open its source. They are the prompt's regenerate and undo keys, and a reader who reached
+  for one from a button got the browser's answer instead.
+- The web UI opens with the prompt focused, so the first keystroke is the first word, and the
+  focus comes back to it after Send, Regen and Undo. Not at opening on a phone, where a focused
+  box would raise the keyboard unasked.
+
+### Fixed
+
+- In the web UI's provider panel, a URL could not be cleared and a key could not be forgotten:
+  an emptied field only switched Save off. Emptying the URL, or Delete in the key field, now
+  marks the change and Save applies it, file and session both — the terminal's Del, one save
+  later. Test connection is gone from the panel for now: a save already asks the provider and
+  redraws the row with its answer, so the button tested nothing Save had not, and pressed with
+  changes pending it threw them away.
+- In the web UI, the contents toggle that appears in the spine once the rail folds away read
+  top to bottom, against the name beside it, and in a smaller type; it now reads the same way
+  and in the same type as the name.
+- On a phone, where the spine becomes a bar across the top, the theme switch still stood
+  upright; it now lies along the bar, sun left and moon right, the knob sliding across.
+- The theme switch did nothing on a system set to dark: off meant "follow the OS", which was
+  dark, so both positions gave the same page while the knob sat at light beside a dark one. The
+  knob now shows the theme in force, a click pins the other one in that browser, and the OS is
+  followed only until that first click.
+- A story started and left with nothing played could not be entered again: on the page the
+  browser's Continue was off, and in the terminal Enter opened a dossier with nothing to pick.
+  Both now resume such a story by its id alone, and the landing line says nothing is played yet.
+
 ## [0.4.1] - 2026-09-03
 
 **TL;DR**

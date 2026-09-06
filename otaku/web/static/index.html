@@ -7,12 +7,13 @@
 <!-- The tab's mark: the accent square, and the greyed copy
      `shell.disconnected` swaps in when otaku stops. -->
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Crect%20x='3'%20y='3'%20width='10'%20height='10'%20fill='%23b06636'/%3E%3C/svg%3E" data-offline="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Crect%20x='3'%20y='3'%20width='10'%20height='10'%20fill='%23a0a0a0'/%3E%3C/svg%3E">
-<!-- The reader's theme choice, applied before the first paint so a dark
-     page never flashes light: the switch in the spine keeps it in this
-     browser's storage, and `data-theme` on <html> is what the stylesheet
-     reads (docs/web_tokens.md). Inline on purpose — a module would run
-     after the first frame. -->
-<script>try { if (localStorage.getItem("otaku-theme") === "dark") document.documentElement.dataset.theme = "dark"; } catch (e) {}</script>
+<!-- The reader's theme pin, "dark" or "light", applied before the first
+     paint so a pinned page never flashes the other way: the switch in the
+     spine keeps it in this browser's storage, and `data-theme` on <html>
+     is what the stylesheet reads (docs/web_tokens.md); absent, the page
+     follows the OS. Inline on purpose — a module would run after the
+     first frame. -->
+<script>try { var t = localStorage.getItem("otaku-theme"); if (t === "dark" || t === "light") document.documentElement.dataset.theme = t; } catch (e) {}</script>
 <link rel="stylesheet" href="app.css">
 <!-- The reader's own styles, loaded last so anything in them wins. Served from
      the state dir (web/custom.css); an empty stylesheet when there is none. -->

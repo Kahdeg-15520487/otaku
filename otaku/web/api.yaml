@@ -103,7 +103,7 @@ openapi: 3.1.0
 
 info:
   title: otaku web API
-  version: 0.4.1
+  version: 0.4.2
   contact:
     name: otaku
     url: https://otaku.sh
@@ -884,11 +884,13 @@ paths:
     patch:
       operationId: patchProvider
       tags: [Models]
-      summary: Save a provider's url or api key
+      summary: Save a provider's url or api key, or clear it
       description: |
         Sealed (keys), written surgically into providers.toml, live in
         the running registry at once. The key's value goes IN through
-        here and never comes back out through any read.
+        here and never comes back out through any read. An empty string
+        CLEARS the field — the url or the stored key is forgotten, file
+        and session both, as the terminal's Del does.
       requestBody:
         content:
           application/json:
@@ -1021,21 +1023,25 @@ paths:
     put:
       operationId: putSessionHead
       tags: [Session]
-      summary: Resume a story at a message, keeping or discarding what follows
+      summary: Resume a story, at a message or as it is, keeping or discarding what follows
       description: |
         Where the session is reading. `discard: false` resumes above the
         tail and leaves the later turns in the database; `true` sets
-        them aside. Forking is not here — it makes a story, so it is a
-        POST to that story's fork.
+        them aside. A resume never used the message, so it may be left
+        out — a story with nothing played has none — where discarding
+        without one is malformed. Forking is not here — it makes a
+        story, so it is a POST to that story's fork.
       requestBody:
         content:
           application/json:
             schema:
               type: object
-              required: [story, message]
+              required: [story]
               properties:
                 story: { type: integer }
-                message: { type: integer }
+                message:
+                  type: integer
+                  description: The message to land on; absent or null, the story is resumed as it is.
                 discard:
                   type: boolean
                   default: false

@@ -71,11 +71,25 @@ def search(session: Session, query: str) -> list[int]:
     return sorted(ids)
 
 
-def land(session: Session, story_id: int, upto_message_id: int, action: LandAction) -> str:
+def land(
+    session: Session,
+    story_id: int,
+    upto_message_id: int | None = None,
+    action: LandAction = "resume",
+) -> str:
     """Execute what the browser settled — resume as-is, fork at the
     picked turn, or truncate to it — switch the session there, and return
-    the landing line ("Story: …. Resumed at message 14.")."""
+    the landing line ("Story: …. Resumed at message 14."). A resume never
+    used the pick, so it may come without one: a story with nothing
+    played has no message to pick and is resumed by its id alone. Forking
+    and truncating cut AT a message, so without one they are a caller's
+    error, not a refusal."""
     store = session._store
+    if upto_message_id is None:
+        if action != "resume":
+            raise ValueError(f"{action} needs a message to land on")
+        session._switch_to(story_id)
+        return _landed(session)
     messages = store.stories.get_messages(story_id)
     position = next((i for i, m in enumerate(messages) if m.id == upto_message_id), None)
     if position is None:
@@ -246,7 +260,10 @@ def landed_line(session: Session) -> str:
 
 def _landed(session: Session, *, verb: str = "Resumed") -> str:
     """The landing line, `verb` naming what the pick settled. An unnamed
-    story drops the first half rather than show an empty name."""
+    story drops the first half rather than show an empty name, and one
+    with nothing played says so rather than count to zero."""
     label = truncate_label(headline(session), LABEL_WIDTH)
     head = f"Story: {label}. " if label else ""
+    if not session.messages:
+        return f"{head}{verb}, nothing played yet."
     return f"{head}{verb} at message {len(session.messages)}."
