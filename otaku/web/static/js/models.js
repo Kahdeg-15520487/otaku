@@ -321,15 +321,34 @@ function providerDetail(state, pane, engine) {
     kind: "otk-btn--primary",
     onclick: guard(() => saveProvider(state, engine)),
   });
-  // Nothing typed is nothing to save: the button is a door that does
-  // something, and a door that does nothing should not look like one.
-  save.setAttribute("aria-disabled", "true");
-  const settle = () => save.setAttribute("aria-disabled", String(!dirty(state.popup, engine)));
+  /* A test asks the CONFIGURED provider, and its answer redraws the
+     panel: with changes pending it would test the old values and throw
+     the new ones away. So the two verbs take turns — Save while
+     something is pending, Test while nothing is — marked rather than
+     removed (`aria-disabled` keeps a verb in the row and out of reach),
+     and a door that does nothing should not look like one.
+
+     HIDDEN for now: a save re-asks the provider and redraws the row
+     with its answer, so the button tested nothing Save had not. It
+     comes back when it can test the fields as typed, unsaved — which
+     needs a probe door of its own (its transport is the open question:
+     a GET would put the key in the request line, a POST files a read
+     in the write lane). */
+  const test = actionButton("Test connection", {
+    onclick: guard(() => {
+      if (test.getAttribute("aria-disabled") === "true") return undefined;
+      return testProvider(state, engine);
+    }),
+  });
+  test.hidden = true;
+  const settle = () => {
+    const pending = dirty(state.popup, engine);
+    save.setAttribute("aria-disabled", String(!pending));
+    test.setAttribute("aria-disabled", String(pending));
+  };
+  settle();
   for (const input of [url, key]) input.addEventListener("input", settle);
-  $("[data-actions]", pane).replaceChildren(
-    save,
-    actionButton("Test connection", { onclick: guard(() => testProvider(state, engine)) }),
-  );
+  $("[data-actions]", pane).replaceChildren(save, test);
 
   return [head, element("h3", "otk-detail__title", engine.label), fields];
 }
@@ -370,7 +389,12 @@ const _beat = (ms) => new Promise((wake) => setTimeout(wake, ms));
 
 function keyField(state, engine) {
   /* One shape whether a key is set or not: a password field, empty for a
-     provider with no key and masked for one that has it. */
+     provider with no key and masked for one that has it. Entering clears
+     the stand-in so a new key can be typed; leaving without typing one
+     puts it back, the key still being there. Delete or Backspace on the
+     bare field marks the key to be FORGOTTEN: the field stays bare with
+     a caption saying so, and Save (or Enter) applies it — the terminal's
+     Del, one save later. Typing a key instead replaces it. */
   const input = element("input", "otk-field otk-field--mono");
   input.type = "password";
   input.dataset.provider = "api_key";
@@ -380,19 +404,54 @@ function keyField(state, engine) {
       input.dataset.mask = "yes";
     };
     mask();
-    // Entering clears the stand-in so a new key can be typed; leaving
-    // without typing one puts it back, the key still being there.
     input.addEventListener("focus", () => {
       if (!input.dataset.mask) return;
       delete input.dataset.mask;
       input.value = "";
     });
     input.addEventListener("blur", () => {
-      if (!input.value) mask();
+      if (!input.value && !input.dataset.forget) mask();
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key !== "Delete" && event.key !== "Backspace") return;
+      // Erasing typed characters is ordinary editing; the bare field is
+      // where the key itself is meant.
+      if (input.value && !input.dataset.mask) return;
+      event.preventDefault();
+      forgetKey(input);
+      input.dispatchEvent(new Event("input"));
+    });
+    input.addEventListener("input", () => {
+      if (input.value) keepKey(input);
     });
   }
   saveOnEnter(state, input, engine, "api_key");
   return input;
+}
+
+function forgetKey(input) {
+  delete input.dataset.mask;
+  input.value = "";
+  input.dataset.forget = "yes";
+  input.placeholder = "cleared";
+}
+
+function keepKey(input) {
+  delete input.dataset.forget;
+  input.placeholder = "";
+}
+
+/** What a field would write, or null for nothing: a url that differs
+    from the configured one — emptied included, which clears it — a
+    typed key, or "" for a key marked to be forgotten. */
+function pending(input, engine, attr) {
+  if (!input || input.disabled) return null;
+  if (attr === "url") {
+    const value = input.value.trim();
+    return value === engine.url ? null : value;
+  }
+  if (input.dataset.forget) return "";
+  return input.value.trim() && !input.dataset.mask ? input.value : null;
 }
 
 function saveOnEnter(state, input, engine, attr) {
@@ -409,46 +468,44 @@ function saveOnEnter(state, input, engine, attr) {
         event.preventDefault();
         event.stopPropagation();
         input.value = attr === "url" ? engine.url : "";
-        $("[data-list]", input.closest("dialog"))?.focus();
+        if (attr === "api_key") keepKey(input);
+        input.dispatchEvent(new Event("input"));
+        $("[data-list]", input.closest("[data-pane]"))?.focus();
         return;
       }
       if (event.key !== "Enter") return;
       event.preventDefault();
-      /* An empty field is one nobody filled in: it must not clear the
-         url a provider is reached at, or its key. An UNCHANGED url is
-         nothing to save either — the rule `dirty` and Save both hold —
-         and writing it anyway makes the no-op surgery answer with a
-         could-not-write warning for a value that needed no saving. */
-      if (!input.value.trim() || input.dataset.mask) return;
-      if (attr === "url" && input.value.trim() === engine.url) return;
-      const { notice } = await api.saveProviderField(engine.name, attr, input.value);
+      /* What the field would write (`pending`): nothing for an unchanged
+         url — writing it anyway makes the no-op surgery answer with a
+         could-not-write warning for a value that needed no saving — or
+         for a key nobody typed; "" for an emptied url or a forgotten
+         key, which the route clears. */
+      const value = pending(input, engine, attr);
+      if (value === null) return;
+      const { notice } = await api.saveProviderField(engine.name, attr, value);
       await refreshProvider(state, engine, notice);
     }),
   );
 }
 
 function dirty(popup, engine) {
-  /* What a save would actually write: a url that differs from the
-     configured one, or a key that is not the stand-in. */
+  /* Whether a save would write anything (`pending`): a moved or emptied
+     url, a typed key, a key marked to be forgotten. */
   const url = $('[data-detail] input[data-provider="url"]', popup);
   const key = $('[data-detail] input[data-provider="api_key"]', popup);
-  const movedUrl = url && !url.disabled && url.value.trim() && url.value.trim() !== engine.url;
-  const typedKey = key && key.value.trim() && !key.dataset.mask;
-  return Boolean(movedUrl || typedKey);
+  return pending(url, engine, "url") !== null || pending(key, engine, "api_key") !== null;
 }
 
 async function saveProvider(state, engine) {
-  /* Both fields at once, skipping what did not change. Saving nothing
-     is an answer too. */
+  /* Both fields at once, skipping what did not change; an emptied one
+     is cleared. Saving nothing is an answer too. */
   const url = $('[data-detail] input[data-provider="url"]', state.popup);
   const key = $('[data-detail] input[data-provider="api_key"]', state.popup);
   const notices = [];
-  if (url && !url.disabled && url.value.trim() && url.value.trim() !== engine.url) {
-    const { notice } = await api.saveProviderField(engine.name, "url", url.value.trim());
-    notices.push(notice);
-  }
-  if (key && key.value.trim() && !key.dataset.mask) {
-    const { notice } = await api.saveProviderField(engine.name, "api_key", key.value);
+  for (const [input, attr] of [[url, "url"], [key, "api_key"]]) {
+    const value = pending(input, engine, attr);
+    if (value === null) continue;
+    const { notice } = await api.saveProviderField(engine.name, attr, value);
     notices.push(notice);
   }
   await refreshProvider(state, engine, notices.join(" ") || "Nothing to save.");

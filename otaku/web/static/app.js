@@ -46,6 +46,11 @@ function start() {
   wireComposer();
   wireTheme();
   watchTextareas();
+  /* The page opens with the caret where the story is written, so the
+     first keystroke is the first word. Not on a phone: a focused box
+     there raises the keyboard over half the screen before the reader
+     has read a line, and a tap on the box is one tap away. */
+  if (!window.matchMedia("(pointer: coarse)").matches) focusComposer();
   /* One stream, opened once and held: what is on disk is what the
      browser has, so a page whose files changed under it replaces
      itself. Not in `boot`, which runs again every time otaku comes
@@ -89,6 +94,9 @@ function start() {
     const turn = event.target.closest("[data-turn]");
     if (turn && turn.getAttribute("aria-disabled") !== "true") {
       runCommand(turn.dataset.turn === "undo" ? "/undo" : "/regen");
+      // Either verb is about the last exchange, and the next one is
+      // typed: the caret comes back to the box.
+      focusComposer();
     }
   });
 
@@ -137,12 +145,23 @@ function foldRail() {
 }
 
 function onKey(event) {
-  /* Escape, and nothing else. There are no keyboard shortcuts on this
-     page: every command is a button and a line you can type, and a key
-     that does something a reader cannot see is a key nobody finds. What
-     the KEYBOARD still answers is what a screen advertises in its own
-     footer — the arrows in a list, `/` for its filter, enter to take a
-     row — and those belong to the screen, not to the document. */
+  /* Escape, and nothing else that DOES anything. There are no keyboard
+     shortcuts on this page: every command is a button and a line you
+     can type, and a key that does something a reader cannot see is a
+     key nobody finds. What the KEYBOARD still answers is what a screen
+     advertises in its own footer — the arrows in a list, `/` for its
+     filter, enter to take a row — and those belong to the screen, not
+     to the document. */
+  const verbKey = event.key === "r" || event.key === "u";
+  if (verbKey && event.ctrlKey && !event.metaKey && !event.altKey) {
+    /* The prompt's two verbs (composer.js: ctrl+r regenerates, ctrl+u
+       undoes) are the browser's reload and view-source. Pressed with
+       the focus anywhere ELSE on this page they reach neither: a reload
+       for a reader who meant a regen throws the page away, and the
+       verbs answer in the prompt alone. ⌘R stays the browser's. */
+    event.preventDefault();
+    return;
+  }
   if (event.key === "Escape") {
     // The one on TOP, which is the one holding focus — `dialog[open]`
     // in markup order would close whatever happens to be written first.

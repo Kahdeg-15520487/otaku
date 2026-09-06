@@ -7,8 +7,26 @@ changes.
 
 ## [0.4.2] - [planned]
 
+### Changed
+
+- In the web UI's settings, the context limit and a model's parameters are saved when their
+  field is left — the next field, another control, a click elsewhere — as they already were on
+  Enter; Esc is the one way out that reverts.
+- In the web UI, Ctrl+R and Ctrl+U with the focus outside the prompt no longer reload the page
+  or open its source. They are the prompt's regenerate and undo keys, and a reader who reached
+  for one from a button got the browser's answer instead.
+- The web UI opens with the prompt focused, so the first keystroke is the first word, and the
+  focus comes back to it after Send, Regen and Undo. Not at opening on a phone, where a focused
+  box would raise the keyboard unasked.
+
 ### Fixed
 
+- In the web UI's provider panel, a URL could not be cleared and a key could not be forgotten:
+  an emptied field only switched Save off. Emptying the URL, or Delete in the key field, now
+  marks the change and Save applies it, file and session both — the terminal's Del, one save
+  later. Test connection is gone from the panel for now: a save already asks the provider and
+  redraws the row with its answer, so the button tested nothing Save had not, and pressed with
+  changes pending it threw them away.
 - In the web UI, the contents toggle that appears in the spine once the rail folds away read
   top to bottom, against the name beside it, and in a smaller type; it now reads the same way
   and in the same type as the name.

@@ -50,10 +50,8 @@ export async function openSettings(answered = "") {
      window, which the backend spells 0 — an absence, so the field is
      EMPTY and says `default` the way an unset parameter does. Clearing
      it sets it: 0 goes out, and the same absence comes back. */
-  const limit = editableLeader(
-    "max_context",
-    knobs.max_context ? String(knobs.max_context) : "",
-    (value) => setKnob("max_context", value.trim() || "0"),
+  const limit = editableLeader("max_context", stands.max_context(knobs), (value, field) =>
+    typedKnob(field, () => api.setSetting("max_context", value.trim() || "0"), stands.max_context),
   );
   limit.lastElementChild.placeholder = DEFAULT_VALUE;
   global.append(knob(limit, element("p", "otk-note", about("max_context"))));
@@ -65,8 +63,17 @@ export async function openSettings(answered = "") {
     // A parameter nobody has set stands at the model's own value. That is
     // an absence, so it is the field's PLACEHOLDER and not its text — and
     // it reads the same whether it was never set or was just cleared.
-    const line = editableLeader(parameter.name, parameter.value, (value) =>
-      setParameter(parameter.name, value.trim()),
+    const line = editableLeader(parameter.name, parameter.value, (value, field) =>
+      typedKnob(
+        field,
+        // An emptied field is the model's own default, which is an
+        // absence and has its own door.
+        () =>
+          value.trim()
+            ? api.setParameter(parameter.name, value.trim())
+            : api.resetParameter(parameter.name),
+        (fresh) => stands.parameter(fresh, parameter.name),
+      ),
     );
     line.lastElementChild.placeholder = DEFAULT_VALUE;
     params.append(line);
@@ -81,6 +88,15 @@ export async function openSettings(answered = "") {
   if (!popup.open) popup.showModal();
   knobKeys(popup);
 }
+
+/* What a typed knob's field shows, read off the settings: the limit is
+   a figure or nothing (0 is the model's whole window — an absence, so the
+   field is EMPTY and says `default` the way an unset parameter does), a
+   parameter its value or nothing. */
+const stands = {
+  max_context: (knobs) => (knobs.max_context ? String(knobs.max_context) : ""),
+  parameter: (knobs, name) => knobs.parameters.find((p) => p.name === name)?.value ?? "",
+};
 
 function section(name, count) {
   const head = element("div", "otk-section", name);
@@ -136,10 +152,13 @@ function toggle(on, set) {
 
 function editableLeader(label, value, save) {
   /* A value edited where it is READ: the figure IS the field. A knob is
-     one line long, so Enter finishes it and Esc puts it back — neither
-     written down, a slip having no room to explain its own keys. */
+     one line long, so Enter finishes it, and so does leaving it; Esc
+     puts it back — none written down, a slip having no room to explain
+     its own keys. `save` is handed the words and the field, so the
+     write can settle the field afterwards. */
   const row = element("div", "otk-leader");
-  row.append(span("", label), editable("", { text: value, save, line: true }));
+  const field = editable("", { text: value, save: (typed) => save(typed, field), line: true });
+  row.append(span("", label), field);
   return row;
 }
 
@@ -192,22 +211,29 @@ function knobKeys(popup) {
 }
 
 async function setKnob(name, value) {
-  /* One knob, put. The slip is rebuilt from the answer rather than
-     patched: a setter may settle on a value the reader did not type,
-     and the read is the only thing that knows. A REFUSAL skips the
-     rebuild — a typed knob's editor must stay open with the words
-     still in it (`browser.editable` reads the flag) — and the rebuild
-     is awaited, so the guard on the click catches a redraw that fails
-     rather than leaving a stale slip with nobody told. */
+  /* A BUTTON's write — the ladder, a toggle. The slip is rebuilt from
+     the answer rather than patched: a setter may settle on a value the
+     reader did not choose, and the read is the only thing that knows.
+     A REFUSAL skips the rebuild, and the rebuild is awaited, so the
+     guard on the click catches a redraw that fails rather than leaving
+     a stale slip with nobody told. */
   const answer = await api.setSetting(name, value);
   if (!answer.refused) await openSettings(answer.notice);
   return answer;
 }
 
-async function setParameter(name, value) {
-  // An emptied field is the model's own default, which is an absence and
-  // has its own door. Refusals and the redraw as `setKnob` has them.
-  const answer = value ? await api.setParameter(name, value) : await api.resetParameter(name);
-  if (!answer.refused) await openSettings(answer.notice);
+async function typedKnob(field, write, stands) {
+  /* A typed FIELD's write: the request goes out, the footnote takes
+     the answer, and the slip stays as it is — the reader has left this
+     field for the next one, and a rebuild would take that one from
+     under them. This field alone is then settled to what the store
+     holds, read back rather than trusted: a number is normalised on
+     the way in ("32,000" lands as 32000, "0.70" as 0.7), and the field
+     must show what the file holds. A refusal is the field's own to
+     report (`browser.editable` reads the flag) and changes nothing. */
+  const answer = await write();
+  if (answer.refused) return answer;
+  footnote(popups.get("/set"), answer.notice);
+  field._settle(stands(await api.settings()));
   return answer;
 }

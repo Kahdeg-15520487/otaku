@@ -779,9 +779,7 @@ class Dossier(ListScreen):
         upto = self.msgs[self.turn_filtered[self.cursor]]
         self._land_on(self.story_id, upto.id, action)
 
-    def _land_on(
-        self, story_id: int, upto_id: int | None, action: api_stories.LandAction
-    ) -> None:
+    def _land_on(self, story_id: int, upto_id: int | None, action: api_stories.LandAction) -> None:
         """The landing itself: a story and a pick, the pick absent where
         there is nothing to pick — the list level resumes a story with
         nothing played without opening it."""

@@ -884,11 +884,13 @@ paths:
     patch:
       operationId: patchProvider
       tags: [Models]
-      summary: Save a provider's url or api key
+      summary: Save a provider's url or api key, or clear it
       description: |
         Sealed (keys), written surgically into providers.toml, live in
         the running registry at once. The key's value goes IN through
-        here and never comes back out through any read.
+        here and never comes back out through any read. An empty string
+        CLEARS the field — the url or the stored key is forgotten, file
+        and session both, as the terminal's Del does.
       requestBody:
         content:
           application/json:

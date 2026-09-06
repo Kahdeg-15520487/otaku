@@ -9,6 +9,7 @@ store, never on the screen.
 import base64
 import threading
 import time
+import tomllib
 from http.client import HTTPConnection
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -162,6 +163,20 @@ class TestReading:
         assert rows["openrouter"]["note"] == ""  # keyed: not asked yet
         assert rows["openrouter"]["money"] is None
         assert rows["nanogpt"]["note"]  # keyless: says which nothing it is
+
+    def test_an_emptied_provider_field_is_forgotten(self, page: Page) -> None:
+        # An empty value is the terminal's Del: the url or the stored key
+        # is cleared in the file and the session both. The page's Save
+        # sends a field as the reader left it, and nothing else could take
+        # a key out again.
+        page.patch("/api/providers/openrouter", {"api_key": "k-test"})
+        providers = page.root / "configs/providers.toml"
+        assert tomllib.loads(providers.read_text())["openrouter"]["api_key"]
+        answer = page.patch("/api/providers/openrouter", {"api_key": ""})
+        assert not answer.get("refused")
+        assert tomllib.loads(providers.read_text())["openrouter"]["api_key"] == ""
+        page.patch("/api/providers/test", {"url": ""})
+        assert tomllib.loads(providers.read_text())["test"]["url"] == ""
 
     def test_the_settings_read_carries_the_shared_effort_ladder(self, page: Page) -> None:
         # The order is declared ONCE, below both frontends — the page
