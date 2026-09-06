@@ -151,8 +151,10 @@ export const machine = () => get("/api/machine");
 // ---------- the session ----------
 
 export const facts = () => get("/api/session");
-/** Resume a story at a message. `discard` sets the later turns aside;
-    without it they stay in the database above the tail. */
+/** Resume a story at a message, or as it is when `message` is null — a
+    story with nothing played has none, and a resume never needed one.
+    `discard` sets the later turns aside; without it they stay in the
+    database above the tail. */
 export const setHead = (story, message, discard = false) =>
   put("/api/session/head", { story, message, discard });
 export const context = () => get("/api/session/context");

@@ -567,9 +567,14 @@ def _undo(session: Session) -> str:
 
 def _head(session: Session, ask: Ask) -> str:
     """Where the session is reading. `discard` sets the later turns
-    aside; without it they stay in the database above the tail."""
+    aside; without it they stay in the database above the tail. A resume
+    may name no message — a story with nothing played has none, and a
+    resume never used one — where discarding without one is malformed."""
     action: Any = "truncate" if ask.body.get("discard") else "resume"
-    return api_stories.land(session, int(ask.body["story"]), int(ask.body["message"]), action)
+    message = ask.body.get("message")
+    return api_stories.land(
+        session, int(ask.body["story"]), None if message is None else int(message), action
+    )
 
 
 def _premise(session: Session, ask: Ask) -> str:

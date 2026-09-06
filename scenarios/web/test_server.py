@@ -354,6 +354,23 @@ class TestWrites:
         recent = page.get("/api/history")["lines"]
         assert recent[:2] == ["/stories", "I listen at the culvert mouth."]
 
+    def test_a_story_with_nothing_played_is_resumed_by_its_id_alone(self, page: Page) -> None:
+        # Nothing played means no message to land on — and a resume never
+        # used one. Without this the browser's Continue had nothing to
+        # send, and a story started and left could only be deleted.
+        page.play("I listen at the culvert mouth.")
+        played = page.get("/api/session")["story_id"]
+        blank = page.sent("POST", "/api/stories", {"title": "Blank"})[2]["story"]
+        assert not page.put("/api/session/head", {"story": played}).get("refused")
+        assert page.get("/api/session")["story_id"] == played
+        assert not page.put("/api/session/head", {"story": blank}).get("refused")
+        assert page.get("/api/session")["story_id"] == blank
+        assert page.get("/api/play")["messages"] == []
+        # Discarding cuts AT a message: without one the request is malformed.
+        cut = f'{{"story": {played}, "discard": true}}'.encode()
+        assert page.status("/api/session/head", method="PUT", data=cut) == 400
+        assert page.get("/api/session")["story_id"] == blank
+
 
 class TestTheFlows:
     """The writes whose result outlives their request: a forced pass the

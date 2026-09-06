@@ -18,6 +18,9 @@ changes.
   dark, so both positions gave the same page while the knob sat at light beside a dark one. The
   knob now shows the theme in force, a click pins the other one in that browser, and the OS is
   followed only until that first click.
+- A story started and left with nothing played could not be entered again: on the page the
+  browser's Continue was off, and in the terminal Enter opened a dossier with nothing to pick.
+  Both now resume such a story by its id alone, and the landing line says nothing is played yet.
 
 ## [0.4.1] - 2026-09-03
 

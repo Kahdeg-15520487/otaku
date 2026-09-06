@@ -116,7 +116,15 @@ const ROUTES = {
   // The session
   "GET /api/session": () => store.facts(version),
   "PUT /api/session/head": (p, q, b) =>
-    store.land(num(b.story), num(b.message), b.discard ? "truncate" : "resume"),
+    // Cutting without a message to cut at is malformed, as the server
+    // answers it; a resume needs none.
+    b.message == null && b.discard
+      ? status(400)
+      : store.land(
+          num(b.story),
+          b.message == null ? null : num(b.message),
+          b.discard ? "truncate" : "resume",
+        ),
   "GET /api/session/context": () => store.context(),
   "GET /api/session/info": () => store.info(version),
   "GET /api/balance": () => store.balance(),

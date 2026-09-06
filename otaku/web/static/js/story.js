@@ -124,7 +124,8 @@ export async function confirmFork(run) {
 }
 
 /** The landing every "continue here" goes through — exported because the
-    level above (the story browser) lands the same way, at the tail. */
+    level above (the story browser) lands the same way, with no message:
+    a resume takes the story as it is, and a fork copies from its head. */
 export async function land(storyId, messageId, action) {
   /* Resuming and setting aside MOVE the session's head; forking MAKES a
      story, so it is a creation on the story it copies. */
