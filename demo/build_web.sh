@@ -3,21 +3,23 @@
 # for byte) plus the demo's own files, with one script tag injected into
 # a copy of index.html — the product's file is never touched.
 #
-#   demo/build_web.sh [target-dir]     (default dist/demo-web)
+#   demo/build_web.sh <target-dir>
 #
-# The two demos build alike: demo/web here, demo/terminal through
-# demo/build_terminal.sh, each into its own dist/demo-* folder. The
-# target is plain static files: any static host serves it as it is,
-# and whatever a site lays over the page — its own headers, its own
-# scripts — is that site's to add after the build.
+# One PIECE of the demos' one procedure, which is the site repo's
+# demos/build.sh: that regenerates the fixtures (demo/capture_fixtures_web.py,
+# committed here so a payload change reviews as a diff), runs this and
+# demo/build_terminal.sh into the site's own folders, and decorates. Nothing
+# is built inside this repo — the target is always named. It is plain static
+# files: any static host serves it as it is, and whatever a site lays over
+# the page — its own headers, its own scripts — is that site's to add.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-TARGET="${1:-dist/demo-web}"
+TARGET="${1:?usage: demo/build_web.sh <target-dir>}"
 STATIC="otaku/web/static"
 
 [ -f demo/web/fixtures/river.json ] || {
-  echo "demo/web/fixtures/ is missing — run: conda run -n otaku python demo/capture_fixtures_web.py" >&2
+  echo "demo/web/fixtures/ is missing — run demo/capture_fixtures_web.py with the otaku environment's python" >&2
   exit 1
 }
 

@@ -7,15 +7,17 @@
 //
 //   cd demo/terminal && npm install pyodide@0.28.2 && node smoke.mjs
 //
-// Wheels come from the build's cache — run demo/build_terminal.sh
-// once first (it builds otaku's wheel and downloads prompt_toolkit's).
+// Wheels come from the build's cache, the DEMO_CACHE demo/build_terminal.sh
+// filled (it builds otaku's wheel and downloads prompt_toolkit's) — the
+// site's demos/build.sh runs the build and then this over the same cache.
 import { loadPyodide } from "pyodide";
 import { readFileSync, readdirSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const cache = join(here, "../../dist/.demo-terminal-cache");
+const cache = process.env.DEMO_CACHE;
+if (!cache) throw new Error("set DEMO_CACHE to the directory demo/build_terminal.sh cached into");
 const wheel = (prefix) => {
   const name = readdirSync(cache).find((f) => f.startsWith(prefix) && f.endsWith(".whl"));
   if (!name) throw new Error(`no ${prefix}*.whl in ${cache} — run demo/build_terminal.sh`);
