@@ -10,6 +10,7 @@ import httpx
 import pytest
 
 from otaku.backend.paths import Paths
+from otaku.providers.clients.omlx import OmlxClient
 from otaku.settings import config as config_mod
 from otaku.settings import providers as providers_mod
 from otaku.settings import write_atomic
@@ -52,3 +53,36 @@ def require_env(name: str) -> str:
     if not value:
         pytest.skip(f"{name} is not set")
     return value
+
+
+def case_key(engine: str, var: str, required: frozenset[str] | set[str]) -> str:
+    """The key an engine's case carries: required for a catalog (pytest
+    skips without it), optional for an engine that may or may not demand
+    one, the one omlx's own autoconfiguration reads off the machine, none
+    for the rest."""
+    if engine == "omlx":
+        return OmlxClient.autoconfigure().api_key
+    if not var:
+        return ""
+    return require_env(var) if var in required else os.environ.get(var, "")
+
+
+def case_model(engine: str, url: str, key: str, named: str) -> str:
+    """The model a case plays, the server probed first — a server that is
+    down skips the case, as the engine's own module skips. omlx plays a
+    LOADED model unless one is named (its listing carries the unloaded
+    too, and a smoke does not wait on a load); the rest play the named
+    one, else the first the endpoint lists."""
+    if engine == "omlx":
+        try:
+            rows = OmlxClient(ProviderConfig(name="omlx", url=url, api_key=key)).models(timeout=5.0)
+        except Exception:
+            pytest.skip(f"no server at {url}")
+        loaded = [row.name for row in rows if row.loaded]
+        if named:
+            return named
+        if not loaded:
+            pytest.skip("no model loaded in omlx")
+        return loaded[0]
+    first = first_model(url, key)
+    return named or first
