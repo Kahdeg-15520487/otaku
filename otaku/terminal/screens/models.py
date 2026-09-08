@@ -41,6 +41,7 @@ under the new configuration.
 import contextlib
 import threading
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -77,6 +78,24 @@ from otaku.terminal.screens.base import ListScreen, base_style, bordered_box, te
 from otaku.terminal.tty import clipboard, latin_key
 from otaku.terminal.tty.spinner import FRAMES as SPINNER_FRAMES
 from otaku.terminal.tty.theme import theme
+
+
+def cursor_line(rows: Sequence[Any], cursor: int) -> int:
+    """The visual row of `cursor` in the models list as `_items_text` draws
+    `rows`: a caption and a blank above each provider's group, a blank
+    between groups. A cursor past the rows (a list a refresh shortened
+    under it) lands on the last row; an empty list is row 0."""
+    line = 0
+    prev: str | None = None
+    last = min(cursor, len(rows) - 1)
+    for i, entry in enumerate(rows[: last + 1]):
+        if entry.provider_name != prev:
+            line += 2 if prev is None else 3  # (group gap +) caption + blank
+            prev = entry.provider_name
+        if i == last:
+            return line
+        line += 1
+    return 0
 
 
 def pick(session: Session, initial_spec: str | None = None) -> str | None:
@@ -203,6 +222,7 @@ class ModelPicker(ListScreen):
         self.all: list[ModelEntry] = list(entries)
         self.filtered: list[ModelEntry] = list(entries)
         self._initial_spec = initial_spec
+        self._drawn_cursor_line = 0
 
         # The provider panel (the right side): the walkable field list —
         # two rows per engine, except the cloud catalogs whose url is
@@ -305,8 +325,13 @@ class ModelPicker(ListScreen):
 
     def _items_text(self) -> StyleAndTextTuples:
         # One snapshot for the whole frame: a background refresh swaps
-        # self.filtered, and the column lists must match the row loop.
+        # self.filtered, and the column lists must match the row loop —
+        # the cursor's visual row included, which the control asks for
+        # right after the text and must find inside it (a row computed
+        # on a list swapped in between once pointed past the text drawn,
+        # and prompt_toolkit's IndexError took the screen down).
         rows = self.filtered
+        self._drawn_cursor_line = cursor_line(rows, self.cursor)
         if not rows:
             # An empty list while a provider is still answering is not an
             # answer — it is the question, not yet returned. Saying "no
@@ -364,18 +389,9 @@ class ModelPicker(ListScreen):
         return out
 
     def _cursor_line(self) -> int:
-        """Visual row of the cursor, counting the caption and blank lines
-        `_items_text` renders around each provider group."""
-        line = 0
-        prev: str | None = None
-        for i, entry in enumerate(self.filtered[: self.cursor + 1]):
-            if entry.provider_name != prev:
-                line += 2 if prev is None else 3  # (group gap +) caption + blank
-                prev = entry.provider_name
-            if i == self.cursor:
-                return line
-            line += 1
-        return line
+        """Visual row of the cursor as the LAST paint drew it — the
+        control reads this after `_items_text`, over the same rows."""
+        return self._drawn_cursor_line
 
     def _help_text(self) -> StyleAndTextTuples:
         if self.editing:

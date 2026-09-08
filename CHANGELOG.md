@@ -5,6 +5,30 @@ All notable changes to otaku are documented in this file. The format is based on
 [Semantic Versioning](https://semver.org/) — while pre-1.0, minor releases may include breaking
 changes.
 
+## [0.4.3] - 2026-09-08
+
+**TL;DR**
+
+Bug fixes.
+
+### Fixed
+
+- `/set think none` did not stop a thinking model on llama.cpp: its server ignores
+  `reasoning_effort`, the one knob otaku sent, and reads only the chat template's flag — which
+  the Generic OpenAI provider never sent, and the llama.cpp provider, sending nothing, left at
+  the model's own default, where Gemma 4 thinks when it likes. The local engines and the generic
+  provider now send both knobs with every think setting, so "none" lands on whichever one the
+  server obeys, and llama.cpp takes the levels too.
+- The terminal's model picker could go down with an IndexError while it painted, when a
+  provider's answer landed between the list being drawn and its cursor row being asked for —
+  the row was computed on the fresh list and pointed past the text. The row is now computed on
+  the same rows as the text, and a cursor a refresh left past the list lands on its last row.
+- In the web UI's dossier, picking a scene or a character in the index beside the messages,
+  scenes and cast tabs scrolled that index back to its top, losing the reader's place in a long
+  one, and a tab switched away from and back opened on its first row rather than the one the
+  reader had picked. The tabs are now built once per opening and stand as they are left: the
+  index keeps its scroll, the pick stays, and an editor left open is still open on return.
+
 ## [0.4.2] - 2026-09-06
 
 **TL;DR**

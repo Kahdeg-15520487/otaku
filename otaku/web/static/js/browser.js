@@ -66,12 +66,13 @@ function report(sentence, kind = "otk-error") {
   tell(sentence, kind);
 }
 
-/** One live wiring per popup: a screen built again — a tab, a lens, a
-    save — drops the last one's listeners before adding its own. The
-    controller hangs on the popup, which is what outlives the call. */
-export function wiring(popup) {
-  popup._wiring?.abort();
-  return (popup._wiring = new AbortController()).signal;
+/** One live wiring per OWNER — a popup, or one pane of a tabbed popup
+    whose tabs stand at once: a screen built again — a lens, a save —
+    drops the last one's listeners before adding its own. The controller
+    hangs on the owner, which is what outlives the call. */
+export function wiring(owner) {
+  owner._wiring?.abort();
+  return (owner._wiring = new AbortController()).signal;
 }
 
 /** The filter's keys, wired ONCE for every screen that has one. The Esc
@@ -126,7 +127,9 @@ export function browser(popup, options) {
   let cursor = 0;
   let filtering = "";
 
-  const signal = wiring(popup);
+  // Owned by the pane when there is one: the dossier's tabs are built
+  // once and stand together, so one tab's list must not unwire another's.
+  const signal = wiring(root);
 
   /* Two steps, and the split is what makes a double click possible: rows
      are BUILT when the data changes and only MARKED when the cursor
@@ -214,6 +217,9 @@ export function browser(popup, options) {
   popup.addEventListener(
     "keydown",
     (event) => {
+      // A list in a pane that is not the one shown keeps its listeners
+      // and answers nothing: the keys belong to the tab in front.
+      if (root !== popup && root.hidden) return;
       /* Esc reaching here found the filter empty (`wireFilter` consumed
          it otherwise): what is left inside is a drill-in's way back,
          and past that the popup itself, which `app.js` closes. */

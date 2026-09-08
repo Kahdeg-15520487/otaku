@@ -4,10 +4,13 @@
 # plus everything they load, all self-hosted so the deployed directory
 # is one origin and works offline:
 #
-#   demo/build_terminal.sh [target-dir]     (default dist/demo-terminal)
+#   DEMO_CACHE=<dir> demo/build_terminal.sh <target-dir>
 #
-# The two demos build alike: demo/terminal here, demo/web through
-# demo/build_web.sh, each into its own dist/demo-* folder.
+# One PIECE of the demos' one procedure, the site repo's demos/build.sh
+# (see demo/build_web.sh): the target is always named, and the downloads
+# — pyodide, xterm.js, the wheels — are cached where DEMO_CACHE says,
+# never inside this repo; delete that directory to refetch. RUN names the
+# python that builds otaku's wheel (the otaku environment's).
 #
 # The page uses SharedArrayBuffer, so wherever it is deployed the two
 # isolation headers must ride along on every response under it:
@@ -20,12 +23,11 @@
 # locally. As with the web demo, whatever else a site lays over the
 # page is that site's to add after the build.
 #
-# Downloads are cached in dist/.demo-terminal-cache; delete it to refetch.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-TARGET="${1:-dist/demo-terminal}"
-CACHE="dist/.demo-terminal-cache"
+TARGET="${1:?usage: DEMO_CACHE=<dir> demo/build_terminal.sh <target-dir>}"
+CACHE="${DEMO_CACHE:?set DEMO_CACHE to the downloads directory (outside this repo)}"
 PYODIDE_VERSION="0.28.2"
 PYODIDE_CDN="https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full"
 XTERM_VERSION="5.5.0"

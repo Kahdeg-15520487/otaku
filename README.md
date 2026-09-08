@@ -102,9 +102,11 @@ are given as they are called from the terminal.
 
 ### Launching
 
+In the terminal, type one of the 2 commands:
+
 ```bash
-otaku      # for terminal
-otaku web  # for web UI; default URL is http://localhost:9600
+otaku          # for terminal
+otaku web      # for web UI; default URL is http://localhost:9600
 ```
 
 On first start, you choose a provider and a model: otaku automatically detects local LLM

@@ -1,7 +1,7 @@
 """omlx: an MLX model server speaking the OpenAI protocol for chat, with
 its own model registry and load/unload surface under /v1/models."""
 
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import quote
 
 import httpx
@@ -68,13 +68,9 @@ class OmlxClient(ManagedClient):
             )
         return sorted(rows, key=lambda row: row.name)
 
-    def _apply_thinking(self, body: dict[str, object], think: str | None) -> None:
-        # omlx ignores `reasoning_effort`; thinking is gated by the chat
-        # template's `enable_thinking` flag. A level enables, "none"
-        # disables, None leaves the model's template default.
-        if think is None:
-            return
-        body["chat_template_kwargs"] = {"enable_thinking": think != "none"}
+    # omlx ignores `reasoning_effort`: thinking is gated by the chat
+    # template's flag alone.
+    thinking_knobs: ClassVar[tuple[str, ...]] = ("enable_thinking",)
 
     def _fetch_context_size(self, model: str) -> int | None:
         for entry in self._status_models(timeout=1.5):

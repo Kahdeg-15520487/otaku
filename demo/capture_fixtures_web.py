@@ -35,9 +35,31 @@ FIXTURES = Path(__file__).resolve().parent / "web" / "fixtures"
 WINDOW = 32768
 
 
+# Every timestamp in a payload is pinned to this instant, so a rerun over
+# an unchanged tree writes the same bytes: the samples are seeded at launch,
+# and their clock would otherwise move with every capture.
+PINNED_AT = "2026-01-01T00:00:00+00:00"
+
+
+def pin_timestamps(payload):
+    """`payload` with every `*_at` string set to PINNED_AT, recursively."""
+    if isinstance(payload, dict):
+        return {
+            k: (PINNED_AT if k.endswith("_at") and isinstance(v, str) else pin_timestamps(v))
+            for k, v in payload.items()
+        }
+    if isinstance(payload, list):
+        return [pin_timestamps(v) for v in payload]
+    return payload
+
+
 def main() -> None:
     server = ModelServer(managed=True)
     server.contexts["test-model"] = WINDOW
+    # A model's window is read off /api/ps, the LOADED models (the Ollama
+    # client since 0.4.1): unloaded, the session budgets on the assembler's
+    # default and the tour does not fit. So the harness holds it loaded.
+    server.loaded.add("test-model")
     try:
         with tempfile.TemporaryDirectory(prefix="otaku-demo-fixtures-") as root_str:
             root = Path(root_str)
@@ -97,7 +119,7 @@ def main() -> None:
 
             FIXTURES.mkdir(parents=True, exist_ok=True)
             for name, payload in fixtures.items():
-                text = json.dumps(payload, ensure_ascii=False, indent=1)
+                text = json.dumps(pin_timestamps(payload), ensure_ascii=False, indent=1)
                 # The throwaway root must not reach a committed file — nor
                 # would any real path belong in a payload the page seeds from.
                 scrubbed = text.replace(root_str, "~/.otaku").replace(str(Path.home()), "~")
