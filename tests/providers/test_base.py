@@ -9,13 +9,51 @@ guess."""
 
 from dataclasses import dataclass
 
-from otaku.providers.base import _cache_marked, _cached_count
+from otaku.providers.base import OpenAIClient, _cache_marked, _cached_count
+from otaku.settings.providers import ProviderConfig
 
 
 @dataclass(frozen=True)
 class Turn:
     role: str
     body: str
+
+
+class TestApplyThinking:
+    """The think setting onto the request, by the knobs a client declares
+    (`thinking_knobs`): the OpenAI effort, the template flag, or both — and
+    nothing at all for "default" or for an engine without the knob."""
+
+    def test_the_openai_knob_carries_the_level_and_none(self) -> None:
+        client = _client(("reasoning_effort",))
+        assert _sent(client, "low") == {"reasoning_effort": "low"}
+        assert _sent(client, "none") == {"reasoning_effort": "none"}
+
+    def test_the_template_flag_enables_for_a_level_and_disables_for_none(self) -> None:
+        client = _client(("enable_thinking",))
+        assert _sent(client, "high") == {"chat_template_kwargs": {"enable_thinking": True}}
+        assert _sent(client, "none") == {"chat_template_kwargs": {"enable_thinking": False}}
+
+    def test_both_knobs_go_together(self) -> None:
+        # Ollama obeys the effort and ignores the flag; llama.cpp and oMLX
+        # the other way round — sent together, "none" lands on either.
+        client = _client(("reasoning_effort", "enable_thinking"))
+        assert _sent(client, "none") == {
+            "reasoning_effort": "none",
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
+        assert _sent(client, "medium") == {
+            "reasoning_effort": "medium",
+            "chat_template_kwargs": {"enable_thinking": True},
+        }
+
+    def test_default_sends_nothing(self) -> None:
+        assert _sent(_client(("reasoning_effort", "enable_thinking")), None) == {}
+
+    def test_an_engine_without_the_knob_gets_nothing_whatever_the_setting(self) -> None:
+        client = _client(("reasoning_effort", "enable_thinking"), supports=False)
+        assert _sent(client, "none") == {}
+        assert _sent(client, "high") == {}
 
 
 class TestCacheMarked:
@@ -85,3 +123,19 @@ class TestCachedCount:
     def test_anything_else_is_none(self) -> None:
         assert _cached_count({"prompt_tokens": 9}) is None
         assert _cached_count({"prompt_tokens_details": {"cached_tokens": "4"}}) is None
+
+
+def _client(knobs: tuple[str, ...], *, supports: bool = True) -> OpenAIClient:
+    """A client declaring `knobs`, the way each engine's class does."""
+
+    class Client(OpenAIClient):
+        supports_thinking = supports
+        thinking_knobs = knobs
+
+    return Client(ProviderConfig(name="test", url="http://localhost:1/v1"))
+
+
+def _sent(client: OpenAIClient, think: str | None) -> dict[str, object]:
+    body: dict[str, object] = {}
+    client._apply_thinking(body, think)
+    return body

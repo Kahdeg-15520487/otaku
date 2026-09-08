@@ -97,12 +97,22 @@ class TestThink:
         relaunched.close()
 
     def test_the_level_rides_the_wire_and_default_sends_nothing(self, app: App) -> None:
+        # The scripted server is a generic provider, whose url could name
+        # a local engine as well as a catalog: both knobs go out.
         app.play("/set think low")
         app.play("I enter the hall.")
-        assert app.server.requests[-1]["reasoning_effort"] == "low"
+        body = app.server.requests[-1]
+        assert body["reasoning_effort"] == "low"
+        assert body["chat_template_kwargs"] == {"enable_thinking": True}
+        app.play("/set think none")
+        app.play("I listen.")
+        body = app.server.requests[-1]
+        assert body["reasoning_effort"] == "none"
+        assert body["chat_template_kwargs"] == {"enable_thinking": False}
         app.play("/set think default")
         app.play("I look around.")
         assert "reasoning_effort" not in app.server.requests[-1]
+        assert "chat_template_kwargs" not in app.server.requests[-1]
 
     def test_a_400_to_the_knob_retries_once_without_it(self, app: App) -> None:
         # Engines differ on the knob: a reasoning-mandatory model refuses
@@ -130,6 +140,26 @@ class TestThink:
         # ...so the next turn's context carries no thinking either.
         app.play("I look around.")
         assert "consider" not in str(app.server.requests[-1]["messages"])
+
+    def test_llamacpp_gets_both_knobs_and_none_turns_the_flag_off(self, server, tmp_path) -> None:
+        # llama.cpp's server ignores reasoning_effort and reads the template
+        # flag alone; its template allows thinking by default, so with
+        # nothing sent the model thinks when it likes. The flag rides along.
+        set_config_provider(tmp_path / "state", server, name="llamacpp")
+        app = launch(tmp_path / "state", server, spec="llamacpp/test-model")
+        try:
+            app.play("/set think none")
+            app.play("I enter the hall.")
+            body = app.server.requests[-1]
+            assert body["reasoning_effort"] == "none"
+            assert body["chat_template_kwargs"] == {"enable_thinking": False}
+            app.play("/set think high")
+            app.play("I look around.")
+            body = app.server.requests[-1]
+            assert body["reasoning_effort"] == "high"
+            assert body["chat_template_kwargs"] == {"enable_thinking": True}
+        finally:
+            app.close()
 
     def test_omlx_translates_the_level_to_its_template_flag(self, server, tmp_path) -> None:
         # omlx ignores reasoning_effort; thinking is gated by the chat
@@ -159,7 +189,7 @@ class TestThink:
         plain = launch(tmp_path / "state", server, spec="koboldcpp/test-model")
         try:
             plain.play("/set think high")
-            assert "not supported" in capsys.readouterr().out
+            assert "cannot be set" in capsys.readouterr().out
             assert plain.session.think != "high"
         finally:
             plain.close()

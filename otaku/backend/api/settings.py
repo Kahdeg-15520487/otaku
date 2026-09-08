@@ -42,7 +42,7 @@ def set_think(session: Session, raw: str) -> str:
     if client is None:
         raise Refused(NO_MODEL_HINT)
     if value != "none" and not client.supports_thinking:
-        raise Refused(f"Thinking is not supported by provider {session.provider!r}.")
+        raise Refused(f"Thinking level cannot be set on {session.provider}.")
     session._update_state(think=value)
     return f"Think: {value}."
 

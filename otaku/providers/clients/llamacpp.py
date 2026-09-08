@@ -9,7 +9,9 @@ from otaku.settings.providers import ProviderConfig
 class LlamaCppClient(LocalSingleClient):
     kind = "llamacpp"
     label = "llama.cpp"
-    supports_thinking = False  # no request-level knob; thinking is model-baked
+    # Thinking rides the two knobs the base sends a local engine: llama.cpp
+    # ignores `reasoning_effort` and reads the template flag alone — and its
+    # template allows thinking by default, so nothing sent means "sometimes".
 
     @classmethod
     def autoconfigure(cls) -> ProviderConfig:

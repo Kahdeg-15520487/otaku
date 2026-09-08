@@ -9,6 +9,12 @@ changes.
 
 ### Fixed
 
+- `/set think none` did not stop a thinking model on llama.cpp: its server ignores
+  `reasoning_effort`, the one knob otaku sent, and reads only the chat template's flag — which
+  the Generic OpenAI provider never sent, and the llama.cpp provider, sending nothing, left at
+  the model's own default, where Gemma 4 thinks when it likes. The local engines and the generic
+  provider now send both knobs with every think setting, so "none" lands on whichever one the
+  server obeys, and llama.cpp takes the levels too.
 - In the web UI's dossier, picking a scene or a character in the index beside the messages,
   scenes and cast tabs scrolled that index back to its top, losing the reader's place in a long
   one, and a tab switched away from and back opened on its first row rather than the one the

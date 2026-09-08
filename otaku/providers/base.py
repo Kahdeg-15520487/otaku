@@ -159,6 +159,13 @@ class OpenAIClient:
     # `reasoning_effort`, so the base says yes; engines where thinking is
     # baked into the model declare False, and /set think refuses levels.
     supports_thinking: ClassVar[bool] = True
+    # The request fields a think setting goes out on. `reasoning_effort`
+    # is OpenAI's, which the hosted catalogs and Ollama read (Ollama
+    # ignores the flag); `enable_thinking` is the chat template's flag,
+    # sent in `chat_template_kwargs`, which llama.cpp's server and oMLX
+    # read (both ignore the effort). A local engine gets BOTH, so "none"
+    # lands on whichever of the two its server obeys.
+    thinking_knobs: ClassVar[tuple[str, ...]] = ("reasoning_effort",)
     # Where the server runs (see `Locality`). The protocol alone cannot
     # say, so the base says UNKNOWN; the engine bases below know.
     locality: ClassVar[Locality] = Locality.UNKNOWN
@@ -461,11 +468,17 @@ class OpenAIClient:
         )
 
     def _apply_thinking(self, body: dict[str, object], think: str | None) -> None:
-        """Translate the think setting into the request. Base = OpenAI-style
-        `reasoning_effort`: a level enables it, "none" actively disables it,
-        None sends nothing and leaves the engine's default."""
-        if think and self.supports_thinking:
+        """Translate the think setting into the request, on every knob the
+        engine reads (`thinking_knobs`): a level enables thinking and names
+        the effort, "none" actively disables it, None sends nothing and
+        leaves the engine's default. An engine without the knob gets
+        nothing whatever the setting."""
+        if not think or not self.supports_thinking:
+            return
+        if "reasoning_effort" in self.thinking_knobs:
             body["reasoning_effort"] = think
+        if "enable_thinking" in self.thinking_knobs:
+            body["chat_template_kwargs"] = {"enable_thinking": think != "none"}
 
     # ---------- passive introspection (native APIs; defaults = unknown) ----------
 
@@ -531,6 +544,7 @@ class LocalSingleClient(OpenAIClient):
     at one probe rather than one per name, each a full round trip."""
 
     locality = Locality.LOCAL
+    thinking_knobs: ClassVar[tuple[str, ...]] = ("reasoning_effort", "enable_thinking")
 
     def _list(self, timeout: float) -> list[ModelInfo]:
         names = self._model_names(timeout)
@@ -550,6 +564,7 @@ class ManagedClient(OpenAIClient, ABC):
     load/unload exactly when a client is one of these."""
 
     locality = Locality.LOCAL
+    thinking_knobs: ClassVar[tuple[str, ...]] = ("reasoning_effort", "enable_thinking")
 
     @abstractmethod
     def load_model(self, model: str) -> None: ...
