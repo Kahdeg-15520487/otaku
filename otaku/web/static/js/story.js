@@ -28,7 +28,6 @@ import {
   footnote,
   guard,
   popups,
-  wiring,
 } from "./browser.js";
 import { $, $$, actionButton, element, pickFile, row, span } from "./dom.js";
 import { ago, excerpt, label } from "./format.js";
@@ -88,6 +87,15 @@ export async function openStory({
     premise: opened?.premise ?? "",
     memory: opened && !opened.notice ? opened : null,
     refused: opened?.notice ?? "",
+    /* Each tab is built ONCE per opening and then stands — its rail's
+       scroll, its selection, an editor left open — so a tab switched
+       away from and back is exactly as it was left. `built` says which
+       are up; `select[tab]` is how a built tab takes a target in place;
+       `footnotes[tab]` is the line under it, reapplied on a switch. A
+       save reopens the dossier on fresh data, which is the one rebuild. */
+    built: new Set(),
+    select: {},
+    footnotes: {},
   };
 
   for (const button of $$(".otk-tab", popup)) {
@@ -147,10 +155,32 @@ function show(view, tab, targetId = null) {
     pane.hidden = pane.dataset.pane !== tab;
   }
   const pane = $(`[data-pane="${tab}"]`, view.popup);
-  if (tab === "messages") buildMessages(view, pane, targetId);
-  else if (tab === "scenes") buildScenes(view, pane, targetId);
-  else if (tab === "cast") buildCast(view, pane, targetId);
-  else buildPremise(view, pane);
+  if (!view.built.has(tab)) {
+    view.built.add(tab);
+    if (tab === "messages") buildMessages(view, pane, targetId);
+    else if (tab === "scenes") buildScenes(view, pane, targetId);
+    else if (tab === "cast") buildCast(view, pane, targetId);
+    else buildPremise(view, pane);
+    return;
+  }
+  // Up already: a target (a save's row, a pivot) is selected in place,
+  // and without one the tab is exactly as it was left.
+  if (targetId !== null) view.select[tab]?.(targetId);
+  footnote(view.popup, view.footnotes[tab] ?? "");
+}
+
+/** The line under a tab, kept so a switch back to it says it again. */
+function tabNote(view, tab, text) {
+  view.footnotes[tab] = text;
+  footnote(view.popup, text);
+}
+
+/** The rail's mark moved to one item — a pick, or a target — with the
+    rail itself standing as built. */
+function markRail(rail, id) {
+  for (const item of $$(".otk-index__item[data-id]", rail)) {
+    item.setAttribute("aria-selected", String(item.dataset.id === String(id)));
+  }
 }
 
 /** Reopen this dossier after a write, on the same tab, carrying what
@@ -169,15 +199,18 @@ function reopen(view, tab, notice, target = null) {
 
 // ---------- messages: index rail, one line a turn, a reader ----------
 
-function buildMessages(view, pane, targetId = null, sceneId = null) {
-  /* The index beside the list JUMPS WITHIN it: picking a scene selects
-     its first message — the reader asked where something is, not for
-     another tab. A scene whose span fell off the chain has no first
-     message and the pick does nothing. */
-  sceneIndex(view, $("[data-index]", pane), sceneId, {
+function buildMessages(view, pane, targetId = null) {
+  /* Built once. The index beside the list JUMPS WITHIN it: picking a
+     scene selects its first message — the reader asked where something
+     is, not for another tab. A scene whose span fell off the chain has
+     no first message and the pick does nothing. */
+  const rail = $("[data-index]", pane);
+  sceneIndex(view, rail, null, {
     onPick: (scene) => {
       const first = sceneStart(view, scene);
-      if (first !== null) buildMessages(view, pane, first, scene.id);
+      if (first === null) return;
+      markRail(rail, scene.id);
+      view.select.messages(first);
     },
   });
   const rows = view.messages.map((message, i) => ({
@@ -186,7 +219,7 @@ function buildMessages(view, pane, targetId = null, sceneId = null) {
     last: i === view.messages.length - 1,
     haystack: `${message.body} ${message.speaker ?? ""}`.toLowerCase(),
   }));
-  footnote(view.popup, `${rows.length} ${rows.length === 1 ? "message" : "messages"}`);
+  tabNote(view, "messages", `${rows.length} ${rows.length === 1 ? "message" : "messages"}`);
   if (!rows.length) $("[data-actions]", pane).replaceChildren();
   // `e` is the keyboard's way to the same verb the pointer takes.
   const edit = () => $("[data-detail] .otk-edit__verb--edit", pane)?.click();
@@ -211,7 +244,8 @@ function buildMessages(view, pane, targetId = null, sceneId = null) {
         ? { line: "No turn matches that.", hint: `clear the filter to see all ${rows.length}` }
         : { line: "Nothing played yet.", hint: "continue this story to play into it" },
   });
-  if (targetId !== null) list.select((message) => message.id === targetId);
+  view.select.messages = (id) => list.select((message) => message.id === id);
+  if (targetId !== null) view.select.messages(targetId);
 }
 
 /** The id of a scene's first message on the current chain — null when
@@ -351,15 +385,24 @@ async function askLanding(view, message) {
 // ---------- scenes: index, reading column, apparatus margin ----------
 
 function buildScenes(view, pane, sceneId = null) {
-  wiring(view.popup);
+  /* Built once: the rail stands, and a pick is a selection — the rail
+     re-marked, the reading and the margin redrawn for that scene — so
+     the rail keeps its scroll and the tab its pick. */
   const scenes = view.memory?.scenes ?? [];
-  footnote(view.popup, `${scenes.length} ${scenes.length === 1 ? "scene" : "scenes"}`);
+  tabNote(view, "scenes", `${scenes.length} ${scenes.length === 1 ? "scene" : "scenes"}`);
+  const rail = $("[data-index]", pane);
+  sceneIndex(view, rail, null, { onPick: (picked) => view.select.scenes(picked.id) });
+  view.select.scenes = (id) => {
+    const scene = scenes.find((entry) => entry.id === id) ?? scenes[0];
+    markRail(rail, scene?.id ?? null);
+    drawScene(view, pane, scene);
+  };
+  view.select.scenes(sceneId);
+}
+
+function drawScene(view, pane, scene) {
   const reading = $("[data-reading]", pane);
   const margin = $("[data-margin]", pane);
-  const scene = scenes.find((entry) => entry.id === sceneId) ?? scenes[0];
-  sceneIndex(view, $("[data-index]", pane), scene?.id ?? null, {
-    onPick: (picked) => buildScenes(view, pane, picked.id),
-  });
   if (!scene) {
     reading.replaceChildren(
       element(
@@ -423,6 +466,7 @@ function sceneIndex(view, rail, currentId, { onPick }) {
   for (const scene of scenes) {
     const item = element("button", "otk-index__item");
     item.type = "button";
+    item.dataset.id = String(scene.id);
     if (scene.id === currentId) item.setAttribute("aria-selected", "true");
     item.append(
       span("otk-index__title", scene.title || "(untitled scene)"),
@@ -476,32 +520,39 @@ function extractBlock(view) {
 // ---------- cast: the same pane with the fields transposed ----------
 
 function buildCast(view, pane, characterId = null) {
-  wiring(view.popup);
+  /* Built once, like the scenes tab: the rail stands and a pick is a
+     selection. */
   const cast = view.memory?.characters ?? [];
-  footnote(view.popup, `${cast.length} ${cast.length === 1 ? "character" : "characters"}`);
+  tabNote(view, "cast", `${cast.length} ${cast.length === 1 ? "character" : "characters"}`);
   const rail = $("[data-index]", pane);
-  const reading = $("[data-reading]", pane);
-  const margin = $("[data-margin]", pane);
-  const character = cast.find((entry) => entry.id === characterId) ?? cast[0];
-
   const head = element("div", "otk-index__head");
   head.append(span("otk-label", "Cast"), span("otk-index__sub otk-push", String(cast.length)));
   const list = element("div", "otk-index__list");
   for (const entry of cast) {
     const item = element("button", "otk-index__item");
     item.type = "button";
-    if (entry.id === (character?.id ?? null)) item.setAttribute("aria-selected", "true");
+    item.dataset.id = String(entry.id);
     item.append(
       span("otk-index__title", entry.name),
       span("otk-index__sub", inScenes(entry)),
     );
-    item.onclick = guard(() => buildCast(view, pane, entry.id));
+    item.onclick = guard(() => view.select.cast(entry.id));
     list.append(item);
   }
   const parts = [head, list];
   if (view.inside) parts.push(extractBlock(view));
   rail.replaceChildren(...parts);
+  view.select.cast = (id) => {
+    const character = cast.find((entry) => entry.id === id) ?? cast[0];
+    markRail(rail, character?.id ?? null);
+    drawCharacter(view, pane, character);
+  };
+  view.select.cast(characterId);
+}
 
+function drawCharacter(view, pane, character) {
+  const reading = $("[data-reading]", pane);
+  const margin = $("[data-margin]", pane);
   if (!character) {
     reading.replaceChildren(
       element(
@@ -726,8 +777,7 @@ function derivedRow(key, flag, valueNode) {
 // ---------- premise: one long text, and the two ways it gets there ----------
 
 function buildPremise(view, pane) {
-  wiring(view.popup);
-  footnote(view.popup, "sent as the system message");
+  tabNote(view, "premise", "sent as the system message");
   /* The premise is a field like every other on this dossier: inert
      until `edit` is taken, closed by `save` or `cancel` alone. */
   const field = editable("otk-premise__body", {

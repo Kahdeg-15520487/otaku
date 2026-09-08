@@ -5,6 +5,16 @@ All notable changes to otaku are documented in this file. The format is based on
 [Semantic Versioning](https://semver.org/) — while pre-1.0, minor releases may include breaking
 changes.
 
+## [0.4.3] - [planned]
+
+### Fixed
+
+- In the web UI's dossier, picking a scene or a character in the index beside the messages,
+  scenes and cast tabs scrolled that index back to its top, losing the reader's place in a long
+  one, and a tab switched away from and back opened on its first row rather than the one the
+  reader had picked. The tabs are now built once per opening and stand as they are left: the
+  index keeps its scroll, the pick stays, and an editor left open is still open on return.
+
 ## [0.4.2] - 2026-09-06
 
 **TL;DR**
