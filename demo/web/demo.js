@@ -51,7 +51,7 @@ const ROUTES = {
   "POST /api/stories": (p, q, b) =>
     made(
       b.import
-        ? importDocument(String(b.import.text ?? ""), String(b.import.name ?? ""))
+        ? importDocument(String(b.import.text ?? ""), String(b.import.name ?? ""), String(b.title ?? ""))
         : store.newStory(String(b.title ?? "")),
     ),
   "GET /api/stories/{story}": (p) => store.story(num(p.story)),
@@ -191,7 +191,7 @@ function stopExtract() {
   return { notice: extraction.report };
 }
 
-function importDocument(text, name) {
+function importDocument(text, name, title = "") {
   if (!name.toLowerCase().endsWith(".txt")) {
     return {
       notice: `Only plain-text imports work in the demo — ${store.INSTALL} (SillyTavern chats and otaku exports included).`,
@@ -205,7 +205,7 @@ function importDocument(text, name) {
   if (!paragraphs.length) {
     return { notice: "The file contains no text to import.", refused: true };
   }
-  const landed = store.importStory(paragraphs);
+  const landed = store.importStory(paragraphs, title);
   const started = startExtract();
   return {
     notice: `Imported ${landed.count} message(s) → story ${landed.id}.`,

@@ -5,6 +5,33 @@ All notable changes to otaku are documented in this file. The format is based on
 [Semantic Versioning](https://semver.org/) — while pre-1.0, minor releases may include breaking
 changes.
 
+## [Unreleased]
+
+**TL;DR**
+
+- Paste a flat story into the web UI and it becomes the base of a new story, titled, its
+  memory and premise built for you.
+
+**Full version:**
+
+### Added
+
+- A paste box in the web UI's stories panel: a title and the story text. The pasted prose is
+  dismantled verbatim into messages (narration and speech share out by the same rules a .txt
+  import uses) and a new story is made from it — titled what was typed, so the browser's
+  listing finds it without waiting for a scene to name it.
+- A premise drafted for the pasted story: the same forced pass that builds its memory now also
+  asks the model for the story's system prompt from its opening text, and sets it on the
+  story, editable in the dossier as any premise is. The draft is one completion over a capped
+  reading window; if it cannot answer, the import still stands and the report says the
+  premise was not drafted.
+
+### Changed
+
+- The web UI's POST /api/stories import body now accepts an optional top-level `title` that
+  names the story an import makes; the pasted box is the first caller. (The spec and the
+  demo's fake answer carry it the same way.)
+
 ## [0.4.3] - 2026-09-08
 
 **TL;DR**

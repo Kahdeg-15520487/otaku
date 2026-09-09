@@ -37,13 +37,17 @@ class ImportedStory:
     extraction: WorkerRun | None
 
 
-def import_file(session: Session, text: str, file_name: str) -> ImportedStory:
+def import_file(
+    session: Session, text: str, file_name: str, title: str | None = None
+) -> ImportedStory:
     """Import a story from a file's TEXT and NAME: an otaku export
     document (.md, its memory applied verbatim, no model calls), a
     SillyTavern chat (.jsonl), or plain text (.txt) dismantled into
     verbatim messages. The format is detected — never declared — and the
     file's name and contents must agree; a file that matches a format
-    but fails its parser is refused, not degraded into prose.
+    but fails its parser is refused, not degraded into prose. `title`
+    overrides the name a document carries on its own, for a paste that
+    typed one (an imported flat text has no name to give).
     Content-shaped on purpose: reading a path is the frontend's, the web
     uploads. Writes a fresh story and switches the session onto it.
     Raises Refused with the exact reason (unknown format, a newer
@@ -51,6 +55,7 @@ def import_file(session: Session, text: str, file_name: str) -> ImportedStory:
     suffix = PurePath(file_name).suffix.lower()
     notices: list[str] = []
     native = False
+    draft_premise = False
     if suffix == ".md" and EXPORT_MARKER in text:
         try:
             export = imports.parse_story(text)
@@ -71,12 +76,15 @@ def import_file(session: Session, text: str, file_name: str) -> ImportedStory:
         export = parse_plaintext(text)
         if export is None:
             raise Refused("The file contains no text to import.")
+        # A pasted flat story starts with no premise; the same pass that
+        # builds its memory drafts one from the opening text.
+        draft_premise = True
     else:
         raise Refused("Cannot detect file format.")
     if not export.messages:
         raise Refused("The file contains no messages to import.")
 
-    story_id = imports.write_story(session._store, export)
+    story_id = imports.write_story(session._store, export, title=title)
     applied = f", {len(export.scenes)} scene(s) applied verbatim" if export.scenes else ""
     notices.append(f"Imported {len(export.messages)} message(s) → story {story_id}{applied}.")
     session._search_index = None
@@ -90,7 +98,7 @@ def import_file(session: Session, text: str, file_name: str) -> ImportedStory:
     run: WorkerRun | None = None
     if not native:
         try:
-            run = lore.extract(session)
+            run = lore.extract(session, draft_premise=draft_premise)
         except Refused as e:
             notices.append(str(e))
     return ImportedStory(notices=tuple(notices), extraction=run)

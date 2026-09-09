@@ -773,13 +773,13 @@ function addStory(title, system, turns) {
   return id;
 }
 
-export function importStory(paragraphs) {
+export function importStory(paragraphs, title = "") {
   const turnsIn = paragraphs.map((body, i) => ({
     id: state.nextMessage++,
     role: i % 2 ? "assistant" : "user",
     body,
   }));
-  const id = addStory("", "", []);
+  const id = addStory(title.trim() ? title.trim() : "", "", []);
   state.stories.get(id).turns = turnsIn;
   state.open = id;
   moved(id);

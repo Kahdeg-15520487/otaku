@@ -64,6 +64,10 @@ _TIMEOUT = 600.0
 # everyone present — still fits; a truncated reply fails the parse and
 # loses the whole scene's extraction.
 _MAX_TOKENS = 8_192
+# The premise draft's reading budget: enough of a pasted story to know its
+# setting and cast, far short of a full chapter — the draft is a summary
+# task, not a re-read, and a huge paste must not blow the context window.
+_PREMISE_BUDGET = 12_000
 # A background completion is idempotent and unwatched, so a transient
 # transport failure (the server dropping the stream mid-body, a lost
 # socket, a read timeout) is retried before giving up — the usual cause is
@@ -82,7 +86,11 @@ _NOT_A_NAME = frozenset({"null", "none", "narrator", "narration", "user", "assis
 @dataclass(frozen=True)
 class ExtractionSettings:
     """What one pass runs under — the templates and the gates, bundled
-    so they travel together (a Job field, an Extractor argument)."""
+    so they travel together (a Job field, an Extractor argument).
+    `premise_template` and `draft_premise` arm the premise draft: the
+    import path's ask, one completion that writes the story's system
+    prompt when the story has none (idle and manual passes never draft,
+    so an edited premise is never overwritten)."""
 
     extract_template: str
     scene_history_template: str
@@ -90,6 +98,8 @@ class ExtractionSettings:
     settle: int
     min_chars: int
     min_messages: int
+    premise_template: str = ""
+    draft_premise: bool = False
 
 
 class PassResult(enum.Enum):
@@ -112,6 +122,8 @@ class Report:
     attributed: int = 0  # messages given a speaker by the extraction
     skipped: int = 0  # malformed extraction items dropped
     last_scene_title: str = ""  # the newest closed scene's title, for the report
+    premise: bool = False  # the import's pass drafted a premise
+    premise_failed: str = ""  # why the draft did not land (else "")
 
 
 class _Cast:
@@ -216,6 +228,13 @@ class Extractor:
         if not self._store.stories.exists(self._story_id):
             return PassResult.NO_STORY, report
 
+        # The import path's ask, before the gate: draft the story's premise
+        # from its opening text when it has none. Best-effort — a failed
+        # draft must never take the import (or the rest of the pass) down
+        # with it.
+        if settings.draft_premise and not self._store.stories.get_system(self._story_id):
+            self._draft_premise(report)
+
         ids = self._store.stories.get_messages_ids(self._story_id)
         # Card rows never enter a pass: not the char gate (one import would
         # clear `min_chars` alone), not the spans, not the numbered chat —
@@ -287,6 +306,33 @@ class Extractor:
         raise last_exc
 
     # ---------- the pass internals ----------
+
+    def _draft_premise(self, report: Report) -> None:
+        """Write the story's premise from its opening text, when the
+        import asked for one. ONE completion, best-effort: a bad reply or
+        a request error must not take the import down with it — the story
+        stays playable and the report says the draft failed. The prompt is
+        capped to a reading budget, so a very long pasted story cannot
+        blow the window the premise draft is meant to keep small."""
+        chain = self._store.stories.get_messages(self._story_id)
+        story = _premise_story(chain)
+        if not story:
+            return
+        prompt = render(self._settings.premise_template, story=story)
+        try:
+            raw = self.complete(prompt, "premise")
+        except httpx.HTTPError:
+            report.premise_failed = "the request failed"
+            return
+        if self._cancel.is_set():
+            report.premise_failed = "cancelled"
+            return
+        premise = raw.strip()
+        if not premise:
+            report.premise_failed = "the reply was empty"
+            return
+        self._store.stories.set_system(self._story_id, premise)
+        report.premise = True
 
     def _close_scenes(self, tail_ids: list[int], report: Report) -> PassResult:
         """Close the tail as one scene — or several, when it has run long.
@@ -771,3 +817,23 @@ def _as_str(obj: object) -> str | None:
 
 def _as_list(obj: object) -> list[object]:
     return obj if isinstance(obj, list) else []
+
+
+def _premise_story(
+    chain: Sequence[Message], budget: int = _PREMISE_BUDGET
+) -> str:
+    """The story's opening, capped to the premise draft's reading budget:
+    whole messages up to the cap, then truncated at a line break if the
+    last one overruns. "" when there is nothing to read."""
+    parts: list[str] = []
+    used = 0
+    for message in chain:
+        if parts and used + len(message.body) > budget:
+            break
+        parts.append(message.body)
+        used += len(message.body) + 2
+    text = "\n\n".join(parts)
+    if len(text) > budget:
+        head = text[:budget]
+        text = head.rsplit("\n", 1)[0]
+    return text.strip()

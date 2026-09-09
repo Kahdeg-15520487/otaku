@@ -173,16 +173,16 @@ def parse_story(text: str) -> ExportedStory | None:
     )
 
 
-def write_story(store: Store, export: ExportedStory) -> int:
+def write_story(store: Store, export: ExportedStory, title: str | None = None) -> int:
     """Write an export into the store as a new story: the messages, and —
     when it carries scenes — the memory verbatim (cast, summaries,
     journals, histories), with no model calls. The title is applied only
-    when the export names one; an import never invents a name. Whatever
-    memory is missing, the next extraction pass builds. Returns the new
-    story id."""
+    when the export names one, or the caller hands one over — an import
+    never invents a name. Whatever memory is missing, the next
+    extraction pass builds. Returns the new story id."""
     # A document imported twice is two stories: the second takes the
     # next number, exactly as a fork does.
-    story_id = store.stories.add(export.title or None)
+    story_id = store.stories.add(title if title is not None else (export.title or None))
     if export.system:
         store.stories.set_system(story_id, export.system)
 

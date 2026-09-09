@@ -822,7 +822,9 @@ def _new_story(session: Session, ask: Ask, pending: Pending) -> Created:
         # premise written before the first message — can address this one
         # without reading `Location` back apart.
         return Created(said, _at(session), {"story": session.story_id})
-    landed = api_transfer.import_file(session, str(document["text"]), str(document["name"]))
+    landed = api_transfer.import_file(
+        session, str(document["text"]), str(document["name"]), title=ask.text("title") or None
+    )
     # Only an import that STARTED a pass takes a slot — and its own
     # story's slot, so a forced pass the page is polling on another
     # story keeps its run and its report.

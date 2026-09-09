@@ -26,6 +26,29 @@ export async function importDocument() {
   if (answer.watching) watchExtraction(answer.story);
 }
 
+export async function pasteStory() {
+  /* The paste box: a title and the flat story text. A path over HTTP
+     would name a file on the SERVER, so nothing here sends one — the
+     pasted text goes in the import's body with a `.txt` name so the
+     backend's format detection reads it as prose, and the typed title
+     names the story it makes. */
+  const dialog = $('dialog[data-dialog="paste-story"]');
+  const title = $("input", dialog);
+  const text = $("textarea", dialog);
+  const choice = await ask("paste-story", () => {
+    title.value = "";
+    text.value = "";
+  });
+  if (choice !== "import") return;
+  if (!text.value.trim()) {
+    tell("Paste a story to import.", "otk-error");
+    return;
+  }
+  const answer = await api.importStory("pasted.txt", text.value, title.value.trim());
+  await landed(answer.notice, { redraw: "always" });
+  if (answer.watching) watchExtraction(answer.story);
+}
+
 export async function importCard() {
   /* The card dialog: choose a file, read what the import WILL do, say
      who it speaks to, and only then commit. The outcomes are the

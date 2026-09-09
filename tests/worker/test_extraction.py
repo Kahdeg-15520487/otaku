@@ -11,7 +11,7 @@ one.
 import pytest
 
 from otaku.store.schema import Message
-from otaku.worker.extraction import _parse_json, numbered_chat, pack
+from otaku.worker.extraction import _parse_json, _premise_story, numbered_chat, pack
 
 
 class TestPack:
@@ -99,3 +99,28 @@ class TestParseJson:
     def test_a_broken_object_still_refuses(self) -> None:
         with pytest.raises(ValueError):
             _parse_json('{"scene": }')
+
+
+class TestPremiseStory:
+    """The premise draft's reading window: whole messages up to the
+    budget, truncated at a line break when the last one overruns, nothing
+    read when the story is empty."""
+
+    def _m(self, body: str) -> Message:
+        return Message(role="user", body=body)
+
+    def test_nothing_to_read_is_empty(self) -> None:
+        assert _premise_story([]) == ""
+
+    def test_keeps_whole_messages_under_the_budget(self) -> None:
+        got = _premise_story([self._m("One."), self._m("Two.")], budget=1000)
+        assert got == "One.\n\nTwo."
+
+    def test_stops_adding_a_message_that_would_break_the_budget(self) -> None:
+        got = _premise_story([self._m("A"), self._m("B" * 500)], budget=100)
+        assert got == "A"  # the second message would blow the budget
+
+    def test_truncates_the_last_message_at_a_line_break(self) -> None:
+        body = "first line\nsecond line that is long"
+        got = _premise_story([self._m(body)], budget=20)
+        assert got == "first line"

@@ -146,6 +146,7 @@
     <span class="otk-push"></span>
     <button type="button" class="otk-btn" data-command="/new">New story</button>
     <button type="button" class="otk-btn" data-command="/import">Import story</button>
+    <button type="button" class="otk-btn" data-paste-story>Paste story</button>
     <button type="button" class="otk-btn otk-close">Close <span class="otk-btn__key">esc</span></button>
   </header>
 
@@ -386,6 +387,22 @@
   <div class="otk-dialog__foot">
     <button type="button" class="otk-btn" data-choice="cancel">Cancel</button>
     <button type="button" class="otk-btn otk-btn--primary" data-choice="start">Start</button>
+  </div>
+</dialog>
+
+<dialog class="otk-dialog otk-dialog--paste" data-dialog="paste-story" aria-labelledby="otk-paste-title">
+  <span class="otk-eyebrow" data-title id="otk-paste-title">Paste a story</span>
+  <div class="otk-dialog__field">
+    <label class="otk-label" for="otk-paste-name">title</label>
+    <input class="otk-field" id="otk-paste-name" type="text" placeholder="optional">
+  </div>
+  <div class="otk-dialog__field">
+    <label class="otk-label" for="otk-paste-text">story</label>
+    <textarea class="otk-field otk-field--tall" id="otk-paste-text" rows="10" placeholder="Paste a flat story here — it becomes the base of a new story."></textarea>
+  </div>
+  <div class="otk-dialog__foot">
+    <button type="button" class="otk-btn" data-choice="cancel">Cancel</button>
+    <button type="button" class="otk-btn otk-btn--primary" data-choice="import">Import</button>
   </div>
 </dialog>
 

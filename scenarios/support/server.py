@@ -25,6 +25,7 @@ from typing import Any
 CHAT_REPLY = "The light went out, and something stirred in the dark."
 STORY_SO_FAR = "The guest reached the gate and met the Keeper."
 CHARACTER_HISTORY = "The Keeper remembers the guest."
+PREMISE = "You are the narrator of a quiet mystery in a chapel by the marsh."
 EXTRACTION = {
     "scene": {"title": "The Meeting", "summary": "A guest came in and met the Keeper."},
     "speakers": [],
@@ -275,6 +276,8 @@ def default_script(body: dict[str, Any]) -> str:
         return STORY_SO_FAR
     if prompt.startswith("Write ") and "'s history" in prompt:
         return CHARACTER_HISTORY
+    if prompt.startswith("((OOC: Draft the system prompt"):
+        return PREMISE
     return CHAT_REPLY
 
 

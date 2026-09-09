@@ -404,6 +404,7 @@ _PAGE = {
         "shell",
         "table",
         "transcript",
+        "transfer",
         "watch",
     },
 }

@@ -442,6 +442,24 @@ class TestTheFlows:
             "Nobody holds it.",
         ]
 
+    def test_an_import_can_name_the_story_it_makes(self, page: Page) -> None:
+        # A paste types a title; a flat text has no name of its own, so
+        # the body's `title` is what the made story carries (the `name`
+        # stays the format-detection half, and is not the story's name).
+        landed = page.post(
+            "/api/stories",
+            {
+                "title": "The Crossing",
+                "import": {
+                    "text": "The boat casts off.",
+                    "name": "pasted.txt",
+                },
+            },
+        )
+        story = page.get("/api/session")["story_id"]
+        assert page.store.stories.get(story).title == "The Crossing"
+        assert landed["watching"] is True
+
 
 def _polled(page: Page, timeout: float = 30.0) -> str:
     """The report as the page's own poll would read it — None until the

@@ -132,6 +132,23 @@ Rules:
 {entries}
 """
 
+# The premise a pasted story starts with: the player dropped a flat story
+# in as the opening, and this turns it into the narrator's standing
+# instructions — the setting and tone, who the player plays, and that the
+# narrator never speaks, acts, or decides for them. `{story}` is the pasted
+# text, capped to a reading budget before it reaches the model.
+PREMISE_DEFAULT = """\
+((OOC: Draft the system prompt (the premise) for a new roleplay story. The
+story below is the opening the player pasted in; write the system prompt
+that tells the narrator how to continue it — the setting, the tone, the
+point of view, who the player plays, and a rule that the narrator never
+speaks, acts, or decides for the player. Write it as a short paragraph of
+direct instructions to the narrator, in the same language as the story.
+Output the instructions only.))
+
+{story}
+"""
+
 _DEFAULTS = {
     "me_framing": "((OOC: The user writes as {name}.))\n{body}",
     "you_framing": (
@@ -160,6 +177,7 @@ _DEFAULTS = {
     "extract_prompt": EXTRACT_DEFAULT,
     "scene_history_prompt": SCENE_HISTORY_DEFAULT,
     "journal_history_prompt": JOURNAL_HISTORY_DEFAULT,
+    "premise_prompt": PREMISE_DEFAULT,
     "recap_header": "[The story so far — the scenes between these moments:]",
 }
 
@@ -181,6 +199,7 @@ _REQUIRED = {
     "extract_prompt": ("cast", "journals", "chunk"),
     "scene_history_prompt": ("summaries",),
     "journal_history_prompt": ("name", "entries"),
+    "premise_prompt": ("story",),
 }
 
 _HEADER = [
@@ -201,6 +220,7 @@ class Prompts:
     extract_prompt: str = _DEFAULTS["extract_prompt"]
     scene_history_prompt: str = _DEFAULTS["scene_history_prompt"]
     journal_history_prompt: str = _DEFAULTS["journal_history_prompt"]
+    premise_prompt: str = _DEFAULTS["premise_prompt"]
     recap_header: str = _DEFAULTS["recap_header"]
 
 

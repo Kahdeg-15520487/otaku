@@ -261,6 +261,15 @@ class TestPlaintext:
         ids = app.store.stories.get_messages_ids(app.session.story_id)
         assert app.store.scenes.get_current(app.session.story_id, ids) != []
 
+    def test_a_pasted_flat_story_drafts_a_premise(self, app: App, tmp_path: Path) -> None:
+        # The same forced pass that builds the memory drafts the story's
+        # premise from its opening text — one completion, landed on the
+        # story's system prompt, ready to edit in /lore.
+        path = tmp_path / "chapel.txt"
+        path.write_text(PROSE)
+        app.play(f"/import {path}")
+        assert app.store.stories.get_system(app.session.story_id) == scripted.PREMISE
+
 
 class TestExport:
     def test_export_writes_the_document_the_import_reads_back(

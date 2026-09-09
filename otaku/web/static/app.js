@@ -21,6 +21,7 @@ import { focusComposer, primeHistory, wire as wireComposer } from "./js/composer
 import { $, $$, watchTextareas } from "./js/dom.js";
 import { disconnected, showFacts, watchServer, wireTheme } from "./js/shell.js";
 import { load as loadTable } from "./js/table.js";
+import { pasteStory } from "./js/transfer.js";
 import { showTurns } from "./js/transcript.js";
 import { watchForChanges } from "./js/watch.js";
 
@@ -81,6 +82,12 @@ function start() {
     // The contents row that is not a command: the open story's messages.
     if (event.target.closest("button[data-goto]")) {
       openMessages();
+      foldRail();
+      return;
+    }
+    // The paste box is not a command either — a button calls an endpoint.
+    if (event.target.closest("button[data-paste-story]")) {
+      pasteStory();
       foldRail();
       return;
     }

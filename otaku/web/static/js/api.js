@@ -96,7 +96,8 @@ export const recordHistory = (line) => post("/api/history", { line });
 export const stories = (q = "") => get(`/api/stories${query({ q })}`).then((it) => it.stories);
 export const story = (id) => get(`/api/stories/${id}`);
 export const newStory = (title = "") => post("/api/stories", { title });
-export const importStory = (name, text) => post("/api/stories", { import: { name, text } });
+export const importStory = (name, text, title = "") =>
+  post("/api/stories", { title, import: { name, text } });
 export const deleteStory = (id) => remove(`/api/stories/${id}`);
 export const setTitle = (id, title) => put(`/api/stories/${id}/title`, { title });
 /** Fork a story: from `message` on, or from its head when none is

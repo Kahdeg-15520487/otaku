@@ -35,11 +35,13 @@ FieldKind = Literal[
 ]
 
 
-def build_job(session: Session, *, force: bool = False) -> Job:
+def build_job(session: Session, *, force: bool = False, draft_premise: bool = False) -> Job:
     """The worker job for the session as it stands: the story, the model,
     the extraction settings, and the snapshot the warm-up rebuilds the
     next request from. The one composer, so play's idle arming and the
-    forced close can never disagree on the snapshot."""
+    forced close can never disagree on the snapshot. `draft_premise` arms
+    the premise draft for the one pass that should make one — the import
+    of a pasted story."""
     story_id = session.story_id
     assert story_id is not None  # callers gate on a recorded story
     config, prompts = session._config, session._prompts
@@ -54,6 +56,8 @@ def build_job(session: Session, *, force: bool = False) -> Job:
             extract_template=prompts.extract_prompt,
             scene_history_template=prompts.scene_history_prompt,
             journal_history_template=prompts.journal_history_prompt,
+            premise_template=prompts.premise_prompt,
+            draft_premise=draft_premise,
             settle=config.settle_messages,
             min_chars=config.scene_min_chars,
             min_messages=config.scene_min_messages,
@@ -123,17 +127,22 @@ class WorkerRun:
         self._done.set()
 
 
-def extract(session: Session) -> WorkerRun:
+def extract(session: Session, *, draft_premise: bool = False) -> WorkerRun:
     """Run the extraction right now, through the worker (one path into a
     pass, so a forced close can never race an automatic one): gate and
     settle margin dropped, closing right up to the last message. Raises
-    Refused without a story or a model."""
+    Refused without a story or a model. `draft_premise` also asks the
+    same pass to draft the story's premise from its opening text (the
+    pasted-story import)."""
     if session.story_id is None:
         raise Refused(NO_STORY_HINT)
     if session._client() is None:
         raise Refused(NO_MODEL_HINT)
     run = WorkerRun(session)
-    session._worker.schedule(replace(build_job(session, force=True), on_done=run._finish), now=True)
+    session._worker.schedule(
+        replace(build_job(session, force=True, draft_premise=draft_premise), on_done=run._finish),
+        now=True,
+    )
     return run
 
 
@@ -482,7 +491,15 @@ def _pass_report(result: PassResult, report: Report, *, held: str) -> str:
     rolled = f", {report.histories} history rollup(s)" if report.histories else ""
     refreshed = "; story-so-far refreshed" if report.scene_histories else ""
     journals = f"{report.journals} journal(s) written{rolled}{refreshed}."
+    premise = ""
+    if report.premise:
+        premise = "Premise drafted. "
+    elif report.premise_failed:
+        premise = (
+            f"The premise could not be drafted ({report.premise_failed}) — the story is "
+            "playable; write one with /system. "
+        )
     if report.scenes > 1:
-        return f"{report.scenes} scenes closed: {journals}"
+        return f"{premise}{report.scenes} scenes closed: {journals}"
     title = f" '{report.last_scene_title}'" if report.last_scene_title else ""
-    return f"Scene{title} closed: {journals}"
+    return f"{premise}Scene{title} closed: {journals}"

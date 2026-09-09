@@ -387,6 +387,7 @@ textarea.otk-editable { margin: 0; padding: 0; border: 0; }
   border-radius: var(--otk-radius); padding: var(--otk-field-pad);
 }
 .otk-field--mono { font-family: var(--otk-font-mono); font-size: var(--otk-size-mono); }
+.otk-field--tall { min-height: 220px; resize: vertical; font-family: var(--otk-font-prose); line-height: 1.45; }
 .otk-field:focus-within, .otk-field:focus,
 .otk-filter:focus-within, .otk-filter:focus { border-color: var(--otk-accent); outline: none; }
 

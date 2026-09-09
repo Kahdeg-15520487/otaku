@@ -407,7 +407,7 @@ paths:
             schema:
               type: object
               properties:
-                title: { type: string, description: "Optional; the listing names an untitled story from its first scene." }
+                title: { type: string, description: "Optional; names the story made (an empty story, or the story an import creates — an uploaded flat text has no name of its own)." }
                 import:
                   type: object
                   required: [name, text]
